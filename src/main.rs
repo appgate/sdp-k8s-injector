@@ -1,11 +1,57 @@
-use actix_web::{post, App, HttpResponse, HttpServer, Responder};
-use serde_json::{Value, Map, json};
-use serde_json::map::Entry::Occupied;
-use k8s_openapi::api::core::v1::{Container, EnvVar, EnvVarSource, Pod, PodSpec, Volume};
-use std::path::{Path, PathBuf};
+use actix_web::{post, App, HttpResponse, HttpServer, Responder, HttpRequest};
+use k8s_openapi::api::core::v1::{Container, Pod, Volume};
+use std::path::PathBuf;
 use std::fs::File;
 use std::io::BufReader;
 use std::error::Error;
+use std::collections::BTreeMap;
+
+const APPGATE_TAG_KEY: &str = "appgate-inject";
+const APPGATE_TAG_VALUE: &str = "true";
+const APPGATE_SIDECAR_NAMES: [&str;2] = ["appgate-service","appgate-driver"];
+
+pub trait AppgatePod {
+    fn has_appgate_label(&self) -> bool {
+        if let Some(labels) = self.labels() {
+            labels.get(APPGATE_TAG_KEY)
+                .map(|v| v == APPGATE_TAG_VALUE)
+                .unwrap_or(false)
+        } else { false }
+    }
+
+
+    fn has_sidecars(&self) -> bool {
+        if let Some(containers) = self.containers() {
+            containers.iter()
+                .filter(|&c| APPGATE_SIDECAR_NAMES.contains(&&c.name[..]))
+                .collect::<Vec<&Container>>().len() != 0
+        } else { false }
+    }
+
+    fn needs_sidecar(&self) -> bool {
+        self.has_appgate_label() && !self.has_sidecars()
+    }
+
+    fn containers(&self) -> Option<&Vec<Container>>;
+
+    fn labels(&self) -> Option<&BTreeMap<String, String>>;
+
+    fn inject_sidecars(&mut self, _esidecars: &Vec<Container>) -> () {
+        if let Some(_containers) = self.containers() {
+            ()
+        }
+    }
+}
+
+impl AppgatePod for Pod {
+    fn containers(&self) -> Option<&Vec<Container>> {
+        self.spec.as_ref().map(|s| &s.containers)
+    }
+
+    fn labels(&self) -> Option<&BTreeMap<String, String>> {
+        self.metadata.labels.as_ref()
+    }
+}
 
 fn load_sidecar_containers() -> Result<Vec<Container>, Box<dyn Error>> {
     let cwd = std::env::current_dir()?;
@@ -15,122 +61,18 @@ fn load_sidecar_containers() -> Result<Vec<Container>, Box<dyn Error>> {
     Ok(containers)
 }
 
-fn get_or_set_entry<'a>(obj: &'a mut Value, keys: &[&str], value: Option<Value>) -> Result<&'a Value, String> {
-    if keys.len() == 0 {
-        if let Some(v) = value {
-            *obj = v;
-        }
-        return Ok(obj);
+fn pod_inject_sidecar(pod: &mut dyn AppgatePod, sidecars: &Vec<Container>) -> Result<(), String> {
+    if pod.needs_sidecar() {
+        pod.inject_sidecars(&sidecars);
     }
-    let key = &keys[0];
-    match obj {
-        Value::Object(m) => {
-            match m.entry(*key) {
-                Occupied(v) => {
-                    get_or_set_entry(v.into_mut(), &keys[1..], value)
-                }
-                _ => Result::Err(String::from("Key not found"))
-            }
-        }
-        _ => Result::Err(String::from(format!("Error {}", key)))
-    }
+    Ok(())
 }
 
-fn get_entry<'a>(obj: &'a Value, keys: &[&str]) -> Result<&'a Value, String> {
-    if keys.len() == 0 {
-        return Ok(obj);
-    }
-    let key = &keys[0];
-    match obj {
-        Value::Object(m) => {
-            match m.get(*key) {
-                Some(v) => {
-                    get_entry(v, &keys[1..])
-                }
-                _ => Result::Err(String::from("Key not found"))
-            }
-        }
-        _ => Result::Err(String::from(format!("Error {}", key)))
-    }
+fn inject_sidecar<'a>(req_body: &str, pod: &'a mut Pod) -> Result<&'a mut Pod, String> {
+    *pod = serde_json::from_str(&req_body).map_err(|e| e.to_string())?;
+    Ok(pod)
 }
 
-fn set_entry<'a>(obj: &'a mut Value, keys: &[&str], value: Option<Value>) -> Result<&'a Value, String> {
-    get_or_set_entry(obj, keys, value)
-}
-
-fn has_tag_bool(tags: &Map<String, Value>, tag: &str) -> bool {
-    tags.get(tag).and_then(|v| v.as_bool()).unwrap_or(false)
-}
-
-fn pod_containers(value: &Value) -> Option<&Vec<Value>> {
-    get_entry(value, &["spec", "containers"])
-        .ok()
-        .and_then(|v| v.as_array())
-}
-
-fn pod_labels(value: &Value) -> Option<&Map<String, Value>> {
-    get_entry(value, &["metadata", "labels"])
-        .ok()
-        .and_then(|v| v.as_object())
-}
-
-fn container_is_appgate(container: &Value) -> bool {
-    get_entry(container, &["name"]).ok()
-        .and_then(|v| v.as_str())
-        .map(|n| n == "appgate-service" || n == "appgate-driver")
-        .unwrap_or(false)
-}
-
-fn containers_already_injected(containers: &Vec<Value>) -> bool {
-    let mut cnt = 0;
-    for c in containers {
-        if container_is_appgate(c) {
-            cnt += 1;
-        }
-    }
-    cnt == 2
-}
-
-fn container_appgate_service() -> Value {
-    json!({
-        "name": "appgate-service"
-    })
-}
-
-fn container_appgate_driver() -> Value {
-    json!({
-        "name": "appgate-driver"
-    })
-}
-
-fn pod_needs_injection(pod: &Value) -> bool {
-    let b1 = pod_labels(pod).map_or(false, |ts|
-        has_tag_bool(ts, "appgate-inject"));
-    let b2 = pod_containers(pod).map_or(false,
-                                        |x| containers_already_injected(x));
-    b1 && !b2
-}
-
-
-fn pod_inject_sidecar(pod: &mut Value) -> Result<(), String> {
-    if pod_needs_injection(pod) {
-        if let Some(vs) = pod_containers(pod) {
-            let mut xs = vs.clone();
-            xs.insert(0, container_appgate_service());
-            xs.insert(0, container_appgate_driver());
-            set_entry(pod, &["spec", "containers"], Some(Value::Array(xs)))?;
-            Ok(())
-        } else {
-            Err(String::from("Containers not found in spec"))
-        }
-    } else {
-        Ok(())
-    }
-}
-
-fn inject_sidecar(req_body: &str, pod: &mut Value) -> Result<(), String> {
-    *pod = serde_json::from_str(req_body).map_err(|e| e.to_string())?;
-    pod_inject_sidecar(pod)
 #[derive(Debug, Clone, Default)]
 struct AppgatedContext {
     sidecars: Box<Vec<Container>>,
@@ -147,14 +89,15 @@ impl AppgatedContext {
         }
     }
 }
+
 #[post("/mutate")]
-async fn mutate(req_body: String) -> impl Responder {
-    let mut pod = Value::Null;
-    inject_sidecar(&req_body, &mut pod)
-        .map_or_else(|error| HttpResponse::BadRequest().body(error),
-                     |_| HttpResponse::Ok().body(pod))
+async fn mutate(request: HttpRequest) -> impl Responder {
+    let _ctx = request.app_data::<AppgatedContext>();
+    let _pod: Pod = Default::default();
+    HttpResponse::Ok()
 }
 
+/*
 #[cfg(test)]
 mod tests {
     use crate::{pod_needs_injection, pod_inject_sidecar, pod_containers, container_is_appgate,
@@ -318,12 +261,13 @@ mod tests {
         }
     }
 }
+*/
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     // Get the sidecar containers definition
     // this is used to inject later the sidecars
-    let mut appgated_context  = AppgatedContext::new();
+    let appgated_context  = AppgatedContext::new();
     HttpServer::new(move || {
         App::new()
             .app_data(appgated_context.clone())
