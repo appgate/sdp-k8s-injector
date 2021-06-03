@@ -1,7 +1,19 @@
 use actix_web::{post, App, HttpResponse, HttpServer, Responder};
 use serde_json::{Value, Map, json};
 use serde_json::map::Entry::Occupied;
+use k8s_openapi::api::core::v1::{Container, EnvVar, EnvVarSource, Pod, PodSpec, Volume};
+use std::path::{Path, PathBuf};
+use std::fs::File;
+use std::io::BufReader;
+use std::error::Error;
 
+fn load_sidecar_containers() -> Result<Vec<Container>, Box<dyn Error>> {
+    let cwd = std::env::current_dir()?;
+    let file = File::open(cwd.join(PathBuf::from("sidecars.json").as_path()))?;
+    let reader = BufReader::new(file);
+    let containers = serde_json::from_reader(reader)?;
+    Ok(containers)
+}
 
 fn get_or_set_entry<'a>(obj: &'a mut Value, keys: &[&str], value: Option<Value>) -> Result<&'a Value, String> {
     if keys.len() == 0 {
@@ -119,8 +131,22 @@ fn pod_inject_sidecar(pod: &mut Value) -> Result<(), String> {
 fn inject_sidecar(req_body: &str, pod: &mut Value) -> Result<(), String> {
     *pod = serde_json::from_str(req_body).map_err(|e| e.to_string())?;
     pod_inject_sidecar(pod)
+#[derive(Debug, Clone, Default)]
+struct AppgatedContext {
+    sidecars: Box<Vec<Container>>,
+    volumes: Box<Vec<Volume>>,
 }
 
+impl AppgatedContext {
+    fn new() -> Self {
+        let cs = load_sidecar_containers().expect("Unable to load sidecar containers");
+        let vs = vec![];
+        AppgatedContext {
+            sidecars: Box::new(cs),
+            volumes: Box::new(vs),
+        }
+    }
+}
 #[post("/mutate")]
 async fn mutate(req_body: String) -> impl Responder {
     let mut pod = Value::Null;
@@ -295,7 +321,14 @@ mod tests {
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
-    HttpServer::new(|| App::new().service(mutate))
+    // Get the sidecar containers definition
+    // this is used to inject later the sidecars
+    let mut appgated_context  = AppgatedContext::new();
+    HttpServer::new(move || {
+        App::new()
+            .app_data(appgated_context.clone())
+            .service(mutate)
+    })
         .bind("127.0.0.1:8080")?
         .run()
         .await
