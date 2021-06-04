@@ -8,7 +8,7 @@ use std::collections::BTreeMap;
 
 const APPGATE_TAG_KEY: &str = "appgate-inject";
 const APPGATE_TAG_VALUE: &str = "true";
-const APPGATE_SIDECAR_NAMES: [&str;2] = ["appgate-service","appgate-driver"];
+const APPGATE_SIDECAR_NAMES: [&str; 2] = ["appgate-service", "appgate-driver"];
 
 pub trait AppgatePod {
     fn has_appgate_label(&self) -> bool {
@@ -19,13 +19,20 @@ pub trait AppgatePod {
         } else { false }
     }
 
-
-    fn has_sidecars(&self) -> bool {
-        if let Some(containers) = self.containers() {
-            containers.iter()
+    fn sidecars(&self) -> Option<Vec<&Container>> {
+        self.containers().map(|cs|
+            cs.iter()
                 .filter(|&c| APPGATE_SIDECAR_NAMES.contains(&&c.name[..]))
-                .collect::<Vec<&Container>>().len() != 0
-        } else { false }
+                .collect())
+    }
+
+    fn sidecar_names(&self) -> Option<Vec<String>> {
+        self.sidecars().map(|xs|
+            xs.iter().map(|&x| x.name.clone()).collect())
+    }
+
+    fn has_any_sidecars(&self) -> bool {
+        self.sidecars().map(|xs| xs.len() != 0).unwrap_or(false)
     }
 
     fn has_containers(&self) -> bool {
@@ -33,7 +40,7 @@ pub trait AppgatePod {
     }
 
     fn needs_sidecar(&self) -> bool {
-        self.has_appgate_label() && self.has_containers() && !self.has_sidecars()
+        self.has_appgate_label() && self.has_containers() && !self.has_any_sidecars()
     }
 
     fn containers(&self) -> Option<&Vec<Container>>;
@@ -121,8 +128,8 @@ mod tests {
         c
     }
 
-    fn run_test(pod: &mut Pod, test: &TestInject,
-                predicate: fn(&mut Pod, &TestInject) -> (bool, String)) -> (bool, String) {
+    fn run_test<F>(pod: &mut Pod, test: &TestInject, predicate: &mut F) -> (bool, String)
+    where F: FnMut(&mut Pod, &TestInject) -> (bool, String) {
         pod.metadata.labels = test.labels.as_ref()
             .map(|xs| create_labels(&xs[..]));
         let test_cs: Vec<Container> = test.containers.iter()
@@ -131,20 +138,20 @@ mod tests {
             spec.containers = test_cs;
         }
         predicate(pod, test)
-        //test.result == pod.needs_sidecar()
     }
 
-    fn assert_tests(pod: &mut Pod, tests: &[TestInject],
-                    predicate: fn(&mut Pod, &TestInject) -> (bool, String)) {
+    fn assert_tests<F>(pod: &mut Pod, tests: &[TestInject], predicate: &mut F) -> () where
+        F: FnMut(&mut Pod, &TestInject) -> (bool, String)
+    {
         let mut test_errors: Vec<(&TestInject, String)> = Vec::new();
         let ok = tests.iter().fold(true, |total, t| {
             let (result, description) = run_test(pod, t, predicate);
-            if ! result {
+            if !result {
                 test_errors.push((t, description));
             }
             total && result
         });
-        if ! ok {
+        if !ok {
             let errors: Vec<String> = test_errors.iter().map(|x|
                 format!("Test {} for {:?} failed, expecting {} but got {}",
                         x.1, x.0, x.0.result, !x.0.result).to_string()
@@ -227,41 +234,32 @@ mod tests {
         let mut pod: Pod = Default::default();
         pod.spec = Some(Default::default());
 
-        fn test_injection_simple(pod: &mut Pod, test: &TestInject) -> (bool, String) {
+        let mut predicate = |pod: &mut Pod, test: &TestInject| -> (bool, String) {
             (test.result == pod.needs_sidecar(), "Injection Simple Test".to_string())
-        }
+        };
 
-        assert_tests(&mut pod, &tests(), test_injection_simple)
+        assert_tests(&mut pod, &tests(), &mut predicate)
     }
 
-/*
     #[test]
     fn test_pod_inject_sidecar() {
-        let mut pod = json!({
-            "metadata": {
-                "labels": {
-                    "appgate-inject": true
-                }
-            },
-            "spec": {
-                "containers": [{
-                    "name": "my-app"
-                }]
+        let mut pod: Pod = Default::default();
+        pod.spec = Some(Default::default());
+
+        let expected_sidecars = Some(vec!["appgate-service".to_string(),
+                                        "appgate-driver".to_string()]);
+
+        let mut predicate = |pod: &mut Pod, test: &TestInject| -> (bool, String) {
+            let mut r = test.result == pod.needs_sidecar();
+            if r && test.result {
+                pod.inject_sidecars(&vec![]);
+                r = r && (pod.sidecar_names() == expected_sidecars);
             }
-        });
-        assert_eq!(true, pod_inject_sidecar(&mut pod).is_ok());
-        let cs = pod_containers(&pod);
-        assert_eq!(true, cs.is_some());
-        if let Some(containers) = pod_containers(&pod) {
-            let cs: Vec<&str> = containers.iter()
-                .filter(|&c| container_is_appgate(c))
-                .map(|c| get_entry(c, &["name"]).ok()
-                    .and_then(|n| n.as_str()).unwrap()).collect();
-            assert_eq!(["appgate-driver", "appgate-service"], *cs);
-        } else {
-            panic!("Error");
-        }
-    }*/
+            (r, "Injection Containers Test".to_string())
+        };
+
+        assert_tests(&mut pod, &tests(), &mut predicate)
+    }
 }
 
 
@@ -269,7 +267,7 @@ mod tests {
 async fn main() -> std::io::Result<()> {
     // Get the sidecar containers definition
     // this is used to inject later the sidecars
-    let appgated_context  = AppgatedContext::new();
+    let appgated_context = AppgatedContext::new();
     HttpServer::new(move || {
         App::new()
             .app_data(appgated_context.clone())
