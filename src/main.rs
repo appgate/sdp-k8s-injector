@@ -28,15 +28,19 @@ pub trait AppgatePod {
         } else { false }
     }
 
+    fn has_containers(&self) -> bool {
+        self.containers().unwrap_or(&vec![]).len() > 0
+    }
+
     fn needs_sidecar(&self) -> bool {
-        self.has_appgate_label() && !self.has_sidecars()
+        self.has_appgate_label() && self.has_containers() && !self.has_sidecars()
     }
 
     fn containers(&self) -> Option<&Vec<Container>>;
 
     fn labels(&self) -> Option<&BTreeMap<String, String>>;
 
-    fn inject_sidecars(&mut self, _esidecars: &Vec<Container>) -> () {
+    fn inject_sidecars(&mut self, _sidecars: &Vec<Container>) -> () {
         if let Some(_containers) = self.containers() {
             ()
         }
@@ -97,142 +101,125 @@ async fn mutate(request: HttpRequest) -> impl Responder {
     HttpResponse::Ok()
 }
 
-/*
 #[cfg(test)]
 mod tests {
-    use crate::{pod_needs_injection, pod_inject_sidecar, pod_containers, container_is_appgate,
-                get_entry};
-    use serde_json::json;
+    use k8s_openapi::api::core::v1::{Pod, Container};
+    use std::collections::BTreeMap;
+    use crate::{AppgatePod, APPGATE_SIDECAR_NAMES};
+
+    fn create_labels(labels: &[(&str, &str)]) -> BTreeMap<String, String> {
+        let mut bm = BTreeMap::new();
+        for (k, v) in labels {
+            bm.insert(k.to_string(), v.to_string());
+        }
+        bm
+    }
+
+    fn create_container(name: &str) -> Container {
+        let mut c: Container = Default::default();
+        c.name = name.to_string();
+        c
+    }
 
     #[test]
     fn needs_injection_simple() {
-        let mut json: serde_json::Value = json!({
-            "metadata": {
-                "labels": {
-                    "appgate-inject": true
-                }
-            }
-        });
-        assert_eq!(true, pod_needs_injection(&mut json));
+        let mut pod: Pod = Default::default();
+        pod.spec = Some(Default::default());
 
-        let mut json = json!({
-            "metadata": {
-                "labels": {
-                    "appgate-inject": "some-value"
-                }
-            }
-        });
-        assert_eq!(false, pod_needs_injection(&mut json));
+        #[derive(Debug)]
+        struct TestInject<'a> {
+            labels: Option<Vec<(&'a str, &'a str)>>,
+            containers: Vec<&'a str>,
+            result: bool,
+        }
 
-        let mut json = json!({
-            "metadata": {
-                "labels": {
-                    "appgate-inject": false
-                }
+        fn run_test(pod: &mut Pod, test: &TestInject) -> bool {
+            pod.metadata.labels = test.labels.as_ref()
+                .map(|xs| create_labels(&xs[..]));
+            let test_cs: Vec<Container> = test.containers.iter()
+                .map(|&x| create_container(x)).collect();
+            if let Some(spec) = pod.spec.as_mut() {
+                spec.containers = test_cs;
             }
-        });
-        assert_eq!(false, pod_needs_injection(&mut json));
+            test.result == pod.needs_sidecar()
+        }
 
-        let mut json = json!({
-            "metadata": {
-                "labels": {
-                }
+        let tests = vec![
+            TestInject {
+                labels: Some(vec![("appgate-inject", "false")]),
+                containers: vec![],
+                result: false,
+            },
+            TestInject {
+                labels: Some(vec![]),
+                containers: vec![],
+                result: false,
+            },
+            TestInject {
+                labels: None,
+                containers: vec![],
+                result: false,
+            },
+            TestInject {
+                labels: Some(vec![("appgate-inject", "true")]),
+                containers: vec![],
+                result: false,
+            },
+            TestInject {
+                labels: Some(vec![("appgate-inject", "true")]),
+                containers: vec![],
+                result: false,
+            },
+            TestInject {
+                labels: Some(vec![("appgate-inject", "true")]),
+                containers: vec!["some-random-service"],
+                result: true,
+            },
+            TestInject {
+                labels: Some(vec![("appgate-inject", "true")]),
+                containers: vec!["some-random-service-1", "some-random-service-2"],
+                result: true,
+            },
+            TestInject {
+                labels: Some(vec![("appgate-inject", "false")]),
+                containers: vec!["some-random-service-1", "some-random-service-2"],
+                result: false,
+            },
+            TestInject {
+                labels: Some(vec![("appgate-inject", "true")]),
+                containers: vec![APPGATE_SIDECAR_NAMES[0], APPGATE_SIDECAR_NAMES[1],
+                                 "some-random-service"],
+                result: false,
+            },
+            TestInject {
+                labels: Some(vec![("appgate-inject", "true")]),
+                containers: vec![APPGATE_SIDECAR_NAMES[1], "some-random-service"],
+                result: false,
+            },
+            TestInject {
+                labels: Some(vec![("appgate-inject", "true")]),
+                containers: vec![APPGATE_SIDECAR_NAMES[0], "some-random-service"],
+                result: false,
             }
-        });
-        assert_eq!(false, pod_needs_injection(&mut json));
+        ];
 
-        let mut json = json!({});
-        assert_eq!(false, pod_needs_injection(&mut json))
+        let mut test_errors: Vec<&TestInject> = Vec::new();
+        let ok = tests.iter().fold(true, |total, t| {
+            let r = run_test(&mut pod, t);
+            if ! r {
+                test_errors.push(t);
+            }
+            total && r
+        });
+        if ! ok {
+            let errors: Vec<String> = test_errors.iter().map(|&x|
+                format!("{:?} expecting {} but got {}", x, x.result, !x.result).to_string()
+            ).collect();
+            panic!("Inject test failed: {}", errors.join("\n"));
+        }
+        assert_eq!(true, true);
     }
-
-    #[test]
-    fn needs_injection_complex() {
-        let mut json = json!({
-            "metadata": {
-                "labels": {
-                    "appgate-inject": true
-                }
-            },
-            "spec": {
-                "containers": []
-            }
-        });
-        assert_eq!(true, pod_needs_injection(&mut json));
-
-        let mut json = json!({
-            "metadata": {
-                "labels": {
-                    "appgate-inject": false
-                }
-            },
-            "spec": {
-                "containers": [{
-                    "name": "appgate-service"
-                }]
-            }
-        });
-        assert_eq!(false, pod_needs_injection(&mut json));
-
-        let mut json = json!({
-            "metadata": {
-                "labels": {
-                    "appgate-inject": false
-                }
-            },
-            "spec": {
-                "containers": [{
-                    "name": "appgate-driver"
-                }]
-            }
-        });
-        assert_eq!(false, pod_needs_injection(&mut json));
-
-        let mut json = json!({
-            "metadata": {
-                "labels": {
-                    "appgate-inject": false
-                }
-            },
-            "spec": {
-                "containers": [{
-                    "name": "appgate-driver"
-                }, {
-                    "name": "appgate-service"
-                }
-                ]
-            }
-        });
-        assert_eq!(false, pod_needs_injection(&mut json));
-
-        let mut json = json!({
-            "metadata": {
-                "labels": {
-                    "appgate-inject": true
-                }
-            },
-            "spec": {
-                "containers": [{
-                    "name": "my-app"
-                }]
-            }
-        });
-        assert_eq!(true, pod_needs_injection(&mut json));
-
-        let mut json = json!({
-            "metadata": {
-                "labels": {
-                    "appgate-inject": false
-                }
-            },
-            "spec": {
-                "containers": [{
-                    "name": "my-app"
-                }]
-            }
-        });
-        assert_eq!(false, pod_needs_injection(&mut json));
-    }
-
+/*
     #[test]
     fn test_pod_inject_sidecar() {
         let mut pod = json!({
@@ -259,9 +246,9 @@ mod tests {
         } else {
             panic!("Error");
         }
-    }
+    }*/
 }
-*/
+
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
