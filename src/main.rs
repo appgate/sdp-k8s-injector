@@ -1,4 +1,4 @@
-use actix_web::{post, App, HttpResponse, HttpServer, Responder, HttpRequest};
+use actix_web::{post, App, HttpResponse, HttpServer, HttpRequest};
 use k8s_openapi::api::core::v1::{Container, Pod, Volume};
 use std::path::PathBuf;
 use std::fs::File;
@@ -49,7 +49,7 @@ pub trait AppgatePod {
 
     fn labels(&self) -> Option<&BTreeMap<String, String>>;
 
-    fn inject_sidecars(&mut self, sidecars: &Vec<Container>) -> () {
+    fn inject_sidecars(&mut self, sidecars: &Vec<Container>) {
         if let Some(containers) = self.mut_containers() {
             containers.extend_from_slice(sidecars)
         }
@@ -70,26 +70,6 @@ impl AppgatePod for Pod {
     }
 }
 
-fn load_sidecar_containers() -> Result<Vec<Container>, Box<dyn Error>> {
-    let cwd = std::env::current_dir()?;
-    let file = File::open(cwd.join(PathBuf::from("sidecars.json").as_path()))?;
-    let reader = BufReader::new(file);
-    let containers = serde_json::from_reader(reader)?;
-    Ok(containers)
-}
-
-fn pod_inject_sidecar(pod: &mut dyn AppgatePod, sidecars: &Vec<Container>) -> Result<(), String> {
-    if pod.needs_sidecar() {
-        pod.inject_sidecars(&sidecars);
-    }
-    Ok(())
-}
-
-fn inject_sidecar<'a>(req_body: &str, pod: &'a mut Pod) -> Result<&'a mut Pod, String> {
-    *pod = serde_json::from_str(&req_body).map_err(|e| e.to_string())?;
-    Ok(pod)
-}
-
 #[derive(Debug, Clone, Default)]
 struct AppgatedContext {
     sidecars: Box<Vec<Container>>,
@@ -107,11 +87,32 @@ impl AppgatedContext {
     }
 }
 
+fn error_to_bad_request(e: serde_json::Error) -> HttpResponse {
+    HttpResponse::BadRequest().body(e.to_string())
+}
+
+fn load_sidecar_containers() -> Result<Vec<Container>, Box<dyn Error>> {
+    let cwd = std::env::current_dir()?;
+    let file = File::open(cwd.join(PathBuf::from("sidecars.json").as_path()))?;
+    let reader = BufReader::new(file);
+    let containers = serde_json::from_reader(reader)?;
+    Ok(containers)
+}
+
+fn inject_sidecars(request_body: &str, context: &AppgatedContext) -> Result<HttpResponse, HttpResponse> {
+    let mut pod = serde_json::from_str::<Pod>(&request_body).map_err(error_to_bad_request)?;
+    if pod.needs_sidecar() {
+        pod.inject_sidecars(&context.sidecars);
+    }
+    let response_body = serde_json::to_string(&pod).map_err(error_to_bad_request)?;
+    Ok(HttpResponse::Ok().body(response_body))
+}
+
 #[post("/mutate")]
-async fn mutate(request: HttpRequest) -> impl Responder {
-    let _ctx = request.app_data::<AppgatedContext>();
-    let _pod: Pod = Default::default();
-    HttpResponse::Ok()
+async fn mutate(request: HttpRequest, body: String) -> Result<HttpResponse, HttpResponse> {
+    let context = request.app_data::<AppgatedContext>()
+        .expect("Unable to get app context");
+    inject_sidecars(&body, context)
 }
 
 #[cfg(test)]
@@ -267,7 +268,6 @@ mod tests {
         assert_tests(&mut pod, &tests(), &mut predicate)
     }
 }
-
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
