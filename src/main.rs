@@ -121,30 +121,48 @@ mod tests {
         c
     }
 
-    #[test]
-    fn needs_injection_simple() {
-        let mut pod: Pod = Default::default();
-        pod.spec = Some(Default::default());
-
-        #[derive(Debug)]
-        struct TestInject<'a> {
-            labels: Option<Vec<(&'a str, &'a str)>>,
-            containers: Vec<&'a str>,
-            result: bool,
+    fn run_test(pod: &mut Pod, test: &TestInject,
+                predicate: fn(&mut Pod, &TestInject) -> (bool, String)) -> (bool, String) {
+        pod.metadata.labels = test.labels.as_ref()
+            .map(|xs| create_labels(&xs[..]));
+        let test_cs: Vec<Container> = test.containers.iter()
+            .map(|&x| create_container(x)).collect();
+        if let Some(spec) = pod.spec.as_mut() {
+            spec.containers = test_cs;
         }
+        predicate(pod, test)
+        //test.result == pod.needs_sidecar()
+    }
 
-        fn run_test(pod: &mut Pod, test: &TestInject) -> bool {
-            pod.metadata.labels = test.labels.as_ref()
-                .map(|xs| create_labels(&xs[..]));
-            let test_cs: Vec<Container> = test.containers.iter()
-                .map(|&x| create_container(x)).collect();
-            if let Some(spec) = pod.spec.as_mut() {
-                spec.containers = test_cs;
+    fn assert_tests(pod: &mut Pod, tests: &[TestInject],
+                    predicate: fn(&mut Pod, &TestInject) -> (bool, String)) {
+        let mut test_errors: Vec<(&TestInject, String)> = Vec::new();
+        let ok = tests.iter().fold(true, |total, t| {
+            let (result, description) = run_test(pod, t, predicate);
+            if ! result {
+                test_errors.push((t, description));
             }
-            test.result == pod.needs_sidecar()
+            total && result
+        });
+        if ! ok {
+            let errors: Vec<String> = test_errors.iter().map(|x|
+                format!("Test {} for {:?} failed, expecting {} but got {}",
+                        x.1, x.0, x.0.result, !x.0.result).to_string()
+            ).collect();
+            panic!("Inject test failed: {}", errors.join("\n"));
         }
+        assert_eq!(true, true);
+    }
 
-        let tests = vec![
+    #[derive(Debug)]
+    struct TestInject<'a> {
+        labels: Option<Vec<(&'a str, &'a str)>>,
+        containers: Vec<&'a str>,
+        result: bool,
+    }
+
+    fn tests() -> Vec<TestInject<'static>> {
+        vec![
             TestInject {
                 labels: Some(vec![("appgate-inject", "false")]),
                 containers: vec![],
@@ -201,24 +219,21 @@ mod tests {
                 containers: vec![APPGATE_SIDECAR_NAMES[0], "some-random-service"],
                 result: false,
             }
-        ];
-
-        let mut test_errors: Vec<&TestInject> = Vec::new();
-        let ok = tests.iter().fold(true, |total, t| {
-            let r = run_test(&mut pod, t);
-            if ! r {
-                test_errors.push(t);
-            }
-            total && r
-        });
-        if ! ok {
-            let errors: Vec<String> = test_errors.iter().map(|&x|
-                format!("{:?} expecting {} but got {}", x, x.result, !x.result).to_string()
-            ).collect();
-            panic!("Inject test failed: {}", errors.join("\n"));
-        }
-        assert_eq!(true, true);
+        ]
     }
+
+    #[test]
+    fn needs_injection_simple() {
+        let mut pod: Pod = Default::default();
+        pod.spec = Some(Default::default());
+
+        fn test_injection_simple(pod: &mut Pod, test: &TestInject) -> (bool, String) {
+            (test.result == pod.needs_sidecar(), "Injection Simple Test".to_string())
+        }
+
+        assert_tests(&mut pod, &tests(), test_injection_simple)
+    }
+
 /*
     #[test]
     fn test_pod_inject_sidecar() {
