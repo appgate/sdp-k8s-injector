@@ -5,6 +5,7 @@ use std::fs::File;
 use std::io::BufReader;
 use std::error::Error;
 use std::collections::BTreeMap;
+use serde::Deserialize;
 
 const APPGATE_TAG_KEY: &str = "appgate-inject";
 const APPGATE_TAG_VALUE: &str = "true";
@@ -70,39 +71,28 @@ impl AppgatePod for Pod {
     }
 }
 
-#[derive(Debug, Clone, Default)]
-struct AppgatedContext {
-    sidecars: Box<Vec<Container>>,
+#[derive(Debug, Clone, Default, Deserialize)]
+struct AppgateSidecars {
+    containers: Box<Vec<Container>>,
     volumes: Box<Vec<Volume>>,
-}
-
-impl AppgatedContext {
-    fn new() -> Self {
-        let cs = load_sidecar_containers().expect("Unable to load sidecar containers");
-        let vs = vec![];
-        AppgatedContext {
-            sidecars: Box::new(cs),
-            volumes: Box::new(vs),
-        }
-    }
 }
 
 fn error_to_bad_request(e: serde_json::Error) -> HttpResponse {
     HttpResponse::BadRequest().body(e.to_string())
 }
 
-fn load_sidecar_containers() -> Result<Vec<Container>, Box<dyn Error>> {
+fn load_sidecar_containers() -> Result<AppgateSidecars, Box<dyn Error>> {
     let cwd = std::env::current_dir()?;
     let file = File::open(cwd.join(PathBuf::from("sidecars.json").as_path()))?;
     let reader = BufReader::new(file);
-    let containers = serde_json::from_reader(reader)?;
-    Ok(containers)
+    let appgate_sidecars = serde_json::from_reader(reader)?;
+    Ok(appgate_sidecars)
 }
 
-fn inject_sidecars(request_body: &str, context: &AppgatedContext) -> Result<HttpResponse, HttpResponse> {
+fn inject_sidecars(request_body: &str, context: &AppgateSidecars) -> Result<HttpResponse, HttpResponse> {
     let mut pod = serde_json::from_str::<Pod>(&request_body).map_err(error_to_bad_request)?;
     if pod.needs_sidecar() {
-        pod.inject_sidecars(&context.sidecars);
+        pod.inject_sidecars(&context.containers);
     }
     let response_body = serde_json::to_string(&pod).map_err(error_to_bad_request)?;
     Ok(HttpResponse::Ok().body(response_body))
@@ -110,7 +100,7 @@ fn inject_sidecars(request_body: &str, context: &AppgatedContext) -> Result<Http
 
 #[post("/mutate")]
 async fn mutate(request: HttpRequest, body: String) -> Result<HttpResponse, HttpResponse> {
-    let context = request.app_data::<AppgatedContext>()
+    let context = request.app_data::<AppgateSidecars>()
         .expect("Unable to get app context");
     inject_sidecars(&body, context)
 }
@@ -119,7 +109,7 @@ async fn mutate(request: HttpRequest, body: String) -> Result<HttpResponse, Http
 mod tests {
     use k8s_openapi::api::core::v1::{Pod, Container};
     use std::collections::BTreeMap;
-    use crate::{AppgatePod, APPGATE_SIDECAR_NAMES, AppgatedContext};
+    use crate::{AppgatePod, APPGATE_SIDECAR_NAMES, load_sidecar_containers};
 
     fn create_labels(labels: &[(&str, &str)]) -> BTreeMap<String, String> {
         let mut bm = BTreeMap::new();
@@ -255,11 +245,12 @@ mod tests {
 
         let expected_sidecars = Some(vec!["appgate-service".to_string(),
                                           "appgate-driver".to_string()]);
-        let appgated_context = AppgatedContext::new();
+        let appgated_context = load_sidecar_containers()
+            .expect("Unable to load the sidecar information");
         let mut predicate = |pod: &mut Pod, test: &TestInject| -> (bool, String) {
             let mut r = test.result == pod.needs_sidecar();
             if r && test.result {
-                pod.inject_sidecars(&appgated_context.sidecars);
+                pod.inject_sidecars(&appgated_context.containers);
                 r = r && (pod.sidecar_names() == expected_sidecars);
             }
             (r, "Injection Containers Test".to_string())
@@ -273,7 +264,8 @@ mod tests {
 async fn main() -> std::io::Result<()> {
     // Get the sidecar containers definition
     // this is used to inject later the sidecars
-    let appgated_context = AppgatedContext::new();
+    let appgated_context = load_sidecar_containers()
+        .expect("Unable to load the sidecar information");
     HttpServer::new(move || {
         App::new()
             .app_data(appgated_context.clone())
