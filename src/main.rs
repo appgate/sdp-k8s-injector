@@ -48,11 +48,21 @@ pub trait AppgatePod {
 
     fn mut_containers(&mut self) -> Option<&mut Vec<Container>>;
 
+    fn volumes(&self) -> Option<&Vec<Volume>>;
+
+    fn mut_volumes(&mut self) -> Option<&mut Vec<Volume>>;
+
     fn labels(&self) -> Option<&BTreeMap<String, String>>;
 
-    fn inject_sidecars(&mut self, sidecars: &Vec<Container>) {
-        if let Some(containers) = self.mut_containers() {
-            containers.extend_from_slice(sidecars)
+    fn inject_sidecars(&mut self, containers: &Vec<Container>) {
+        if let Some(cs) = self.mut_containers() {
+            cs.extend_from_slice(containers)
+        }
+    }
+
+    fn inject_volumes(&mut self, volumes: &Vec<Volume>) {
+        if let Some(vs) = self.mut_volumes() {
+            vs.extend_from_slice(volumes)
         }
     }
 }
@@ -64,6 +74,14 @@ impl AppgatePod for Pod {
 
     fn mut_containers(&mut self) -> Option<&mut Vec<Container>> {
         self.spec.as_mut().map(|s| s.containers.as_mut())
+    }
+
+    fn volumes(&self) -> Option<&Vec<Volume>> {
+        self.spec.as_ref().and_then(|s| s.volumes.as_ref())
+    }
+
+    fn mut_volumes(&mut self) -> Option<&mut Vec<Volume>> {
+        self.spec.as_mut().and_then(|s| s.volumes.as_mut())
     }
 
     fn labels(&self) -> Option<&BTreeMap<String, String>> {
@@ -93,6 +111,7 @@ fn inject_sidecars(request_body: &str, context: &AppgateSidecars) -> Result<Http
     let mut pod = serde_json::from_str::<Pod>(&request_body).map_err(error_to_bad_request)?;
     if pod.needs_sidecar() {
         pod.inject_sidecars(&context.containers);
+        pod.inject_volumes(&context.volumes);
     }
     let response_body = serde_json::to_string(&pod).map_err(error_to_bad_request)?;
     Ok(HttpResponse::Ok().body(response_body))
