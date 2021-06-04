@@ -45,11 +45,13 @@ pub trait AppgatePod {
 
     fn containers(&self) -> Option<&Vec<Container>>;
 
+    fn mut_containers(&mut self) -> Option<&mut Vec<Container>>;
+
     fn labels(&self) -> Option<&BTreeMap<String, String>>;
 
-    fn inject_sidecars(&mut self, _sidecars: &Vec<Container>) -> () {
-        if let Some(_containers) = self.containers() {
-            ()
+    fn inject_sidecars(&mut self, sidecars: &Vec<Container>) -> () {
+        if let Some(containers) = self.mut_containers() {
+            containers.extend_from_slice(sidecars)
         }
     }
 }
@@ -57,6 +59,10 @@ pub trait AppgatePod {
 impl AppgatePod for Pod {
     fn containers(&self) -> Option<&Vec<Container>> {
         self.spec.as_ref().map(|s| &s.containers)
+    }
+
+    fn mut_containers(&mut self) -> Option<&mut Vec<Container>> {
+        self.spec.as_mut().map(|s| s.containers.as_mut())
     }
 
     fn labels(&self) -> Option<&BTreeMap<String, String>> {
@@ -112,7 +118,7 @@ async fn mutate(request: HttpRequest) -> impl Responder {
 mod tests {
     use k8s_openapi::api::core::v1::{Pod, Container};
     use std::collections::BTreeMap;
-    use crate::{AppgatePod, APPGATE_SIDECAR_NAMES};
+    use crate::{AppgatePod, APPGATE_SIDECAR_NAMES, AppgatedContext};
 
     fn create_labels(labels: &[(&str, &str)]) -> BTreeMap<String, String> {
         let mut bm = BTreeMap::new();
@@ -247,12 +253,12 @@ mod tests {
         pod.spec = Some(Default::default());
 
         let expected_sidecars = Some(vec!["appgate-service".to_string(),
-                                        "appgate-driver".to_string()]);
-
+                                          "appgate-driver".to_string()]);
+        let appgated_context = AppgatedContext::new();
         let mut predicate = |pod: &mut Pod, test: &TestInject| -> (bool, String) {
             let mut r = test.result == pod.needs_sidecar();
             if r && test.result {
-                pod.inject_sidecars(&vec![]);
+                pod.inject_sidecars(&appgated_context.sidecars);
                 r = r && (pod.sidecar_names() == expected_sidecars);
             }
             (r, "Injection Containers Test".to_string())
