@@ -160,7 +160,7 @@ async fn mutate(request: HttpRequest, body: String) -> Result<HttpResponse, Http
 mod tests {
     use k8s_openapi::api::core::v1::{Pod, Container};
     use std::collections::BTreeMap;
-    use crate::{AppgatePod, APPGATE_SIDECAR_NAMES, load_sidecar_containers};
+    use crate::{AppgatePod, APPGATE_SIDECAR_NAMES, load_sidecar_containers, APPGATE_VOLUME_NAMES};
 
     fn create_labels(labels: &[(&str, &str)]) -> BTreeMap<String, String> {
         let mut bm = BTreeMap::new();
@@ -188,12 +188,14 @@ mod tests {
         predicate(pod, test)
     }
 
-    fn assert_tests<F>(pod: &mut Pod, tests: &[TestInject], predicate: &mut F) -> () where
+    fn assert_tests<F>(tests: &[TestInject], predicate: &mut F) -> () where
         F: FnMut(&mut Pod, &TestInject) -> (bool, String)
     {
         let mut test_errors: Vec<(&TestInject, String)> = Vec::new();
         let ok = tests.iter().fold(true, |total, t| {
-            let (result, description) = run_test(pod, t, predicate);
+            let mut pod: Pod = Default::default();
+            pod.spec = Some(Default::default());
+            let (result, description) = run_test(&mut pod, t, predicate);
             if !result {
                 test_errors.push((t, description));
             }
@@ -279,35 +281,32 @@ mod tests {
 
     #[test]
     fn needs_injection_simple() {
-        let mut pod: Pod = Default::default();
-        pod.spec = Some(Default::default());
-
         let mut predicate = |pod: &mut Pod, test: &TestInject| -> (bool, String) {
-            (test.result == pod.needs_sidecar(), "Injection Simple Test".to_string())
+            (test.result == pod.needs_sidecar_containers(), "Injection Simple Test".to_string())
         };
 
-        assert_tests(&mut pod, &tests(), &mut predicate)
+        assert_tests(&tests(), &mut predicate)
     }
 
     #[test]
     fn test_pod_inject_sidecar() {
-        let mut pod: Pod = Default::default();
-        pod.spec = Some(Default::default());
-
-        let expected_sidecars = Some(vec!["appgate-service".to_string(),
-                                          "appgate-driver".to_string()]);
+        let expected_containers = Some(APPGATE_SIDECAR_NAMES.iter()
+            .map(|n| n.to_string()).collect());
+        let expected_volumes = Some(APPGATE_VOLUME_NAMES.iter()
+            .map(|n| n.to_string()).collect());
         let appgated_context = load_sidecar_containers()
             .expect("Unable to load the sidecar information");
         let mut predicate = |pod: &mut Pod, test: &TestInject| -> (bool, String) {
-            let mut r = test.result == pod.needs_sidecar();
+            let mut r = test.result == pod.needs_sidecar_containers();
             if r && test.result {
-                pod.inject_sidecars(&appgated_context.containers);
-                r = r && (pod.sidecar_names() == expected_sidecars);
+                pod.inject_sidecars(&appgated_context);
+                r = r && (pod.sidecar_names() == expected_containers);
+                r = r && (pod.volume_names() == expected_volumes);
             }
             (r, "Injection Containers Test".to_string())
         };
 
-        assert_tests(&mut pod, &tests(), &mut predicate)
+        assert_tests(&tests(), &mut predicate)
     }
 }
 
