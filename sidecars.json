@@ -1,0 +1,103 @@
+{
+    "containers": [
+    {
+        "command": [
+            "/opt/appgate/appgate-service.sh"
+        ],
+        "env": [
+            {
+                "name": "CLIENT_LOGLEVEL",
+                "valueFrom": {
+                    "configMapKeyRef": {
+                        "key": "client-loglevel",
+                        "name": "client-config"
+                    }
+                }
+            },
+            {
+                "name": "CLIENT_CONTROLLER_URL",
+                "valueFrom": {
+                    "secretKeyRef": {
+                        "key": "client-controller-url",
+                        "name": "client-secrets"
+                    }
+                }
+            },
+            {
+                "name": "CLIENT_USERNAME",
+                "valueFrom": {
+                    "secretKeyRef": {
+                        "key": "client-username",
+                        "name": "client-secrets"
+                    }
+                }
+            },
+            {
+                "name": "CLIENT_PASSWORD",
+                "valueFrom": {
+                    "secretKeyRef": {
+                        "key": "client-password",
+                        "name": "client-secrets"
+                    }
+                }
+            }
+        ],
+        "image": "lhr-nexus01.agi.appgate.com:5001/appgate-headless-client:latest",
+        "imagePullPolicy": "Always",
+        "name": "appgate-service",
+        "resources": {},
+        "terminationMessagePath": "/dev/termination-log",
+        "terminationMessagePolicy": "File",
+        "volumeMounts": [
+            {
+                "mountPath": "/var/run/appgate",
+                "name": "run-appgate"
+            }
+        ]
+    },
+    {
+        "args": [
+            "-d",
+            "-p",
+            "/var/run/appgate/.driver.sock",
+            "--webclient"
+        ],
+        "command": [
+            "/opt/appgate/appgate-driver"
+        ],
+        "image": "lhr-nexus01.agi.appgate.com:5001/appgate-headless-client:latest",
+        "imagePullPolicy": "Always",
+        "name": "appgate-driver",
+        "resources": {},
+        "securityContext": {
+            "capabilities": {
+                "add": [
+                    "NET_ADMIN"
+                ]
+            }
+        },
+        "terminationMessagePath": "/dev/termination-log",
+        "terminationMessagePolicy": "File",
+        "volumeMounts": [
+            {
+                "mountPath": "/var/run/appgate",
+                "name": "run-appgate"
+            },
+            {
+                "mountPath": "/dev/net/tun",
+                "name": "tun-device"
+            }
+        ]
+    }
+    ],
+    "volumes": [
+            {
+                "mountPath": "/var/run/appgate",
+                "name": "run-appgate"
+            },
+            {
+                "mountPath": "/dev/net/tun",
+                "name": "tun-device"
+            }
+    ]
+}
