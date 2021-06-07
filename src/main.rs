@@ -7,10 +7,13 @@ use std::error::Error;
 use std::collections::BTreeMap;
 use serde::Deserialize;
 use log::{debug, error, info};
+use std::fmt::{Display, Formatter, Result as FResult};
 
 const APPGATE_TAG_KEY: &str = "appgate-inject";
 const APPGATE_TAG_VALUE: &str = "true";
 const APPGATE_SIDECAR_NAMES: [&str; 2] = ["appgate-service", "appgate-driver"];
+
+struct AppgatePodDisplay<'a>(&'a Pod);
 
 trait AppgatePod {
     fn has_appgate_label(&self) -> bool {
@@ -33,6 +36,11 @@ trait AppgatePod {
     fn sidecar_names(&self) -> Option<Vec<String>> {
         self.sidecars().map(|xs|
             xs.iter().map(|&x| x.name.clone()).collect())
+    }
+
+    fn container_names(&self) -> Option<Vec<String>> {
+        self.containers().map(|xs|
+            xs.iter().map(|x| x.name.clone()).collect())
     }
 
     fn volume_names(&self) -> Option<Vec<String>> {
@@ -72,6 +80,8 @@ trait AppgatePod {
     fn labels(&self) -> Option<&BTreeMap<String, String>>;
 
     fn normalize(&mut self) -> ();
+
+    fn name(&self) -> String;
 
     fn inject_containers(&mut self, containers: &Vec<Container>) {
         if self.needs_sidecar_containers() {
@@ -125,6 +135,21 @@ impl AppgatePod for Pod {
         let spec = self.spec.get_or_insert(Default::default());
         spec.volumes.get_or_insert(Default::default());
     }
+
+    fn name(&self) -> String {
+        self.metadata.name.as_ref().map(|x| x.clone())
+            .unwrap_or("Unnamed".to_string())
+    }
+}
+
+impl Display for AppgatePodDisplay<'_> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FResult {
+        let pod = self.0;
+        write!(f, "POD(name:{}, needs_containers:{}, needs_volumes: {}, containers:[{}], volumes: [{}])",
+               pod.name(), pod.needs_sidecar_containers(), pod.needs_sidecar_volumes(),
+               pod.container_names().unwrap_or(vec![]).join(","),
+               pod.volume_names().unwrap_or(vec![]).join(","))
+    }
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -149,10 +174,11 @@ fn load_sidecar_containers() -> Result<AppgateSidecars, Box<dyn Error>> {
 
 fn inject_sidecars(request_body: &str, context: &AppgateSidecars) -> Result<HttpResponse, serde_json::Error> {
     let mut pod = serde_json::from_str::<Pod>(&request_body)?;
-    debug!("Got POD request, checking if injection is needed.");
+    debug!("Got POD request: {}", AppgatePodDisplay(&pod));
     if pod.needs_sidecar_containers() {
         info!("Injecting appgate k8s client to POD");
         pod.inject_sidecars(context);
+        debug!("New POD generated: {}", AppgatePodDisplay(&pod));
     } else {
         debug!("appgate k8s client injection not needed");
     }
@@ -176,6 +202,7 @@ mod tests {
     use k8s_openapi::api::core::v1::{Pod, Container};
     use std::collections::BTreeMap;
     use crate::{AppgatePod, APPGATE_SIDECAR_NAMES, load_sidecar_containers, APPGATE_VOLUME_NAMES};
+
     const APPGATE_VOLUME_NAMES: [&str; 2] = ["run-appgate", "tun-device"];
 
     fn create_labels(labels: &[(&str, &str)]) -> BTreeMap<String, String> {
