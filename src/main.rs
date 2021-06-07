@@ -220,7 +220,7 @@ mod tests {
     }
 
     fn run_test<F>(pod: &mut Pod, test: &TestInject, predicate: &mut F) -> (bool, String)
-    where F: FnMut(&mut Pod, &TestInject) -> (bool, String) {
+        where F: FnMut(&mut Pod, &TestInject) -> (bool, String) {
         pod.metadata.labels = test.labels.as_ref()
             .map(|xs| create_labels(&xs[..]));
         let test_cs: Vec<Container> = test.containers.iter()
