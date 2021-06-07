@@ -10,8 +10,10 @@ use serde::Deserialize;
 const APPGATE_TAG_KEY: &str = "appgate-inject";
 const APPGATE_TAG_VALUE: &str = "true";
 const APPGATE_SIDECAR_NAMES: [&str; 2] = ["appgate-service", "appgate-driver"];
+const APPGATE_VOLUME_NAMES: [&str; 2] = ["run-appgate", "tun-device"];
 
-pub trait AppgatePod {
+
+trait AppgatePod {
     fn has_appgate_label(&self) -> bool {
         if let Some(labels) = self.labels() {
             labels.get(APPGATE_TAG_KEY)
@@ -32,16 +34,30 @@ pub trait AppgatePod {
             xs.iter().map(|&x| x.name.clone()).collect())
     }
 
+    fn volume_names(&self) -> Option<Vec<String>> {
+        self.volumes().map(|vs| vs.iter().map(|v| v.name.clone()).collect())
+    }
+
     fn has_any_sidecars(&self) -> bool {
         self.sidecars().map(|xs| xs.len() != 0).unwrap_or(false)
+    }
+
+    fn has_all_sidecars(&self) -> bool {
+        self.sidecars()
+            .map(|xs| xs.len() == APPGATE_SIDECAR_NAMES.len())
+            .unwrap_or(false)
     }
 
     fn has_containers(&self) -> bool {
         self.containers().unwrap_or(&vec![]).len() > 0
     }
 
-    fn needs_sidecar(&self) -> bool {
+    fn needs_sidecar_containers(&self) -> bool {
         self.has_appgate_label() && self.has_containers() && !self.has_any_sidecars()
+    }
+
+    fn needs_sidecar_volumes(&self) -> bool {
+        self.has_containers() && self.has_all_sidecars()
     }
 
     fn containers(&self) -> Option<&Vec<Container>>;
@@ -54,16 +70,28 @@ pub trait AppgatePod {
 
     fn labels(&self) -> Option<&BTreeMap<String, String>>;
 
-    fn inject_sidecars(&mut self, containers: &Vec<Container>) {
-        if let Some(cs) = self.mut_containers() {
-            cs.extend_from_slice(containers)
+    fn normalize(&mut self) -> ();
+
+    fn inject_containers(&mut self, containers: &Vec<Container>) {
+        if self.needs_sidecar_containers() {
+            if let Some(cs) = self.mut_containers() {
+                cs.extend_from_slice(containers)
+            }
         }
     }
 
     fn inject_volumes(&mut self, volumes: &Vec<Volume>) {
-        if let Some(vs) = self.mut_volumes() {
-            vs.extend_from_slice(volumes)
+        if self.needs_sidecar_volumes() {
+            if let Some(vs) = self.mut_volumes() {
+                vs.extend_from_slice(volumes)
+            }
         }
+    }
+
+    fn inject_sidecars(&mut self, appgate_sidecars: &AppgateSidecars) {
+        self.normalize();
+        self.inject_containers(&appgate_sidecars.containers);
+        self.inject_volumes(&appgate_sidecars.volumes);
     }
 }
 
@@ -87,6 +115,11 @@ impl AppgatePod for Pod {
     fn labels(&self) -> Option<&BTreeMap<String, String>> {
         self.metadata.labels.as_ref()
     }
+
+    fn normalize(&mut self) -> () {
+        let spec = self.spec.get_or_insert(Default::default());
+        spec.volumes.get_or_insert(Default::default());
+    }
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -109,9 +142,8 @@ fn load_sidecar_containers() -> Result<AppgateSidecars, Box<dyn Error>> {
 
 fn inject_sidecars(request_body: &str, context: &AppgateSidecars) -> Result<HttpResponse, HttpResponse> {
     let mut pod = serde_json::from_str::<Pod>(&request_body).map_err(error_to_bad_request)?;
-    if pod.needs_sidecar() {
-        pod.inject_sidecars(&context.containers);
-        pod.inject_volumes(&context.volumes);
+    if pod.needs_sidecar_containers() {
+        pod.inject_sidecars(context);
     }
     let response_body = serde_json::to_string(&pod).map_err(error_to_bad_request)?;
     Ok(HttpResponse::Ok().body(response_body))
