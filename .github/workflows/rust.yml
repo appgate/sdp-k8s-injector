@@ -21,4 +21,3 @@ jobs:
         name: Build and test
         with:
           command: build
-          args: --release --all-features
