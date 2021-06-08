@@ -1,0 +1,20 @@
+name: Appgate SDP Kubernetes Client
+
+on:
+  pull_request:
+    branches: [ master ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions-rs/toolchain@v1
+        name: Setup rust
+        with:
+          toolchain: stable
+      - uses: actions-rs/cargo@v1
+        name: Build and test
+        with:
+          command: build
+          args: --release --all-features
