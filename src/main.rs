@@ -10,6 +10,9 @@ use log::{debug, error, info};
 use std::fmt::{Display, Formatter, Result as FResult};
 use rustls::{ServerConfig, NoClientAuth};
 use rustls::internal::pemfile::{certs, rsa_private_keys};
+use kube::api::admission::{AdmissionReview, AdmissionResponse};
+use json_patch::{Patch, AddOperation};
+use json_patch::PatchOperation::Add;
 
 const APPGATE_TAG_KEY: &str = "appgate-inject";
 const APPGATE_TAG_VALUE: &str = "true";
@@ -72,52 +75,40 @@ trait AppgatePod {
         self.containers().unwrap_or(&vec![]).len() > 0
     }
 
-    fn needs_sidecar_containers(&self) -> bool {
+    fn needs_patching(&self) -> bool {
         self.has_appgate_label() && self.has_containers() && !self.has_any_sidecars()
-    }
-
-    fn needs_sidecar_volumes(&self) -> bool {
-        self.has_containers() && self.has_all_sidecars()
     }
 
     fn containers(&self) -> Option<&Vec<Container>>;
 
-    fn mut_containers(&mut self) -> Option<&mut Vec<Container>>;
-
     fn volumes(&self) -> Option<&Vec<Volume>>;
-
-    fn mut_volumes(&mut self) -> Option<&mut Vec<Volume>>;
 
     fn labels(&self) -> Option<&BTreeMap<String, String>>;
 
-    fn normalize(&mut self) -> ();
-
     fn name(&self) -> String;
 
-    fn inject_containers(&mut self, containers: &Vec<Container>) {
-        if self.needs_sidecar_containers() {
-            debug!("POD needs containers injection");
-            if let Some(cs) = self.mut_containers() {
-                debug!("Injecting sidecar volumes into POD");
-                cs.extend_from_slice(containers)
-            }
+    fn patch_sidecars(&self, appgate_sidecars: &AppgateSidecars) -> Result<Option<Patch>, Box<dyn Error>> {
+        info!("Patching POD with appgate client");
+        let mut patches = vec![];
+        let needs_patch = self.needs_patching();
+        if needs_patch && self.needs_patching() {
+            patches.insert(0,
+                           Add(AddOperation {
+                               path: "/spec/volumes".to_string(),
+                               value: serde_json::to_value(&appgate_sidecars.volumes)?,
+                           }));
+            patches.insert(0,
+                           Add(AddOperation {
+                               path: "/spec/containers".to_string(),
+                               value: serde_json::to_value(&appgate_sidecars.containers)?,
+                           }));
         }
-    }
-
-    fn inject_volumes(&mut self, volumes: &Vec<Volume>) {
-        if self.needs_sidecar_volumes() {
-            debug!("POD needs volumes injection");
-            if let Some(vs) = self.mut_volumes() {
-                debug!("Injecting sidecar volumes into POD");
-                vs.extend_from_slice(volumes)
-            }
+        if patches.is_empty() {
+            debug!("POD does not require patching");
+            Ok(None)
+        } else {
+            Ok(Some(Patch(patches)))
         }
-    }
-
-    fn inject_sidecars(&mut self, appgate_sidecars: &AppgateSidecars) {
-        self.normalize();
-        self.inject_containers(&appgate_sidecars.containers);
-        self.inject_volumes(&appgate_sidecars.volumes);
     }
 }
 
@@ -126,25 +117,12 @@ impl AppgatePod for Pod {
         self.spec.as_ref().map(|s| &s.containers)
     }
 
-    fn mut_containers(&mut self) -> Option<&mut Vec<Container>> {
-        self.spec.as_mut().map(|s| s.containers.as_mut())
-    }
-
     fn volumes(&self) -> Option<&Vec<Volume>> {
         self.spec.as_ref().and_then(|s| s.volumes.as_ref())
     }
 
-    fn mut_volumes(&mut self) -> Option<&mut Vec<Volume>> {
-        self.spec.as_mut().and_then(|s| s.volumes.as_mut())
-    }
-
     fn labels(&self) -> Option<&BTreeMap<String, String>> {
         self.metadata.labels.as_ref()
-    }
-
-    fn normalize(&mut self) -> () {
-        let spec = self.spec.get_or_insert(Default::default());
-        spec.volumes.get_or_insert(Default::default());
     }
 
     fn name(&self) -> String {
@@ -156,8 +134,8 @@ impl AppgatePod for Pod {
 impl Display for AppgatePodDisplay<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> FResult {
         let pod = self.0;
-        write!(f, "POD(name:{}, needs_containers:{}, needs_volumes: {}, containers:[{}], volumes: [{}])",
-               pod.name(), pod.needs_sidecar_containers(), pod.needs_sidecar_volumes(),
+        write!(f, "POD(name:{}, needs_patching:{}, containers:[{}], volumes: [{}])",
+               pod.name(), pod.needs_patching(),
                pod.container_names().unwrap_or(vec![]).join(","),
                pod.volume_names().unwrap_or(vec![]).join(","))
     }
@@ -169,7 +147,7 @@ struct AppgateSidecars {
     volumes: Box<Vec<Volume>>,
 }
 
-fn error_to_bad_request(e: serde_json::Error) -> HttpResponse {
+fn error_to_bad_request(e: Box<dyn Error>) -> HttpResponse {
     HttpResponse::BadRequest().body(e.to_string())
 }
 
@@ -189,17 +167,18 @@ fn load_cert_files() -> Result<(BufReader<File>, BufReader<File>), Box<dyn Error
     Ok((cert_buf, key_buf))
 }
 
-fn inject_sidecars(request_body: &str, context: &AppgateSidecars) -> Result<HttpResponse, serde_json::Error> {
-    let mut pod = serde_json::from_str::<Pod>(&request_body)?;
+fn generate_patch(request_body: &str, context: &AppgateSidecars) -> Result<HttpResponse, Box<dyn Error>> {
+    let admision_review = serde_json::from_str::<AdmissionReview<Pod>>(&request_body)
+        .map_err(|e| format!("Error parsing payload: {}", e.to_string()))?;
+    let admission_request = admision_review.request
+        .ok_or("Admission review is not a request")?;
+    let pod = admission_request.object.as_ref().ok_or("Admission review does not contain a POD")?;
     debug!("Got POD request: {}", AppgatePodDisplay(&pod));
-    if pod.needs_sidecar_containers() {
-        info!("Injecting appgate k8s client to POD");
-        pod.inject_sidecars(context);
-        debug!("New POD generated: {}", AppgatePodDisplay(&pod));
-    } else {
-        debug!("appgate k8s client injection not needed");
+    let mut admission_response = AdmissionResponse::from(&admission_request);
+    if let Some(p) = pod.patch_sidecars(&context)? {
+        admission_response = admission_response.with_patch(p)?;
     }
-    let response_body = serde_json::to_string(&pod)?;
+    let response_body = serde_json::to_string(&admission_response)?;
     Ok(HttpResponse::Ok().body(response_body))
 }
 
@@ -207,7 +186,7 @@ fn inject_sidecars(request_body: &str, context: &AppgateSidecars) -> Result<Http
 async fn mutate(request: HttpRequest, body: String) -> Result<HttpResponse, HttpResponse> {
     let context = request.app_data::<AppgateSidecars>()
         .expect("Unable to get app context");
-    let result = inject_sidecars(&body, context);
+    let result = generate_patch(&body, context);
     if result.is_err() {
         error!("Error injecting appgate client into POD: {}", result.as_ref().unwrap_err());
     }
@@ -342,7 +321,7 @@ mod tests {
     #[test]
     fn needs_injection_simple() {
         let mut predicate = |pod: &mut Pod, test: &TestInject| -> (bool, String) {
-            (test.result == pod.needs_sidecar_containers(), "Injection Simple Test".to_string())
+            (test.result == pod.needs_patching(), "Injection Simple Test".to_string())
         };
 
         assert_tests(&tests(), &mut predicate)
@@ -357,9 +336,9 @@ mod tests {
         let appgated_context = load_sidecar_containers()
             .expect("Unable to load the sidecar information");
         let mut predicate = |pod: &mut Pod, test: &TestInject| -> (bool, String) {
-            let mut r = test.result == pod.needs_sidecar_containers();
+            let mut r = test.result == pod.needs_patching();
             if r && test.result {
-                pod.inject_sidecars(&appgated_context);
+                pod.patch_sidecars(&appgated_context);
                 r = r && (pod.sidecar_names() == expected_containers);
                 r = r && (pod.volume_names() == expected_volumes);
             }
