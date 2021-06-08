@@ -283,9 +283,11 @@ name = "appgate-appgated"
 version = "0.1.0"
 dependencies = [
  "actix-web",
+ "env_logger",
  "k8s-openapi",
  "kube",
  "kube-runtime",
+ "log",
  "serde",
  "serde_json",
 ]

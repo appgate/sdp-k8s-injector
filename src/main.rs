@@ -6,12 +6,14 @@ use std::io::BufReader;
 use std::error::Error;
 use std::collections::BTreeMap;
 use serde::Deserialize;
+use log::{debug, error, info};
+use std::fmt::{Display, Formatter, Result as FResult};
 
 const APPGATE_TAG_KEY: &str = "appgate-inject";
 const APPGATE_TAG_VALUE: &str = "true";
 const APPGATE_SIDECAR_NAMES: [&str; 2] = ["appgate-service", "appgate-driver"];
-const APPGATE_VOLUME_NAMES: [&str; 2] = ["run-appgate", "tun-device"];
 
+struct AppgatePodDisplay<'a>(&'a Pod);
 
 trait AppgatePod {
     fn has_appgate_label(&self) -> bool {
@@ -19,7 +21,9 @@ trait AppgatePod {
             labels.get(APPGATE_TAG_KEY)
                 .map(|v| v == APPGATE_TAG_VALUE)
                 .unwrap_or(false)
-        } else { false }
+        } else {
+            false
+        }
     }
 
     fn sidecars(&self) -> Option<Vec<&Container>> {
@@ -32,6 +36,11 @@ trait AppgatePod {
     fn sidecar_names(&self) -> Option<Vec<String>> {
         self.sidecars().map(|xs|
             xs.iter().map(|&x| x.name.clone()).collect())
+    }
+
+    fn container_names(&self) -> Option<Vec<String>> {
+        self.containers().map(|xs|
+            xs.iter().map(|x| x.name.clone()).collect())
     }
 
     fn volume_names(&self) -> Option<Vec<String>> {
@@ -72,9 +81,13 @@ trait AppgatePod {
 
     fn normalize(&mut self) -> ();
 
+    fn name(&self) -> String;
+
     fn inject_containers(&mut self, containers: &Vec<Container>) {
         if self.needs_sidecar_containers() {
+            debug!("POD needs containers injection");
             if let Some(cs) = self.mut_containers() {
+                debug!("Injecting sidecar volumes into POD");
                 cs.extend_from_slice(containers)
             }
         }
@@ -82,7 +95,9 @@ trait AppgatePod {
 
     fn inject_volumes(&mut self, volumes: &Vec<Volume>) {
         if self.needs_sidecar_volumes() {
+            debug!("POD needs volumes injection");
             if let Some(vs) = self.mut_volumes() {
+                debug!("Injecting sidecar volumes into POD");
                 vs.extend_from_slice(volumes)
             }
         }
@@ -120,6 +135,21 @@ impl AppgatePod for Pod {
         let spec = self.spec.get_or_insert(Default::default());
         spec.volumes.get_or_insert(Default::default());
     }
+
+    fn name(&self) -> String {
+        self.metadata.name.as_ref().map(|x| x.clone())
+            .unwrap_or("Unnamed".to_string())
+    }
+}
+
+impl Display for AppgatePodDisplay<'_> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FResult {
+        let pod = self.0;
+        write!(f, "POD(name:{}, needs_containers:{}, needs_volumes: {}, containers:[{}], volumes: [{}])",
+               pod.name(), pod.needs_sidecar_containers(), pod.needs_sidecar_volumes(),
+               pod.container_names().unwrap_or(vec![]).join(","),
+               pod.volume_names().unwrap_or(vec![]).join(","))
+    }
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -133,19 +163,26 @@ fn error_to_bad_request(e: serde_json::Error) -> HttpResponse {
 }
 
 fn load_sidecar_containers() -> Result<AppgateSidecars, Box<dyn Error>> {
+    debug!("Loading appgate context");
     let cwd = std::env::current_dir()?;
     let file = File::open(cwd.join(PathBuf::from("sidecars.json").as_path()))?;
     let reader = BufReader::new(file);
     let appgate_sidecars = serde_json::from_reader(reader)?;
+    debug!("Appgate context loaded successful");
     Ok(appgate_sidecars)
 }
 
-fn inject_sidecars(request_body: &str, context: &AppgateSidecars) -> Result<HttpResponse, HttpResponse> {
-    let mut pod = serde_json::from_str::<Pod>(&request_body).map_err(error_to_bad_request)?;
+fn inject_sidecars(request_body: &str, context: &AppgateSidecars) -> Result<HttpResponse, serde_json::Error> {
+    let mut pod = serde_json::from_str::<Pod>(&request_body)?;
+    debug!("Got POD request: {}", AppgatePodDisplay(&pod));
     if pod.needs_sidecar_containers() {
+        info!("Injecting appgate k8s client to POD");
         pod.inject_sidecars(context);
+        debug!("New POD generated: {}", AppgatePodDisplay(&pod));
+    } else {
+        debug!("appgate k8s client injection not needed");
     }
-    let response_body = serde_json::to_string(&pod).map_err(error_to_bad_request)?;
+    let response_body = serde_json::to_string(&pod)?;
     Ok(HttpResponse::Ok().body(response_body))
 }
 
@@ -153,7 +190,11 @@ fn inject_sidecars(request_body: &str, context: &AppgateSidecars) -> Result<Http
 async fn mutate(request: HttpRequest, body: String) -> Result<HttpResponse, HttpResponse> {
     let context = request.app_data::<AppgateSidecars>()
         .expect("Unable to get app context");
-    inject_sidecars(&body, context)
+    let result = inject_sidecars(&body, context);
+    if result.is_err() {
+        error!("Error injecting appgate client into POD: {}", result.as_ref().unwrap_err());
+    }
+    result.map_err(error_to_bad_request)
 }
 
 #[cfg(test)]
@@ -161,6 +202,8 @@ mod tests {
     use k8s_openapi::api::core::v1::{Pod, Container};
     use std::collections::BTreeMap;
     use crate::{AppgatePod, APPGATE_SIDECAR_NAMES, load_sidecar_containers, APPGATE_VOLUME_NAMES};
+
+    const APPGATE_VOLUME_NAMES: [&str; 2] = ["run-appgate", "tun-device"];
 
     fn create_labels(labels: &[(&str, &str)]) -> BTreeMap<String, String> {
         let mut bm = BTreeMap::new();
@@ -177,7 +220,7 @@ mod tests {
     }
 
     fn run_test<F>(pod: &mut Pod, test: &TestInject, predicate: &mut F) -> (bool, String)
-    where F: FnMut(&mut Pod, &TestInject) -> (bool, String) {
+        where F: FnMut(&mut Pod, &TestInject) -> (bool, String) {
         pod.metadata.labels = test.labels.as_ref()
             .map(|xs| create_labels(&xs[..]));
         let test_cs: Vec<Container> = test.containers.iter()
@@ -312,6 +355,8 @@ mod tests {
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
+    env_logger::init();
+    info!("Starting appgate-injector!!!!");
     // Get the sidecar containers definition
     // this is used to inject later the sidecars
     let appgated_context = load_sidecar_containers()
@@ -321,7 +366,7 @@ async fn main() -> std::io::Result<()> {
             .app_data(appgated_context.clone())
             .service(mutate)
     })
-        .bind("127.0.0.1:8080")?
+        .bind("0.0.0.0:8080")?
         .run()
         .await
 }
