@@ -8,10 +8,21 @@ use std::collections::BTreeMap;
 use serde::Deserialize;
 use log::{debug, error, info};
 use std::fmt::{Display, Formatter, Result as FResult};
+use rustls::{ServerConfig, NoClientAuth};
+use rustls::internal::pemfile::{certs, rsa_private_keys};
 
 const APPGATE_TAG_KEY: &str = "appgate-inject";
 const APPGATE_TAG_VALUE: &str = "true";
 const APPGATE_SIDECAR_NAMES: [&str; 2] = ["appgate-service", "appgate-driver"];
+const APPGATE_SIDECARS_FILE: &str = "sidecars.json";
+const APPGATE_CERT_FILE: &str = "certs/cert.pem";
+const APPGATE_KEY_FILE: &str = "certs/private-key.pem";
+
+fn reader_from_cwd(file_name: &str) -> Result<BufReader<File>, Box<dyn Error>> {
+    let cwd = std::env::current_dir()?;
+    let file = File::open(cwd.join(PathBuf::from(file_name).as_path()))?;
+    Ok(BufReader::new(file))
+}
 
 struct AppgatePodDisplay<'a>(&'a Pod);
 
@@ -165,11 +176,17 @@ fn error_to_bad_request(e: serde_json::Error) -> HttpResponse {
 fn load_sidecar_containers() -> Result<AppgateSidecars, Box<dyn Error>> {
     debug!("Loading appgate context");
     let cwd = std::env::current_dir()?;
-    let file = File::open(cwd.join(PathBuf::from("sidecars.json").as_path()))?;
+    let file = File::open(cwd.join(PathBuf::from(APPGATE_SIDECARS_FILE).as_path()))?;
     let reader = BufReader::new(file);
     let appgate_sidecars = serde_json::from_reader(reader)?;
     debug!("Appgate context loaded successful");
     Ok(appgate_sidecars)
+}
+
+fn load_cert_files() -> Result<(BufReader<File>, BufReader<File>), Box<dyn Error>> {
+    let cert_buf = reader_from_cwd(APPGATE_CERT_FILE)?;
+    let key_buf = reader_from_cwd(APPGATE_KEY_FILE)?;
+    Ok((cert_buf, key_buf))
 }
 
 fn inject_sidecars(request_body: &str, context: &AppgateSidecars) -> Result<HttpResponse, serde_json::Error> {
@@ -353,6 +370,18 @@ mod tests {
     }
 }
 
+fn load_ssl() -> Result<ServerConfig, Box<dyn Error>> {
+    let (mut cert_buf, mut key_buf) = load_cert_files()?;
+
+    let mut config = ServerConfig::new(NoClientAuth::new());
+    let cert_chain = certs(&mut cert_buf)
+        .map_err(|_| "Unable to load certificate file")?;
+    let mut keys = rsa_private_keys(&mut key_buf)
+        .map_err(|_| "Unable to load key file")?;
+    config.set_single_cert(cert_chain, keys.remove(0))?;
+    Ok(config)
+}
+
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     env_logger::init();
@@ -361,12 +390,13 @@ async fn main() -> std::io::Result<()> {
     // this is used to inject later the sidecars
     let appgated_context = load_sidecar_containers()
         .expect("Unable to load the sidecar information");
+    let ssl_config = load_ssl().expect("Unable to load certificates");
     HttpServer::new(move || {
         App::new()
             .app_data(appgated_context.clone())
             .service(mutate)
     })
-        .bind("0.0.0.0:8080")?
+        .bind_rustls("0.0.0.0:8433", ssl_config)?
         .run()
         .await
 }
