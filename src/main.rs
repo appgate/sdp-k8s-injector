@@ -18,14 +18,14 @@ use std::convert::TryInto;
 use kube::api::DynamicObject;
 use std::env::{current_dir, var};
 
-const APPGATE_TAG_KEY: &str = "appgate-inject";
-const APPGATE_TAG_VALUE: &str = "true";
-const APPGATE_SIDECAR_NAMES: [&str; 2] = ["appgate-service", "appgate-driver"];
-const APPGATE_SIDECARS_FILE: &str = "sidecars.json";
+const SDP_TAG_KEY: &str = "sdp-inject";
+const SDP_TAG_VALUE: &str = "true";
+const SDP_SIDECAR_NAMES: [&str; 2] = ["sdp-service", "sdp-driver"];
+const SDP_SIDECARS_FILE: &str = "sidecars.json";
 const SDP_CERT_FILE_ENV: &str = "SDP_CERT_FILE";
 const SDP_KEY_FILE_ENV: &str = "SDP_KEY_FILE";
-const APPGATE_CERT_FILE: &str = "/opt/sdp-injector/certs/sdp-injector-crt.pem";
-const APPGATE_KEY_FILE: &str = "/opt/sdp-injector/certs/sdp-injector-key.pem";
+const SDP_CERT_FILE: &str = "/opt/sdp-injector/certs/sdp-injector-crt.pem";
+const SDP_KEY_FILE: &str = "/opt/sdp-injector/certs/sdp-injector-key.pem";
 
 fn reader_from_cwd(file_name: &str) -> Result<BufReader<File>, Box<dyn Error>> {
     let cwd = std::env::current_dir()?;
@@ -33,13 +33,13 @@ fn reader_from_cwd(file_name: &str) -> Result<BufReader<File>, Box<dyn Error>> {
     Ok(BufReader::new(file))
 }
 
-struct AppgatePodDisplay<'a>(&'a Pod);
+struct SDPPodDisplay<'a>(&'a Pod);
 
-trait AppgatePod {
-    fn has_appgate_label(&self) -> bool {
+trait SDPPod {
+    fn has_sdp_label(&self) -> bool {
         if let Some(labels) = self.labels() {
-            labels.get(APPGATE_TAG_KEY)
-                .map(|v| v == APPGATE_TAG_VALUE)
+            labels.get(SDP_TAG_KEY)
+                .map(|v| v == SDP_TAG_VALUE)
                 .unwrap_or(false)
         } else {
             false
@@ -49,7 +49,7 @@ trait AppgatePod {
     fn sidecars(&self) -> Option<Vec<&Container>> {
         self.containers().map(|cs|
             cs.iter()
-                .filter(|&c| APPGATE_SIDECAR_NAMES.contains(&&c.name[..]))
+                .filter(|&c| SDP_SIDECAR_NAMES.contains(&&c.name[..]))
                 .collect())
     }
 
@@ -73,7 +73,7 @@ trait AppgatePod {
 
     fn has_all_sidecars(&self) -> bool {
         self.sidecars()
-            .map(|xs| xs.len() == APPGATE_SIDECAR_NAMES.len())
+            .map(|xs| xs.len() == SDP_SIDECAR_NAMES.len())
             .unwrap_or(false)
     }
 
@@ -82,7 +82,7 @@ trait AppgatePod {
     }
 
     fn needs_patching(&self) -> bool {
-        self.has_appgate_label() && self.has_containers() && !self.has_any_sidecars()
+        self.has_sdp_label() && self.has_containers() && !self.has_any_sidecars()
     }
 
     fn containers(&self) -> Option<&Vec<Container>>;
@@ -93,18 +93,18 @@ trait AppgatePod {
 
     fn name(&self) -> String;
 
-    fn patch_sidecars(&self, appgate_sidecars: &AppgateSidecars) -> Result<Option<Patch>, Box<dyn Error>> {
-        info!("Patching POD with appgate client");
+    fn patch_sidecars(&self, spd_sidecars: &SDPSidecars) -> Result<Option<Patch>, Box<dyn Error>> {
+        info!("Patching POD with SDP client");
         let mut patches = vec![];
         if self.needs_patching() {
-            for c in appgate_sidecars.containers.iter() {
+            for c in spd_sidecars.containers.iter() {
                 patches.push(Add(AddOperation {
                     path: "/spec/containers/-".to_string(),
                     value: serde_json::to_value(&c)?,
                 }));
             }
             if self.volumes().is_some() {
-                for v in appgate_sidecars.volumes.iter() {
+                for v in spd_sidecars.volumes.iter() {
                     patches.push(Add(AddOperation {
                         path: "/spec/volumes/-".to_string(),
                         value: serde_json::to_value(&v)?,
@@ -113,7 +113,7 @@ trait AppgatePod {
             } else {
                 patches.push(Add(AddOperation {
                     path: "/spec/volumes".to_string(),
-                    value: serde_json::to_value(&appgate_sidecars.volumes)?,
+                    value: serde_json::to_value(&spd_sidecars.volumes)?,
                 }));
             }
         }
@@ -126,7 +126,7 @@ trait AppgatePod {
     }
 }
 
-impl AppgatePod for Pod {
+impl SDPPod for Pod {
     fn containers(&self) -> Option<&Vec<Container>> {
         self.spec.as_ref().map(|s| &s.containers)
     }
@@ -145,7 +145,7 @@ impl AppgatePod for Pod {
     }
 }
 
-impl Display for AppgatePodDisplay<'_> {
+impl Display for SDPPodDisplay<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> FResult {
         let pod = self.0;
         write!(f, "POD(name:{}, needs_patching:{}, containers:[{}], volumes: [{}])",
@@ -156,7 +156,7 @@ impl Display for AppgatePodDisplay<'_> {
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
-struct AppgateSidecars {
+struct SDPSidecars {
     containers: Box<Vec<Container>>,
     volumes: Box<Vec<Volume>>,
 }
@@ -165,26 +165,26 @@ fn error_to_bad_request(e: Box<dyn Error>) -> HttpResponse {
     HttpResponse::BadRequest().body(e.to_string())
 }
 
-fn load_sidecar_containers() -> Result<AppgateSidecars, Box<dyn Error>> {
-    debug!("Loading appgate context");
+fn load_sidecar_containers() -> Result<SDPSidecars, Box<dyn Error>> {
+    debug!("Loading SDP context");
     let cwd = std::env::current_dir()?;
-    let file = File::open(cwd.join(PathBuf::from(APPGATE_SIDECARS_FILE).as_path()))?;
+    let file = File::open(cwd.join(PathBuf::from(SDP_SIDECARS_FILE).as_path()))?;
     let reader = BufReader::new(file);
-    let appgate_sidecars = serde_json::from_reader(reader)?;
-    debug!("Appgate context loaded successful");
-    Ok(appgate_sidecars)
+    let sdp_sidecars = serde_json::from_reader(reader)?;
+    debug!("SDP context loaded successful");
+    Ok(sdp_sidecars)
 }
 
 fn load_cert_files() -> Result<(BufReader<File>, BufReader<File>), Box<dyn Error>> {
-    let cert_file = var(SDP_CERT_FILE_ENV).unwrap_or(APPGATE_CERT_FILE.to_string());
-    let key_file = var(SDP_KEY_FILE_ENV).unwrap_or(APPGATE_KEY_FILE.to_string());
+    let cert_file = var(SDP_CERT_FILE_ENV).unwrap_or(SDP_CERT_FILE.to_string());
+    let key_file = var(SDP_KEY_FILE_ENV).unwrap_or(SDP_KEY_FILE.to_string());
     let cert_buf = reader_from_cwd(&cert_file)?;
     let key_buf = reader_from_cwd(&key_file)?;
     Ok((cert_buf, key_buf))
 }
 
 
-fn generate_patch(request_body: &str, context: &AppgateSidecars) -> Result<AdmissionReview<DynamicObject>, Box<dyn Error>> {
+fn generate_patch(request_body: &str, context: &SDPSidecars) -> Result<AdmissionReview<DynamicObject>, Box<dyn Error>> {
     let admision_review = serde_json::from_str::<AdmissionReview<Pod>>(&request_body)
         .map_err(|e| format!("Error parsing payload: {}", e.to_string()))?;
     let admission_request: AdmissionRequest<Pod> = admision_review.try_into()?;
@@ -205,11 +205,11 @@ fn generate_patch(request_body: &str, context: &AppgateSidecars) -> Result<Admis
 
 #[post("/mutate")]
 async fn mutate(request: HttpRequest, body: String) -> Result<HttpResponse, HttpResponse> {
-    let context = request.app_data::<AppgateSidecars>()
+    let context = request.app_data::<SDPSidecars>()
         .expect("Unable to get app context");
     let admission_review = generate_patch(&body, context);
     if admission_review.is_err() {
-        error!("Error injecting appgate client into POD: {}", admission_review.as_ref().unwrap_err());
+        error!("Error injecting SDP client into POD: {}", admission_review.as_ref().unwrap_err());
     }
     //     Ok(HttpResponse::Ok().json(&admission_response.into_review()))
     admission_review
@@ -221,12 +221,12 @@ async fn mutate(request: HttpRequest, body: String) -> Result<HttpResponse, Http
 mod tests {
     use k8s_openapi::api::core::v1::{Pod, Container};
     use std::collections::{BTreeMap, HashSet};
-    use crate::{AppgatePod, APPGATE_SIDECAR_NAMES, load_sidecar_containers, AppgatePodDisplay, generate_patch};
+    use crate::{SDPPod, SDP_SIDECAR_NAMES, load_sidecar_containers, SDPPodDisplay, generate_patch};
     use std::iter::FromIterator;
     use kube::core::admission::AdmissionReview;
     use serde_json::json;
 
-    const APPGATE_VOLUME_NAMES: [&str; 2] = ["run-appgate", "tun-device"];
+    const SDP_VOLUME_NAMES: [&str; 2] = ["run-appgate", "tun-device"];
 
     fn create_labels(labels: &[(&str, &str)]) -> BTreeMap<String, String> {
         let mut bm = BTreeMap::new();
@@ -288,7 +288,7 @@ mod tests {
     fn tests() -> Vec<TestInject<'static>> {
         vec![
             TestInject {
-                labels: Some(vec![("appgate-inject", "false")]),
+                labels: Some(vec![("sdp-inject", "false")]),
                 containers: vec![],
                 needs_patching: false,
             },
@@ -303,44 +303,44 @@ mod tests {
                 needs_patching: false,
             },
             TestInject {
-                labels: Some(vec![("appgate-inject", "true")]),
+                labels: Some(vec![("sdp-inject", "true")]),
                 containers: vec![],
                 needs_patching: false,
             },
             TestInject {
-                labels: Some(vec![("appgate-inject", "true")]),
+                labels: Some(vec![("sdp-inject", "true")]),
                 containers: vec![],
                 needs_patching: false,
             },
             TestInject {
-                labels: Some(vec![("appgate-inject", "true")]),
+                labels: Some(vec![("sdp-inject", "true")]),
                 containers: vec!["some-random-service"],
                 needs_patching: true,
             },
             TestInject {
-                labels: Some(vec![("appgate-inject", "true")]),
+                labels: Some(vec![("sdp-inject", "true")]),
                 containers: vec!["some-random-service-1", "some-random-service-2"],
                 needs_patching: true,
             },
             TestInject {
-                labels: Some(vec![("appgate-inject", "false")]),
+                labels: Some(vec![("sdp-inject", "false")]),
                 containers: vec!["some-random-service-1", "some-random-service-2"],
                 needs_patching: false,
             },
             TestInject {
-                labels: Some(vec![("appgate-inject", "true")]),
-                containers: vec![APPGATE_SIDECAR_NAMES[0], APPGATE_SIDECAR_NAMES[1],
+                labels: Some(vec![("sdp-inject", "true")]),
+                containers: vec![SDP_SIDECAR_NAMES[0], SDP_SIDECAR_NAMES[1],
                                  "some-random-service"],
                 needs_patching: false,
             },
             TestInject {
-                labels: Some(vec![("appgate-inject", "true")]),
-                containers: vec![APPGATE_SIDECAR_NAMES[1], "some-random-service"],
+                labels: Some(vec![("sdp-inject", "true")]),
+                containers: vec![SDP_SIDECAR_NAMES[1], "some-random-service"],
                 needs_patching: false,
             },
             TestInject {
-                labels: Some(vec![("appgate-inject", "true")]),
-                containers: vec![APPGATE_SIDECAR_NAMES[0], "some-random-service"],
+                labels: Some(vec![("sdp-inject", "true")]),
+                containers: vec![SDP_SIDECAR_NAMES[0], "some-random-service"],
                 needs_patching: false,
             }
         ]
@@ -350,7 +350,7 @@ mod tests {
     fn needs_injection_simple() {
         let mut predicate = |pod: &mut Pod, test: &TestInject| -> (bool, String, String) {
             (test.needs_patching == pod.needs_patching(), "Injection Simple Test".to_string(),
-             format!("{}", AppgatePodDisplay(pod)))
+             format!("{}", SDPPodDisplay(pod)))
         };
 
         assert_tests(&tests(), &mut predicate)
@@ -359,22 +359,22 @@ mod tests {
     #[test]
     fn test_pod_inject_sidecar() {
         let expected_containers = |vs: &[String]| -> HashSet<String> {
-            let mut xs: Vec<String> = APPGATE_SIDECAR_NAMES.iter().map(|n| n.to_string()).collect();
+            let mut xs: Vec<String> = SDP_SIDECAR_NAMES.iter().map(|n| n.to_string()).collect();
             xs.extend_from_slice(vs);
             HashSet::from_iter(xs.iter().cloned())
         };
         let expected_volumes = |vs: &[String]| -> HashSet<String> {
-            let mut xs: Vec<String> = APPGATE_VOLUME_NAMES.iter().map(|n| n.to_string()).collect();
+            let mut xs: Vec<String> = SDP_VOLUME_NAMES.iter().map(|n| n.to_string()).collect();
             xs.extend_from_slice(vs);
             HashSet::from_iter(xs.iter().cloned())
         };
-        let appgate_context = load_sidecar_containers()
+        let sdp_context = load_sidecar_containers()
             .expect("Unable to load the sidecar information");
         let mut predicate = |pod: &mut Pod, test: &TestInject| -> (bool, String, String) {
-            let message = format!("Failure for {}", AppgatePodDisplay(pod));
+            let message = format!("Failure for {}", SDPPodDisplay(pod));
             let needs_patching = pod.needs_patching();
             let assert_patch = || -> Result<bool, String> {
-                match pod.patch_sidecars(&appgate_context) {
+                match pod.patch_sidecars(&sdp_context) {
                     Ok(Some(patch)) => {
                         let unpatched_containers = pod.container_names().unwrap_or(vec![]);
                         let unpatched_volumes = pod.volume_names().unwrap_or(vec![]);
@@ -396,9 +396,9 @@ mod tests {
                                            expected_volumes(&unpatched_volumes)))?;
                         Ok(true)
                     }
-                    Ok(None) => Err(format!("Patch was expected for {}", AppgatePodDisplay(pod))),
+                    Ok(None) => Err(format!("Patch was expected for {}", SDPPodDisplay(pod))),
                     Err(error) =>
-                        Err(format!("Unable to generate patch for {}, {}", AppgatePodDisplay(pod), error.to_string()))
+                        Err(format!("Unable to generate patch for {}, {}", SDPPodDisplay(pod), error.to_string()))
                 }
             };
             if test.needs_patching && needs_patching {
@@ -421,7 +421,7 @@ mod tests {
     fn test_responses() {
         let mut predicate = |pod: &mut Pod, test: &TestInject| -> (bool, String, String) {
             let pod_value = serde_json::to_value(&pod)
-                .expect(&format!("Unable to parse test input {}", AppgatePodDisplay(&pod)));
+                .expect(&format!("Unable to parse test input {}", SDPPodDisplay(&pod)));
             let admission_review_value = json!({
                 "apiVersion": "admission.k8s.io/v1",
                 "kind": "AdmissionReview",
@@ -457,11 +457,11 @@ mod tests {
                 // Serialize the request into a string
                 let admission_review_str = serde_json::to_string(&admission_review)
                     .map_err(|e| format!("Unable to convert to string generated AdmissionReview value: {}",e.to_string()))?;
-                let appgate_context = load_sidecar_containers()
+                let sdp_context = load_sidecar_containers()
                     .map_err(|e| format!("Unable to load the sidecar information {}", e.to_string()))?;
 
                 // test the generate_patch function now
-                let admission_review = generate_patch(&admission_review_str, &appgate_context)
+                let admission_review = generate_patch(&admission_review_str, &sdp_context)
                     .map_err(|e| format!("Error getting response: {}", e.to_string()))?;
                 let r = true;
                 if let Some(response) = admission_review.response {
@@ -469,7 +469,7 @@ mod tests {
                     if response.allowed == response_allowed {
                         Ok(r)
                     } else {
-                        Err(format!("{} got response allowed = {} but it expected {}", AppgatePodDisplay(&pod),
+                        Err(format!("{} got response allowed = {} but it expected {}", SDPPodDisplay(&pod),
                                     response.allowed, test.needs_patching))
                     }
                 } else {
@@ -501,15 +501,15 @@ fn load_ssl() -> Result<ServerConfig, Box<dyn Error>> {
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     env_logger::init();
-    info!("Starting appgate-injector!!!!");
+    info!("Starting sdp-injector!!!!");
     // Get the sidecar containers definition
     // this is used to inject later the sidecars
-    let appgated_context = load_sidecar_containers()
+    let sdp_context = load_sidecar_containers()
         .expect("Unable to load the sidecar information");
     let ssl_config = load_ssl().expect("Unable to load certificates");
     HttpServer::new(move || {
         App::new()
-            .app_data(appgated_context.clone())
+            .app_data(sdp_context.clone())
             .service(mutate)
     })
         .bind_rustls("0.0.0.0:8443", ssl_config)?

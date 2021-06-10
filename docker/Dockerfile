@@ -1,24 +1,24 @@
-FROM rust:1-alpine as appgated-builder
+FROM rust:1-alpine as sdp-builder
 LABEL builder=true
-LABEL appgate=true
-LABEL project=appgated
-WORKDIR /usr/src/appgate-appgated
+LABEL sdp=true
+LABEL project=sdp-injector
+WORKDIR /usr/src/sdp-injector
 RUN apk add --no-cache musl-dev && apk add --no-cache openssl-dev
 RUN cargo init
 COPY Cargo.lock .
 COPY Cargo.toml .
 RUN cargo build --release
 RUN rm src/*rs
-RUN rm target/release/deps/appgate_appgated*
+RUN rm target/release/deps/sdp_injector*
 COPY src src
 RUN cargo build --release
 
 FROM alpine
-LABEL appgate=true
-LABEL project=appgated
-COPY --from=appgated-builder /usr/src/appgate-appgated/target/release/appgate-appgated /bin/appgate-appgated
-WORKDIR /appgate-inject
+LABEL sdp=true
+LABEL project=sdp-injector
+COPY --from=sdp-builder /usr/src/sdp-injector/target/release/sdp-injector /bin/sdp-injector
+WORKDIR /sdp-injector
 COPY sidecars.json .
-COPY certs/sdp-injector-key.pem certs/private-key.pem
-COPY certs/sdp-injector-crt.pem certs/cert.pem
-CMD ["/bin/appgate-appgated"]
+COPY tools/mk_cert.sh /usr/bin/sdp-mk-cert
+RUN chmod +x /usr/bin/sdp-mk-cert
+CMD ["/usr/bin/sdp-injector"]
