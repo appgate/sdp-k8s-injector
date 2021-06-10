@@ -1,0 +1,12 @@
+* SDP-k8s-client
+
+This repository contains the code needed to deploy sdp clients inside kubernetes.
+
+** Quick howto
+TODO
+
+** NOTES
+*** GKE
+When running on GKE the firewall needs to be configured to allow traffic from
+the k8s api into the nodes to the port 8443, even if the service is listening on
+443. See https://github.com/istio/istio/issues/19532
