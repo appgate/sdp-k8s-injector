@@ -1,5 +1,6 @@
 use actix_web::{post, App, HttpResponse, HttpServer, HttpRequest};
 use k8s_openapi::api::core::v1::{Container, Pod, Volume};
+use k8s_openapi::apimachinery::pkg::apis::meta::v1::Status;
 use std::path::PathBuf;
 use std::fs::File;
 use std::io::BufReader;
@@ -14,6 +15,7 @@ use kube::api::admission::{AdmissionReview, AdmissionResponse, AdmissionRequest}
 use json_patch::{Patch, AddOperation};
 use json_patch::PatchOperation::Add;
 use std::convert::TryInto;
+use kube::api::DynamicObject;
 
 const APPGATE_TAG_KEY: &str = "appgate-inject";
 const APPGATE_TAG_VALUE: &str = "true";
@@ -176,35 +178,48 @@ fn load_cert_files() -> Result<(BufReader<File>, BufReader<File>), Box<dyn Error
     Ok((cert_buf, key_buf))
 }
 
-fn generate_patch(request_body: &str, context: &AppgateSidecars) -> Result<HttpResponse, Box<dyn Error>> {
+
+fn generate_patch(request_body: &str, context: &AppgateSidecars) -> Result<AdmissionReview<DynamicObject>, Box<dyn Error>> {
     let admision_review = serde_json::from_str::<AdmissionReview<Pod>>(&request_body)
         .map_err(|e| format!("Error parsing payload: {}", e.to_string()))?;
     let admission_request: AdmissionRequest<Pod> = admision_review.try_into()?;
     let pod = admission_request.object.as_ref().ok_or("Admission review does not contain a POD")?;
     let mut admission_response = AdmissionResponse::from(&admission_request);
-    if let Some(p) = pod.patch_sidecars(&context)? {
-        admission_response = admission_response.with_patch(p)?;
+    match pod.patch_sidecars(&context)? {
+        Some(p) => admission_response = admission_response.with_patch(p)?,
+        None => {
+            let mut status: Status = Default::default();
+            status.code = Some(40);
+            status.message = Some("This POD can not be patched".to_string());
+            admission_response.allowed = false;
+            admission_response.result = status;
+        }
     }
-    Ok(HttpResponse::Ok().json(&admission_response.into_review()))
+    Ok(admission_response.into_review())
 }
 
 #[post("/mutate")]
 async fn mutate(request: HttpRequest, body: String) -> Result<HttpResponse, HttpResponse> {
     let context = request.app_data::<AppgateSidecars>()
         .expect("Unable to get app context");
-    let result = generate_patch(&body, context);
-    if result.is_err() {
-        error!("Error injecting appgate client into POD: {}", result.as_ref().unwrap_err());
+    let admission_review = generate_patch(&body, context);
+    if admission_review.is_err() {
+        error!("Error injecting appgate client into POD: {}", admission_review.as_ref().unwrap_err());
     }
-    result.map_err(error_to_bad_request)
+    //     Ok(HttpResponse::Ok().json(&admission_response.into_review()))
+    admission_review
+        .and_then(|r| Ok(HttpResponse::Ok().json(&r)))
+        .map_err(error_to_bad_request)
 }
 
 #[cfg(test)]
 mod tests {
     use k8s_openapi::api::core::v1::{Pod, Container};
     use std::collections::{BTreeMap, HashSet};
-    use crate::{AppgatePod, APPGATE_SIDECAR_NAMES, load_sidecar_containers, AppgatePodDisplay};
+    use crate::{AppgatePod, APPGATE_SIDECAR_NAMES, load_sidecar_containers, AppgatePodDisplay, generate_patch};
     use std::iter::FromIterator;
+    use kube::core::admission::AdmissionReview;
+    use serde_json::json;
 
     const APPGATE_VOLUME_NAMES: [&str; 2] = ["run-appgate", "tun-device"];
 
@@ -394,6 +409,74 @@ mod tests {
             }
         };
 
+        assert_tests(&tests(), &mut predicate)
+    }
+
+    #[test]
+    fn test_responses() {
+        let mut predicate = |pod: &mut Pod, test: &TestInject| -> (bool, String, String) {
+            let pod_value = serde_json::to_value(&pod)
+                .expect(&format!("Unable to parse test input {}", AppgatePodDisplay(&pod)));
+            let admission_review_value = json!({
+                "apiVersion": "admission.k8s.io/v1",
+                "kind": "AdmissionReview",
+                "request": {
+                    "uid": "705ab4f5-6393-11e8-b7cc-42010a800002",
+                    "kind" :{"group":"","version":"v1","kind":"Pod"},
+                    "resource":{"group":"","version":"v1","resource":"pods"},
+                    "requestKind":{"group":"","version": "v1","kind":"Pod"},
+                    "requestResource":{"group":"","version":"v1","resource":"pods"},
+                    "name": "my-deployment",
+                    "namespace": "my-namespace",
+                    "operation": "UPDATE",
+                    "userInfo": {
+                        "username": "admin",
+                        "uid": "014fbff9a07c",
+                        "groups": ["system:authenticated","my-admin-group"],
+                        "extra": {
+                            "some-key":["some-value1", "some-value2"]
+                        }
+                    }
+                },
+                "object": pod_value});
+            let assert_response = || -> Result<bool, String> {
+                let mut admission_review: AdmissionReview<Pod> = serde_json::from_value(admission_review_value)
+                    .map_err(|e| format!("Unable to parse generated AdmissionReview value: {}", e.to_string()))?;
+                // copy the POD
+                let copied_pod: Pod = serde_json::to_value(&pod)
+                    .and_then(|v| serde_json::from_value(v))
+                    .map_err(|e| format!("Unable to deserialize POD {}", e.to_string()))?;
+                if let Some(request) = admission_review.request.as_mut() {
+                    request.object = Some(copied_pod);
+                }
+                // Serialize the request into a string
+                let admission_review_str = serde_json::to_string(&admission_review)
+                    .map_err(|e| format!("Unable to convert to string generated AdmissionReview value: {}",e.to_string()))?;
+                let appgate_context = load_sidecar_containers()
+                    .map_err(|e| format!("Unable to load the sidecar information {}", e.to_string()))?;
+
+                // test the generate_patch function now
+                let admission_review = generate_patch(&admission_review_str, &appgate_context)
+                    .map_err(|e| format!("Error getting response: {}", e.to_string()))?;
+                let r = true;
+                if let Some(response) = admission_review.response {
+                    let response_allowed = test.needs_patching;
+                    if response.allowed == response_allowed {
+                        Ok(r)
+                    } else {
+                        Err(format!("{} got response allowed = {} but it expected {}", AppgatePodDisplay(&pod),
+                                    response.allowed, test.needs_patching))
+                    }
+                } else {
+                    Err("Could not find a response!".to_string())
+                }
+            };
+            match assert_response() {
+                Ok(r) => (r, "Injection Containers Test".to_string(), "Unknown".to_string()),
+                Err(error) => (false, "Injection Containers Test".to_string(), error)
+
+            }
+        };
         assert_tests(&tests(), &mut predicate)
     }
 }
