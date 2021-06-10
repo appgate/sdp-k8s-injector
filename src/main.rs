@@ -185,9 +185,7 @@ fn generate_patch(request_body: &str, context: &AppgateSidecars) -> Result<HttpR
     if let Some(p) = pod.patch_sidecars(&context)? {
         admission_response = admission_response.with_patch(p)?;
     }
-    let response = &admission_response.into_review();
-    //let response_body = serde_json::to_string(&admission_response.into_review())?;
-    Ok(HttpResponse::Ok().json(&response))
+    Ok(HttpResponse::Ok().json(&admission_response.into_review()))
 }
 
 #[post("/mutate")]
