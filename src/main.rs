@@ -16,13 +16,16 @@ use json_patch::{Patch, AddOperation};
 use json_patch::PatchOperation::Add;
 use std::convert::TryInto;
 use kube::api::DynamicObject;
+use std::env::{current_dir, var};
 
 const APPGATE_TAG_KEY: &str = "appgate-inject";
 const APPGATE_TAG_VALUE: &str = "true";
 const APPGATE_SIDECAR_NAMES: [&str; 2] = ["appgate-service", "appgate-driver"];
 const APPGATE_SIDECARS_FILE: &str = "sidecars.json";
-const APPGATE_CERT_FILE: &str = "certs/cert.pem";
-const APPGATE_KEY_FILE: &str = "certs/private-key.pem";
+const SDP_CERT_FILE_ENV: &str = "SDP_CERT_FILE";
+const SDP_KEY_FILE_ENV: &str = "SDP_KEY_FILE";
+const APPGATE_CERT_FILE: &str = "/opt/sdp-injector/certs/sdp-injector-crt.pem";
+const APPGATE_KEY_FILE: &str = "/opt/sdp-injector/certs/sdp-injector-key.pem";
 
 fn reader_from_cwd(file_name: &str) -> Result<BufReader<File>, Box<dyn Error>> {
     let cwd = std::env::current_dir()?;
@@ -173,8 +176,10 @@ fn load_sidecar_containers() -> Result<AppgateSidecars, Box<dyn Error>> {
 }
 
 fn load_cert_files() -> Result<(BufReader<File>, BufReader<File>), Box<dyn Error>> {
-    let cert_buf = reader_from_cwd(APPGATE_CERT_FILE)?;
-    let key_buf = reader_from_cwd(APPGATE_KEY_FILE)?;
+    let cert_file = var(SDP_CERT_FILE_ENV).unwrap_or(APPGATE_CERT_FILE.to_string());
+    let key_file = var(SDP_KEY_FILE_ENV).unwrap_or(APPGATE_KEY_FILE.to_string());
+    let cert_buf = reader_from_cwd(&cert_file)?;
+    let key_buf = reader_from_cwd(&key_file)?;
     Ok((cert_buf, key_buf))
 }
 
