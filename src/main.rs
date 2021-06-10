@@ -106,10 +106,10 @@ trait AppgatePod {
                     }));
                 }
             } else {
-                patches.extend(vec![Add(AddOperation {
+                patches.push(Add(AddOperation {
                     path: "/spec/volumes".to_string(),
                     value: serde_json::to_value(&appgate_sidecars.volumes)?,
-                })]);
+                }));
             }
         }
         if patches.is_empty() {
