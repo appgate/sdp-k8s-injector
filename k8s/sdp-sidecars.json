@@ -10,7 +10,7 @@
                 "valueFrom": {
                     "configMapKeyRef": {
                         "key": "client-loglevel",
-                        "name": "client-config"
+                        "name": "sdp-injector-client-config"
                     }
                 }
             },
@@ -19,7 +19,7 @@
                 "valueFrom": {
                     "secretKeyRef": {
                         "key": "client-controller-url",
-                        "name": "client-secrets"
+                        "name": "sdp-injector-client-secrets"
                     }
                 }
             },
@@ -28,7 +28,7 @@
                 "valueFrom": {
                     "secretKeyRef": {
                         "key": "client-username",
-                        "name": "client-secrets"
+                        "name": "sdp-injector-client-secrets"
                     }
                 }
             },
@@ -37,7 +37,7 @@
                 "valueFrom": {
                     "secretKeyRef": {
                         "key": "client-password",
-                        "name": "client-secrets"
+                        "name": "sdp-injector-client-secrets"
                     }
                 }
             }
@@ -96,7 +96,9 @@
                 "name": "run-appgate"
             },
             {
-                "mountPath": "/dev/net/tun",
+                "hostPath": {
+		    "path": "/dev/net/tun"
+		},
                 "name": "tun-device"
             }
     ]
