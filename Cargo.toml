@@ -1,5 +1,5 @@
 [package]
-name = "appgate-appgated"
+name = "sdp-k8s"
 version = "0.1.0"
 edition = "2018"
 
