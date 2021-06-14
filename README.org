@@ -137,7 +137,31 @@ And we should see the admission ~sdp-injector~ admission webhook as well:
 #+end_example
 
 *** Usage
-TODO
+- Note taken on [2021-06-14 Mon 17:16] \\
+  Add example for client configuration
+Now that we have deployed sdp-k8s-client in our cluster we are ready to start
+using it.
+
+SDP client injection is attached to namespaces. This means that we need to label
+the namespaces in which we want to inject the SDP client. To do this we need add
+the label ~sdp-injection=true~ into the desired namespace:
+
+#+begin_example
+  # label the namespace spc-k8s-poc
+  root@21a3d24e704e:/project# kubectl label namespace sdp-k8s-poc --overwrite sdp-injection=enabled
+  namespace/sdp-k8s-poc labeled
+
+  # Check that we have the label in the namespace
+  root@21a3d24e704e:/project# kubectl get ns sdp-k8s-poc -L sdp-injection
+  NAME          STATUS   AGE    SDP-INJECTION
+  sdp-k8s-poc   Active   105m   enabled
+#+end_example
+
+From now, all the PODs created in that namespace will get attached an SDP client
+so now we need to add the configuration for those clients. To do this we need to
+create a secrets object and a config map object to store the credentials and the
+configuration for our the clients injected in our PODs.
+
 ** NOTES
 *** GKE
 When running on GKE the firewall needs to be configured to allow traffic from
