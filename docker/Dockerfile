@@ -9,13 +9,12 @@ COPY Cargo.lock .
 COPY Cargo.toml .
 RUN cargo build --release
 RUN rm src/*rs
-RUN rm target/release/deps/sdp_injector*
 COPY src src
-RUN cargo build --release
+RUN cargo build --release --bin sdp-injector
 
 FROM alpine
 LABEL sdp=true
 LABEL project=sdp-injector
-COPY --from=sdp-builder /usr/src/sdp-injector/target/release/sdp-injector /bin/sdp-injector
+COPY --from=sdp-builder /usr/src/sdp-injector/target/release/sdp-injector /usr/bin/sdp-injector
 WORKDIR /sdp-injector
 CMD ["/usr/bin/sdp-injector"]
