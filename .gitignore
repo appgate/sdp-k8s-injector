@@ -3,5 +3,6 @@ certs/*
 !certs/sdp-injector_config.txt
 k8s/*
 !k8s/*-tmpl.yml
+!k8s/sdp-sidecars.json
 .idea/*
 target/*

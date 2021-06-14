@@ -21,13 +21,13 @@ spec:
           - name: RUST_LOG
             value: debug
         volumeMounts:
-          - mountPath: "/opt/sdp-injector-certs"
-            name: sdp-injector-ssl
+          - mountPath: "/opt/sdp-injector-secrets"
+            name: sdp-injector-secrets
             readOnly: true
       volumes:
-        - name: sdp-injector-ssl
+        - name: sdp-injector-secrets
           secret:
-            secretName: sdp-injector-ssl
+            secretName: sdp-injector-secrets
 ---
 apiVersion: v1
 kind: Service
