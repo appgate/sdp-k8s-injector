@@ -21,7 +21,7 @@ spec:
           - name: RUST_LOG
             value: debug
         volumeMounts:
-          - mountPath: "/opt/sdp-injector-secrets"
+          - mountPath: "/opt/sdp-injector/k8s"
             name: sdp-injector-secrets
             readOnly: true
       volumes:
