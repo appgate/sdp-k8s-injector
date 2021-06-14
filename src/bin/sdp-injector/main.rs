@@ -17,7 +17,7 @@ use std::convert::TryInto;
 use kube::api::DynamicObject;
 
 const SDP_SIDECAR_NAMES: [&str; 2] = ["sdp-service", "sdp-driver"];
-const SDP_SIDECARS_FILE: &str = "/opt/sdp-injector/k8s/sidecars.json";
+const SDP_SIDECARS_FILE: &str = "/opt/sdp-injector/k8s/sdp-sidecars.json";
 const SDP_CERT_FILE_ENV: &str = "SDP_CERT_FILE";
 const SDP_KEY_FILE_ENV: &str = "SDP_KEY_FILE";
 const SDP_CERT_FILE: &str = "/opt/sdp-injector/k8s/sdp-injector-crt.pem";
