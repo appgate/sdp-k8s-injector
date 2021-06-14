@@ -18,5 +18,4 @@ LABEL sdp=true
 LABEL project=sdp-injector
 COPY --from=sdp-builder /usr/src/sdp-injector/target/release/sdp-injector /bin/sdp-injector
 WORKDIR /sdp-injector
-COPY sidecars.json .
 CMD ["/usr/bin/sdp-injector"]
