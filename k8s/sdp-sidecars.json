@@ -42,7 +42,7 @@
                 }
             }
         ],
-        "image": "lhr-nexus01.agi.appgate.com:5001/appgate-headless-client:latest",
+        "image": "ghcr.io/appgate/sdp-headless-driver",
         "imagePullPolicy": "Always",
         "name": "sdp-service",
         "resources": {},
@@ -65,7 +65,7 @@
         "command": [
             "/opt/appgate/appgate-driver"
         ],
-        "image": "lhr-nexus01.agi.appgate.com:5001/appgate-headless-client:latest",
+        "image": "ghcr.io/appgate/sdp-headless-service",
         "imagePullPolicy": "Always",
         "name": "sdp-driver",
         "resources": {},
