@@ -10,7 +10,7 @@ webhooks:
     clientConfig:
       service:
         name: sdp-injector
-        namespace: default
+        namespace: sdp-k8s
         path: "/mutate"
       caBundle: $CA_BUNDLE
     namespaceSelector:
