@@ -5,7 +5,6 @@ use std::path::PathBuf;
 use std::fs::File;
 use std::io::BufReader;
 use std::error::Error;
-use std::collections::BTreeMap;
 use serde::Deserialize;
 use log::{debug, error, info};
 use std::fmt::{Display, Formatter, Result as FResult};
@@ -16,16 +15,13 @@ use json_patch::{Patch, AddOperation};
 use json_patch::PatchOperation::Add;
 use std::convert::TryInto;
 use kube::api::DynamicObject;
-use std::env::{current_dir, var};
 
-const SDP_TAG_KEY: &str = "sdp-inject";
-const SDP_TAG_VALUE: &str = "true";
 const SDP_SIDECAR_NAMES: [&str; 2] = ["sdp-service", "sdp-driver"];
-const SDP_SIDECARS_FILE: &str = "sidecars.json";
+const SDP_SIDECARS_FILE: &str = "/opt/sdp-injector/k8s/sidecars.json";
 const SDP_CERT_FILE_ENV: &str = "SDP_CERT_FILE";
 const SDP_KEY_FILE_ENV: &str = "SDP_KEY_FILE";
-const SDP_CERT_FILE: &str = "/opt/sdp-injector/certs/sdp-injector-crt.pem";
-const SDP_KEY_FILE: &str = "/opt/sdp-injector/certs/sdp-injector-key.pem";
+const SDP_CERT_FILE: &str = "/opt/sdp-injector/k8s/sdp-injector-crt.pem";
+const SDP_KEY_FILE: &str = "/opt/sdp-injector/k8s/sdp-injector-key.pem";
 
 fn reader_from_cwd(file_name: &str) -> Result<BufReader<File>, Box<dyn Error>> {
     let cwd = std::env::current_dir()?;
@@ -36,16 +32,6 @@ fn reader_from_cwd(file_name: &str) -> Result<BufReader<File>, Box<dyn Error>> {
 struct SDPPodDisplay<'a>(&'a Pod);
 
 trait SDPPod {
-    fn has_sdp_label(&self) -> bool {
-        if let Some(labels) = self.labels() {
-            labels.get(SDP_TAG_KEY)
-                .map(|v| v == SDP_TAG_VALUE)
-                .unwrap_or(false)
-        } else {
-            false
-        }
-    }
-
     fn sidecars(&self) -> Option<Vec<&Container>> {
         self.containers().map(|cs|
             cs.iter()
@@ -82,14 +68,12 @@ trait SDPPod {
     }
 
     fn needs_patching(&self) -> bool {
-        self.has_sdp_label() && self.has_containers() && !self.has_any_sidecars()
+        self.has_containers() && !self.has_any_sidecars()
     }
 
     fn containers(&self) -> Option<&Vec<Container>>;
 
     fn volumes(&self) -> Option<&Vec<Volume>>;
-
-    fn labels(&self) -> Option<&BTreeMap<String, String>>;
 
     fn name(&self) -> String;
 
@@ -135,10 +119,6 @@ impl SDPPod for Pod {
         self.spec.as_ref().and_then(|s| s.volumes.as_ref())
     }
 
-    fn labels(&self) -> Option<&BTreeMap<String, String>> {
-        self.metadata.labels.as_ref()
-    }
-
     fn name(&self) -> String {
         self.metadata.name.as_ref().map(|x| x.clone())
             .unwrap_or("Unnamed".to_string())
@@ -176,8 +156,8 @@ fn load_sidecar_containers() -> Result<SDPSidecars, Box<dyn Error>> {
 }
 
 fn load_cert_files() -> Result<(BufReader<File>, BufReader<File>), Box<dyn Error>> {
-    let cert_file = var(SDP_CERT_FILE_ENV).unwrap_or(SDP_CERT_FILE.to_string());
-    let key_file = var(SDP_KEY_FILE_ENV).unwrap_or(SDP_KEY_FILE.to_string());
+    let cert_file = std::env::var(SDP_CERT_FILE_ENV).unwrap_or(SDP_CERT_FILE.to_string());
+    let key_file = std::env::var(SDP_KEY_FILE_ENV).unwrap_or(SDP_KEY_FILE.to_string());
     let cert_buf = reader_from_cwd(&cert_file)?;
     let key_buf = reader_from_cwd(&key_file)?;
     Ok((cert_buf, key_buf))
