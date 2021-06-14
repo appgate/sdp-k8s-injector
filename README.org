@@ -1,10 +1,143 @@
 * SDP-k8s-client
 
-This repository contains the code needed to deploy sdp clients inside kubernetes.
+This repository contains the code needed to deploy SDP clients inside kubernetes.
+
+** What's the sdp-k8s-client project
+
+The sdp-k8s-client aims to integrate SDP solutions into kubernetes
+clusters. This way PODs running inside a kubernetes cluster can access resources
+behind an SDP system and their access is managed in an uniform way.
+
+The way it works is by injecting an SDP client by demand on the PODs configured
+to have access via SDP.
 
 ** Quick howto
-TODO
 
+*** Deployment
+In order to get this integration we need to install the sdp-injector in our
+cluster. For that we can run from the root of this repository:
+
+#+begin_src shell
+  ./tools/sdp-k8s delete-certs
+  ./tools/sdp-k8s delete-yaml
+  ./tools/sdp-k8s mk-certs
+  ./tools/sdp-k8s mk-yaml
+  ./tools/sdp-k8s uninstall-sdp
+  ./tools/sdp-k8s install-sdp
+#+end_src
+
+The script requires the tools:
+ - kubectl
+ - envsubst (tool that comes with gettext).
+
+It should look like this:
+
+#+begin_example
+  # First delete old certificates
+  root@21a3d24e704e:/project# ./tools/sdp-k8s delete-certs
+  Deleting certificates
+
+  # Delete old YAML files
+  root@21a3d24e704e:/project# ./tools/sdp-k8s delete-yaml
+  Deleting YAML files
+
+  # Now create the new certificates
+  root@21a3d24e704e:/project# ./tools/sdp-k8s mk-certs
+  Creating new certificates
+  Generating RSA private key, 2048 bit long modulus (2 primes)
+  ......................................................+++++
+  ........................................+++++
+  e is 65537 (0x010001)
+  Generating RSA private key, 2048 bit long modulus (2 primes)
+  ...............................................................................................+++++
+  ....................................................................+++++
+  e is 65537 (0x010001)
+  Signature ok
+  subject=CN = sdp-injector.default.svc
+  Getting CA Private Key
+  Certificates created
+
+  # And create the new YAML files
+  root@21a3d24e704e:/project# ./tools/sdp-k8s mk-yaml
+  Generating YAML files
+
+  # Delete old versions of sdp-k8s-client.
+  # Note that this will fail if some components are not installed. that's expected.
+  root@21a3d24e704e:/project# ./tools/sdp-k8s uninstall-sdp
+  Cleaning up sdp-k8s
+  Trying to delete previous versions of spd-k8s
+  Error from server (NotFound): error when deleting "k8s/sdp-secrets.yaml": secrets "sdp-injector-secrets" not found
+  warning: deleting cluster-scoped resources, not scoped to the provided namespace
+  Error from server (NotFound): error when deleting "k8s/sdp-admission.yaml": mutatingwebhookconfigurations.admissionregistration.k8s.io "sdp-injector" not found
+  Error from server (NotFound): error when deleting "k8s/sdp-injector.yaml": deployments.apps "sdp-injector" not found
+  Error from server (NotFound): error when deleting "k8s/sdp-injector.yaml": services "sdp-injector" not found
+  Error from server (NotFound): namespaces "sdp-k8s" not found
+
+  # Finally, deploy the new version.
+  # Note that this tries to delete old deployments as well so errors when deleting
+  #  objects that do not exist are expected.
+  root@21a3d24e704e:/project# ./tools/sdp-k8s install-sdp
+  Installing sdp-k8s
+  Trying to delete previous versions of spd-k8s
+  Error from server (NotFound): error when deleting "k8s/sdp-secrets.yaml": secrets "sdp-injector-secrets" not found
+  warning: deleting cluster-scoped resources, not scoped to the provided namespace
+  Error from server (NotFound): error when deleting "k8s/sdp-admission.yaml": mutatingwebhookconfigurations.admissionregistration.k8s.io "sdp-injector" not found
+  Error from server (NotFound): error when deleting "k8s/sdp-injector.yaml": deployments.apps "sdp-injector" not found
+  Error from server (NotFound): error when deleting "k8s/sdp-injector.yaml": services "sdp-injector" not found
+  Error from server (NotFound): namespaces "sdp-k8s" not found
+  namespace/sdp-k8s created
+  secret/sdp-injector-secrets created
+  mutatingwebhookconfiguration.admissionregistration.k8s.io/sdp-injector created
+  deployment.apps/sdp-injector created
+  service/sdp-injector created
+#+end_example
+
+Once we run those commands we should have a new namespace in our cluster named
+~sdp-k8s~:
+
+#+begin_example
+  root@21a3d24e704e:/project# kubectl get ns sdp-k8s
+  NAME      STATUS   AGE
+  sdp-k8s   Active   9m13s
+#+end_example
+
+We should have also a deployment and a service called ~sdp-injector~:
+
+#+begin_example
+  root@21a3d24e704e:/project# kubectl -n sdp-k8s get deployment
+  NAME           READY   UP-TO-DATE   AVAILABLE   AGE
+  sdp-injector   1/1     1            1           19s
+
+  root@21a3d24e704e:/project# kubectl -n sdp-k8s get service
+  NAME           TYPE        CLUSTER-IP    EXTERNAL-IP   PORT(S)   AGE
+  sdp-injector   ClusterIP   10.0.45.154   <none>        443/TCP   42s
+#+end_example
+
+The deployment should have created a pod running the sdp-injector:
+
+#+begin_example
+  root@21a3d24e704e:/project# kubectl -n sdp-k8s get pods
+  NAME                          READY   STATUS    RESTARTS   AGE
+  sdp-injector-6d9b4cc9-z8kvp   1/1     Running   0          95s
+
+  root@21a3d24e704e:/project# kubectl -n sdp-k8s logs sdp-injector-6d9b4cc9-z8kvp -f
+  [2021-06-14T12:43:53Z INFO  sdp_injector] Starting sdp-injector!!!!
+  [2021-06-14T12:43:53Z DEBUG sdp_injector] Loading SDP context
+  [2021-06-14T12:43:53Z DEBUG sdp_injector] SDP context loaded successful
+  [2021-06-14T12:43:53Z INFO  actix_server::builder] Starting 2 workers
+  [2021-06-14T12:43:53Z INFO  actix_server::builder] Starting "actix-web-service-0.0.0.0:8443" service on 0.0.0.0:8443
+#+end_example
+
+And we should see the admission ~sdp-injector~ admission webhook as well:
+
+#+begin_example
+  root@21a3d24e704e:/project# kubectl get mutatingwebhookconfigurations sdp-injector
+  NAME           WEBHOOKS   AGE
+  sdp-injector   1          52m
+#+end_example
+
+*** Usage
+TODO
 ** NOTES
 *** GKE
 When running on GKE the firewall needs to be configured to allow traffic from
