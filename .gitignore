@@ -1,0 +1,7 @@
+certs/*
+!certs/ca_config.txt
+!certs/sdp-injector_config.txt
+k8s/*
+!k8s/*-tmpl.yml
+.idea/*
+target/*
