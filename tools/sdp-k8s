@@ -1,0 +1,212 @@
+#!/usr/bin/env sh
+
+set -e
+
+CERTS_DIR=certs
+K8S_DIR=k8s
+NS=sdp-k8s
+K=kubectl
+KNS="kubectl -n $NS"
+
+# Misc
+
+check_tools() {
+    set +e
+    _kubectl=$(which kubectl 2> /dev/null)
+    _envsubst=$(which envsubst 2> /dev/null)
+    set -e
+    _errs=0
+    if [ -z $_kubectl ]; then
+	echo "kubectl is missing, please install it before using this tool"
+	_errs=1
+    fi
+    if [ -z $_envsubst ]; then
+	echo "envsubst is missing, please install it before using this tool"
+	_errs=1
+    fi
+    return $_errs
+}
+
+## Certificates
+
+CA_CERT_FILE=$CERTS_DIR/sdp-ca.crt
+CA_KEY_FILE=$CERTS_DIR/sdp-ca-key.pem
+CA_SRL_FILE=certs/sdp-ca.srl
+CSR_FILE=$CERTS_DIR/sdp-injector.csr
+KEY_FILE=$CERTS_DIR/sdp-injector-key.pem
+CERT_FILE=$CERTS_DIR/sdp-injector-crt.pem
+CERT_FILES="$CERT_FILE $CSR_FILE $KEY_FILE $CA_CERT_FILE $CA_KEY_FILE $CA_SRL_FILE"
+
+check_certs() {
+    for f in $CERT_FILES; do
+	if [ ! -f $f ]; then
+	    return 1
+	fi
+    done
+    return 0
+}
+
+delete_certs() {
+    for f in $CERT_FILES; do
+        rm -f "$f"
+    done
+}
+
+mk_certs() {
+    mkdir -p ${CERTS_DIR}
+    if check_certs; then
+        echo "Found certificates, to create new ones, please, delete the old ones."
+        echo "Old certificates can be deleted with:"
+        echo
+        echo "  $0 delete-certs"
+        exit 1
+    fi
+    delete_certs
+    openssl genrsa -out ${CA_KEY_FILE} 2048
+    openssl req -new -x509 -key ${CA_KEY_FILE} -out ${CA_CERT_FILE} \
+            -config ${CERTS_DIR}/ca_config.txt
+    openssl genrsa -out ${KEY_FILE} 2048
+    openssl req -new -key ${KEY_FILE} \
+            -subj "/CN=sdp-injector.default.svc" \
+            -out ${CSR_FILE} \
+            -config ${CERTS_DIR}/sdp-injector_config.txt
+    openssl x509 -req -in ${CSR_FILE} \
+            -CA ${CA_CERT_FILE} \
+            -CAkey ${CA_KEY_FILE} \
+            -CAcreateserial \
+            -out ${CERT_FILE}
+}
+
+## YAML files
+
+YAML_SECRETS_TMPL=$K8S_DIR/sdp-secrets-tmpl.yaml
+YAML_ADMISSION_TMPL=$K8S_DIR/sdp-admission-tmpl.yaml
+YAML_SECRETS=$K8S_DIR/sdp-secrets.yaml
+YAML_ADMISSION=$K8S_DIR/sdp-admission.yaml
+YAML_FILES="$YAML_SECRETS $YAML_ADMISSION $K8S_DIR/sdp-injector.yaml"
+YAML_FILES_FROM_TMPL="$YAML_SECRETS $YAML_ADMISSION"
+
+check_yaml() {
+    for f in $YAML_FILES; do
+        if [ ! -f $f ]; then
+            return 1
+        fi
+    done
+    return 0
+}
+
+delete_yaml() {
+    for f in $YAML_FILES_FROM_TMPL; do
+        rm -f "$f"
+    done
+}
+
+mk_yaml () {
+    if ! check_certs; then
+        echo "Not found certificates or broken ones, please create new ones."
+        echo "To create new ones:"
+        echo
+        echo "  $0 delete-certs && $0 mk-certs"
+        exit 1
+    fi
+    export CA_BUNDLE=$(cat ${CA_CERT_FILE} | base64 | tr -d '\n')
+    export SDP_INJECTOR_KEY=$(cat ${KEY_FILE} | base64 | tr -d '\n')
+    export SDP_INJECTOR_CERT=$(cat ${CERT_FILE} | base64 | tr -d '\n')
+    envsubst < $YAML_ADMISSION_TMPL > $YAML_ADMISSION
+    envsubst < $YAML_SECRETS_TMPL > $YAML_SECRETS
+}
+
+## SDP
+
+uninstall_sdp() {
+    echo "Trying to delete previous versions of spd-k8s"
+    set +e
+    for f in $YAML_FILES; do
+        $KNS delete -f $f
+    done
+    $K delete ns $NS
+    set -e
+}
+
+install_sdp() {
+    if ! check_certs; then
+        echo "Not found certificates or broken ones, please create new ones."
+        echo "To create new ones:"
+        echo
+        echo "  $0 delete-certs && $0 mk-certs"
+        exit 1
+    fi
+
+    if ! check_yaml; then
+        echo "Not found yaml files or broken ones, please create new ones."
+        echo "To create new ones:"
+        echo
+        echo "  $0 delete-yaml && $0 mk-yaml"
+        exit 1
+    fi
+
+    uninstall_sdp
+    $K create ns $NS
+    for f in $YAML_FILES; do
+        $KNS create -f $f
+    done
+}
+
+install() {
+    if ! check_certs; then
+        echo "Seems certificates are broken, regenerating them"
+        cleanup_certs
+        mk_certs
+        mk_yaml
+    fi
+    if ! check_yaml; then
+        echo "YAML files were not generated correctly, aborting"
+        exit 1
+    fi
+    install_sdp
+}
+
+usage() {
+    echo "sdp-k8s-install :: Installs sdp-k8s on kubertenes"
+    echo ""
+    echo "Usage:"
+    echo "  $0 CMD"
+    echo
+    echo -n "where CMD ::= [install-sdp unisntall-sdp mk-certs delete-certs mk-yaml delete-yaml]"
+    echo
+}
+
+CMD=$1
+
+check_tools
+
+case $CMD in
+    "install-sdp")
+        echo "Installing sdp-k8s"
+        install_sdp
+        ;;
+    "mk-certs")
+        echo "Creating new certificates"
+        mk_certs
+        echo "Certificates created"
+        ;;
+    "delete-certs")
+        echo "Deleting certificates"
+        delete_certs
+        ;;
+    "uninstall-sdp")
+        echo "Cleaning up sdp-k8s"
+        uninstall_sdp
+        ;;
+    "mk-yaml")
+        echo "Generating YAML files"
+        mk_yaml
+        ;;
+    "delete-yaml")
+        echo "Deleting YAML files"
+        delete_yaml
+        ;;
+    *)
+        usage
+        ;;
+esac

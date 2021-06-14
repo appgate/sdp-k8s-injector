@@ -1,0 +1,42 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: sdp-injector
+  name: sdp-injector
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: sdp-injector
+  template:
+    metadata:
+      labels:
+        app: sdp-injector
+    spec:
+      containers:
+      - image: lhr-nexus01.agi.appgate.com:5001/sdp-injector
+        name: sdp-injector
+        env:
+          - name: RUST_LOG
+            value: debug
+        volumeMounts:
+          - mountPath: "/opt/sdp-injector-certs"
+            name: sdp-injector-ssl
+            readOnly: true
+      volumes:
+        - name: sdp-injector-ssl
+          secret:
+            secretName: sdp-injector-ssl
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: sdp-injector-svc
+spec:
+  selector:
+    app: sdp-injector
+  ports:
+    - port: 443
+      targetPort: 8443
+      name: https-webhooks
