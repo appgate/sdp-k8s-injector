@@ -19,6 +19,4 @@ LABEL project=sdp-injector
 COPY --from=sdp-builder /usr/src/sdp-injector/target/release/sdp-injector /bin/sdp-injector
 WORKDIR /sdp-injector
 COPY sidecars.json .
-COPY tools/mk_cert.sh /usr/bin/sdp-mk-cert
-RUN chmod +x /usr/bin/sdp-mk-cert
 CMD ["/usr/bin/sdp-injector"]
