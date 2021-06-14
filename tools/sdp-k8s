@@ -67,7 +67,7 @@ mk_certs() {
             -config ${CERTS_DIR}/ca_config.txt
     openssl genrsa -out ${KEY_FILE} 2048
     openssl req -new -key ${KEY_FILE} \
-            -subj "/CN=sdp-injector.default.svc" \
+            -subj "/CN=sdp-injector.$NS.svc" \
             -out ${CSR_FILE} \
             -config ${CERTS_DIR}/sdp-injector_config.txt
     openssl x509 -req -in ${CSR_FILE} \

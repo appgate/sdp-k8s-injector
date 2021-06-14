@@ -10,6 +10,6 @@ extendedKeyUsage = serverAuth
 
 [ alt_names ]
 DNS.1 = sdp-injector
-DNS.2 = sdp-injector.default
-DNS.3 = sdp-injector.default.svc
-DNS.4 = sdp-injector.default.svc.cluster.local
+DNS.2 = sdp-injector.sdp-k8s
+DNS.3 = sdp-injector.sdp-k8s.svc
+DNS.4 = sdp-injector.sdp-k8s.svc.cluster.local
