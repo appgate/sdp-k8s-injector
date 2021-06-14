@@ -29,3 +29,5 @@ emailAddress           = "no-reply@apgate.com"
 # included in the configuration file
 # http://www.openssl.org/docs/apps/x509v3_config.html
 subjectAltName  = DNS:appgate.com # multidomain certificate
+[ ext ]
+basicConstraints=CA:TRUE,pathlen:0
