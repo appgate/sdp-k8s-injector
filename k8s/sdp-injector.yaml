@@ -32,7 +32,7 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: sdp-injector-svc
+  name: sdp-injector
 spec:
   selector:
     app: sdp-injector
