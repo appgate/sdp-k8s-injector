@@ -15,7 +15,7 @@ spec:
         app: sdp-injector
     spec:
       containers:
-      - image: lhr-nexus01.agi.appgate.com:5001/sdp-injector
+      - image: ghcr.io/appgate/sdp-injector
         name: sdp-injector
         env:
           - name: RUST_LOG
