@@ -1,0 +1,33 @@
+[ req ]
+default_bits       = 2048
+default_md         = sha512
+default_keyfile    = ca.key
+prompt             = no
+encrypt_key        = yes
+
+# base request
+distinguished_name = req_distinguished_name
+
+# extensions
+req_extensions     = v3_req
+
+# distinguished_name
+[ req_distinguished_name ]
+countryName            = "SE"
+stateOrProvinceName    = "Goteborg"
+localityName           = "Goteborg"
+postalCode             = ""
+streetAddress          = "Majorna"
+organizationName       = "appgate"
+organizationalUnitName = "devops"
+commonName             = "devops.appgate.com" 
+emailAddress           = "no-reply@apgate.com"
+
+# req_extensions
+[ v3_req ]
+# The subject alternative name extension allows various literal values to be 
+# included in the configuration file
+# http://www.openssl.org/docs/apps/x509v3_config.html
+subjectAltName  = DNS:appgate.com # multidomain certificate
+[ ext ]
+basicConstraints=CA:TRUE,pathlen:0

@@ -1,0 +1,26 @@
+apiVersion: admissionregistration.k8s.io/v1
+kind: MutatingWebhookConfiguration
+metadata:
+  name: sdp-injector
+  namespace: sdp-k8s
+  labels:
+    app: sdp-injector
+webhooks:
+  - name: sdp-injector.appgate.com
+    clientConfig:
+      service:
+        name: sdp-injector
+        namespace: sdp-k8s
+        path: "/mutate"
+      caBundle: $CA_BUNDLE
+    namespaceSelector:
+      matchLabels:
+        sdp-injection: enabled
+    rules:
+      - operations: ["CREATE"]
+        apiGroups: [""]
+        apiVersions: ["v1"]
+        resources: ["pods"]
+        scope: "Namespaced"
+    sideEffects: None
+    admissionReviewVersions: ["v1", "v1beta1"]
