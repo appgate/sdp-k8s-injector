@@ -11,11 +11,13 @@ behind an SDP system and their access is managed in an uniform way.
 The way it works is by injecting an SDP client by demand on the PODs configured
 to have access via SDP.
 
-** Quick howto
+** Quick tutorial
 
 *** Deployment
 In order to get this integration we need to install the sdp-injector in our
-cluster. For that we can run from the root of this repository:
+cluster. Under tools directory there is a script (~./tools/sdp-k8s~) that helps
+with the installatioe. It needs to be called from the root directory in the
+repository. Example:
 
 #+begin_src shell
   ./tools/sdp-k8s delete-certs
@@ -26,8 +28,9 @@ cluster. For that we can run from the root of this repository:
   ./tools/sdp-k8s install-sdp
 #+end_src
 
-The script requires the tools:
+The script requires to have installed:
  - kubectl
+ - openssl
  - envsubst (tool that comes with gettext).
 
 It should look like this:
@@ -92,8 +95,8 @@ It should look like this:
   service/sdp-injector created
 #+end_example
 
-Once we run those commands we should have a new namespace in our cluster named
-~sdp-k8s~:
+Once the installation is completed, we should have a new namespace in our
+cluster named ~sdp-k8s~:
 
 #+begin_example
   root@21a3d24e704e:/project# kubectl get ns sdp-k8s
@@ -113,7 +116,7 @@ We should have also a deployment and a service called ~sdp-injector~:
   sdp-injector   ClusterIP   10.0.45.154   <none>        443/TCP   42s
 #+end_example
 
-The deployment should have created a pod running the sdp-injector:
+The deployment should have created also a pod, running the sdp-injector:
 
 #+begin_example
   root@21a3d24e704e:/project# kubectl -n sdp-k8s get pods
@@ -137,12 +140,11 @@ And we should see the admission ~sdp-injector~ admission webhook as well:
 #+end_example
 
 *** Usage
-- Note taken on [2021-06-14 Mon 17:16] \\
-  Add example for client configuration
 Now that we have deployed sdp-k8s-client in our cluster we are ready to start
 using it.
 
-SDP client injection is attached to namespaces. This means that we need to label
+**** namespace labels
+SDP client injection is binded to namespaces. This means that we need to label
 the namespaces in which we want to inject the SDP client. To do this we need add
 the label ~sdp-injection=true~ into the desired namespace:
 
@@ -157,10 +159,51 @@ the label ~sdp-injection=true~ into the desired namespace:
   sdp-k8s-poc   Active   105m   enabled
 #+end_example
 
-From now, all the PODs created in that namespace will get attached an SDP client
-so now we need to add the configuration for those clients. To do this we need to
-create a secrets object and a config map object to store the credentials and the
-configuration for our the clients injected in our PODs.
+**** client configuration (config map an secrets)
+From now, all the PODs created in that namespace will get attached an SDP
+client, so now we need to add the configuration for those clients. To do this we
+need to create a secrets object and a config map object to store the credentials
+and the configuration for the clients injected in our PODs.
+
+The config map needs to have the log level used by the client.
+
+Its name should be *sdp-injector-client-config* and it must be located in the
+same namespace where the PODs will be deployed. Example:
+
+#+begin_example
+  apiVersion: v1
+  kind: ConfigMap
+  metadata:
+    name: sdp-injector-client-config
+    namespace: sdp-k8s-poc
+  data:
+    client-loglevel: Debug
+#+end_example
+
+The secrets object needs to define 3 secrets:
+ - client-username :: user name used to login
+ - client-password :: password used to login
+ - client-controller-url :: profile url used to connect to the controller
+
+It needs to be called *sdp-injector-client-secrets* and it needs to be located
+in the same namespace where the PODs will be deployed. Example:
+
+#+begin_example
+  apiVersion: v1
+  kind: Secret
+  metadata:
+    name: sdp-injector-client-secrets
+    namespace: sdp-k8s-poc
+  type: Opaque
+  data:
+    client-username: YWRtaW4=
+    client-password: YWRtaW4=
+    client-controller-url: c29tZXByb2ZpbGV1cmw=
+#+end_example
+
+Now we can create our workflows on kubertenes in the labeled namespace, the
+sdp-injector will add a new sidecar with the SDP client whenever a new POD
+object is created.
 
 ** NOTES
 *** GKE
