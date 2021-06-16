@@ -3,9 +3,11 @@
 SETDNS_SOCKET=/var/run/appgate/dns-set.sock
 
 mk_dnsmasq_conf () {
-    KUBE_DNS_SERVICE=$(cat /etc/resolv.conf  | awk '$1 ~ /nameserver/ {print($2)}' | head -1)
+    KUBE_DNS_SERVICE=$(cat /etc/resolv.conf  | awk 'BEGIN{c=0}
+$1 ~ /nameserver/ {print($2);c++}
+END {if(c != 1) exit(1)}')
 
-    if [ -z $KUBE_DNS_SERVICE ]; then
+    if [ $? -ne 0 -o -z "$KUBE_DNS_SERVICE" ]; then
         echo "Unable to get the kube dns service!. Dying now!"
         exit 1
     fi
