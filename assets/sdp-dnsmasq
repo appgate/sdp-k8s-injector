@@ -9,9 +9,7 @@ mk_dnsmasq_conf () {
         echo "Unable to get the kube dns service!. Dying now!"
         exit 1
     fi
-    cat > /etc/dnsmasq.d/appgate.conf << EOF
-server=$KUBE_DNS_SERVICE
-EOF
+    echo server=$KUBE_DNS_SERVICE > /etc/dnsmasq.d/appgate.conf
     cat > /etc/dnsmasq.conf << EOF
 no-resolv
 listen-address=127.0.0.1
