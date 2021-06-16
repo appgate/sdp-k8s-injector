@@ -1,0 +1,13 @@
+FROM alpine
+LABEL sdp=true
+LABEL project=sdp-injector
+RUN apk upgrade --no-cache && \
+    apk add --no-cache --virtual=run-deps dnsmasq socat && \
+    rm -rf /tmp/* \
+           /var/cache/apk/*  \
+           /var/tmp/*
+WORKDIR /sdp-dnsmasq
+COPY assets/sdp-dnsmasq /sdp-dnsmasq/sdp-dnsmasq
+COPY assets/sdp-dnsmasq-set-dns /sdp-dnsmasq/sdp-dnsmasq-set-dns
+RUN chmod +x /sdp-dnsmasq/sdp-dnsmasq
+CMD ["/sdp-dnsmasq/sdp-dnsmasq"]

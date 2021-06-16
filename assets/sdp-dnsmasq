@@ -1,0 +1,26 @@
+#!/usr/bin/env sh
+
+SETDNS_SOCKET=/var/run/appgate/dns-set.sock
+
+mk_dnsmasq_conf () {
+    KUBE_DNS_SERVICE=$(cat /etc/resolv.conf  | awk '$1 ~ /nameserver/ {print($2)}' | head -1)
+
+    if [ -z $KUBE_DNS_SERVICE ]; then
+        echo "Unable to get the kube dns service!. Dying now!"
+        exit 1
+    fi
+    cat > /etc/dnsmasq.d/appgate.conf << EOF
+server=$KUBE_DNS_SERVICE
+EOF
+    cat > /etc/dnsmasq.conf << EOF
+no-resolv
+listen-address=127.0.0.1
+conf-file=/etc/dnsmasq.d/appgate.conf
+EOF
+}
+
+mk_dnsmasq_conf
+
+# Start listening for events from sdp-driver
+/usr/sbin/dnsmasq --no-daemon --log-queries --clear-on-reload &
+exec socat UNIX-LISTEN:$SETDNS_SOCKET,fork system:/sdp-dnsmasq/sdp-dnsmasq-set-dns,fdout=4

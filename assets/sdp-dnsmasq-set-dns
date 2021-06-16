@@ -1,0 +1,70 @@
+#!/usr/bin/env sh
+
+DNSMASQ_PID=/var/run/dnsmasq.pid
+DNSMASQ_APPGATE=/etc/dnsmasq.d/appgate.conf
+
+match_domains () {
+    servers="$1"
+    domains="$2"
+echo -n "$domains" | awk -vSERVERS="$servers" -e '
+BEGIN {
+  RS = ","
+  len = 0
+  split(SERVERS, servers, ",")
+}
+{
+  if (match($0, "dns.server")) {
+    domains[len++] = gensub(/dns.server\.([0-9]+\.[0-9]+\.[0-9]+\.[0-9]+).(.+)/, "server=/\\2/\\1", "g")
+  } else if (length() > 0) {
+    for (s in servers) {
+      domains[len++] = "server=/" $1 "/" servers[s]
+    }
+  }
+}
+END {
+  for (s in servers) {
+    print("server=" servers[s])
+  }
+  for (d in domains) {
+    print(domains[d])
+  }
+}'
+}
+
+read cli
+echo "Got new DNS configuration from sdp-driver: $cli"
+opt=${cli%% *}
+while [ ! -z $opt ]; do
+    case ${opt%%=*} in
+       --servers)
+            servers="${opt##*=}"
+            ;;
+        --domains)
+            domains="${opt##*=}"
+            ;;
+        *)
+            # ignore this
+            ;;
+    esac
+    cli=${cli#* }
+    opt=${cli%% *}
+    if [ "$opt" = "$cli" ]; then
+        cli=""
+    fi
+done
+
+if [ -z $servers ]; then
+    echo "--servers not provided, aborting"
+    exit 1
+fi
+
+echo "Setting new DNS configuration"
+kube_dns=$(cat $DNSMASQ_APPGATE|head -1)
+echo $kube_dns > $DNSMASQ_APPGATE
+for i in $(match_domains "$servers" "$domains"); do
+   echo $i >> $DNSMASQ_APPGATE
+done
+
+echo "Applying new DNS configuration"
+kill -9 $(ps | awk '/dnsmasq --no-daemon/ && !/awk/ {print($1)}')
+/usr/sbin/dnsmasq --no-daemon --log-queries --clear-on-reload --pid-file=/sdp-dnsmasq/dnsmasq.pid&
