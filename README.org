@@ -12,7 +12,6 @@ The way it works is by injecting an SDP client by demand on the PODs configured
 to have access via SDP.
 
 ** Quick tutorial
-
 *** Deployment
 In order to get this integration we need to install the sdp-injector in our
 cluster. Under tools directory there is a script (~./tools/sdp-k8s~) that helps
@@ -205,7 +204,36 @@ Now we can create our workflows on kubertenes in the labeled namespace, the
 sdp-injector will add a new sidecar with the SDP client whenever a new POD
 object is created.
 
+
 ** NOTES
+*** sdp-dnsmasq explained
+sdp-driver notifies about domains and DNS resolving those domains behind an SDP
+system. Doing this an sdp client can query specific hosts to specific DNS server
+behind the SDP system.
+
+The way this is implemented in k8s is by providing a dnsmasq instance that it's
+configured according to the events that the sdp-driver sends.
+
+Since only sdp-driver container can modify =/etc/resolv.conf=, the setup is done
+in several steps:
+
+ 1. First the =sdp-dnsmasq= container will grab the address of the kube-dns
+    service and it will start a new dnsmasq instace using that DNS server as
+    upstream. From now this dnsmasq instance will forward everything into the
+    kube-dns service.
+ 2. =sdp-dnsmasq= container will then open a unix socket to receive events from
+    the =sdp-driver= container when this requires changes in the DNS settings.
+ 3. =sdp-driver= will wait for the service to connect and once that's done it
+    will call the set_dns script (which is just ~sdp-driver-set-dns~ in the
+    container).
+ 4. ~sdp-driver-set-dns~ script will configure =/etc/resolv.conf= to point to
+    =sdp-dnsmasq=. From this moment is =sdp-dnsmasq= who takes the
+    responsability of resolving names inside the POD. (This step is only done
+    once).
+ 5. The event sent by =sdp-driver= will be propagated via a unix socket into
+    =sdp-dnsmasq= that will just receive the event and configure dnsmasq
+    according to it.
+
 *** GKE
 When running on GKE the firewall needs to be configured to allow traffic from
 the k8s api into the nodes to the port 8443, even if the service is listening on
