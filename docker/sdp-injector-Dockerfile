@@ -12,7 +12,7 @@ RUN rm src/*rs
 COPY src src
 RUN cargo build --release --bin sdp-injector
 
-FROM alpine
+FROM alpine:3.14.0
 LABEL sdp=true
 LABEL project=sdp-injector
 COPY --from=sdp-builder /usr/src/sdp-injector/target/release/sdp-injector /usr/bin/sdp-injector
