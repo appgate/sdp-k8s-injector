@@ -218,7 +218,7 @@ Since only sdp-driver container can modify =/etc/resolv.conf=, the setup is done
 in several steps:
 
  1. First the =sdp-dnsmasq= container will grab the address of the kube-dns
-    service and it will start a new dnsmasq instace using that DNS server as
+    service and it will start a new dnsmasq instance using that DNS server as
     upstream. From now this dnsmasq instance will forward everything into the
     kube-dns service.
  2. =sdp-dnsmasq= container will then open a unix socket to receive events from
