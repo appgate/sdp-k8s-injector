@@ -62,7 +62,7 @@ while [ ! -z $opt ]; do
     fi
 done
 
-if [ -z $servers ]; then
+if [ -z "$servers" ]; then
     echo "--servers not provided, aborting"
     exit 1
 fi
