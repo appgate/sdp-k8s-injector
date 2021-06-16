@@ -23,6 +23,7 @@ mk_dnsmasq_conf
 
 # Start dnsmasq now so it has not pid 1
 /usr/sbin/dnsmasq --no-daemon --log-queries --clear-on-reload &
+echo $! > /sdp-dnsmasq/dnsmasq.pid
 
 # Start listening for events from sdp-driver
 # socat will fork sdp-dnsmasq-set-dns and it will send data receive in the socket to the

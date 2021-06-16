@@ -78,5 +78,6 @@ done
 
 echo "Applying new DNS configuration"
 # dnsmasq can not reload files on SIHGUP so we need to restart it
-kill -9 $(ps | awk '/dnsmasq --no-daemon/ && !/awk/ {print($1)}')
+kill -9 $(cat /sdp-dnsmasq/dnsmasq.pid)
 /usr/sbin/dnsmasq --no-daemon --log-queries --clear-on-reload &
+echo $! > /sdp-dnsmasq/dnsmasq.pid
