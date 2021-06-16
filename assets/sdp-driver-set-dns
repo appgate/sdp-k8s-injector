@@ -1,0 +1,48 @@
+#!/usr/bin/env sh
+
+SETDNS_SOCKET=/var/run/appgate/dns-set.sock
+
+has_reset() {
+    echo "$@" | grep reset > /dev/null
+}
+
+has_servers() {
+    echo "$@" | grep servers > /dev/null
+}
+
+needs_initialized() {
+    if has_reset "$@"; then
+        return 0
+    fi
+    if ! has_servers "$@"; then
+        return 0
+    fi
+    for l in $(cat /etc/resolv.conf | awk '$1 ~ /nameserver/ {print($2)}'); do
+        if [ "$l" = "127.0.0.1" ]; then
+            return 0
+        fi
+    done
+    return 1
+}
+
+
+# Replace resolv.conf to point to localhost (dnsmasq container running in the
+# POD)
+initialize () {
+    rm -f /tmp/resolv.conf
+    cat /etc/resolv.conf | awk '{
+    if (match("nameserver", $1)) {
+       print("nameserver 127.0.0.1")
+    } else {
+       print($0)
+    }}' >> /tmp/resolv.conf
+    cp -f /tmp/resolv.conf /etc/resolv.conf
+}
+
+if ! needs_initialized "$@"; then
+    initialize
+fi
+
+if has_servers "$@"; then
+    echo "$@" | socat - UNIX-CONNECT:$SETDNS_SOCKET
+fi
