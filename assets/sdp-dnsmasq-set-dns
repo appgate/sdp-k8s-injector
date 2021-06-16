@@ -1,5 +1,11 @@
 #!/usr/bin/env sh
 
+# This script is executed by socat.
+# It will get events from sdp-driver about DNS changes and it will
+# configure dnsmasq to use the new settings requested by sdp-driver
+
+# NOTE: stdin reads from the socat socket.
+
 DNSMASQ_PID=/var/run/dnsmasq.pid
 DNSMASQ_APPGATE=/etc/dnsmasq.d/appgate.conf
 
@@ -14,8 +20,11 @@ BEGIN {
 }
 {
   if (match($0, "dns.server")) {
+    # sdp-driver sent an entry with the form: dns.server.X.Y.Z.W.domain
+    #    where X.Y.Z.W is the DNS to use to resolve hosts in domain
     domains[len++] = gensub(/dns.server\.([0-9]+\.[0-9]+\.[0-9]+\.[0-9]+).(.+)/, "server=/\\2/\\1", "g")
   } else if (length() > 0) {
+    # sdp-driver sent a plain domain so all the known servers should search hosts there
     for (s in servers) {
       domains[len++] = "server=/" $1 "/" servers[s]
     }
@@ -66,5 +75,6 @@ for i in $(match_domains "$servers" "$domains"); do
 done
 
 echo "Applying new DNS configuration"
+# dnsmasq can not reload files on SIHGUP so we need to restart it
 kill -9 $(ps | awk '/dnsmasq --no-daemon/ && !/awk/ {print($1)}')
-/usr/sbin/dnsmasq --no-daemon --log-queries --clear-on-reload --pid-file=/sdp-dnsmasq/dnsmasq.pid&
+/usr/sbin/dnsmasq --no-daemon --log-queries --clear-on-reload &
