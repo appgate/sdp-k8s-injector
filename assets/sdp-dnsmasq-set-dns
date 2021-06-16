@@ -68,6 +68,8 @@ if [ -z "$servers" ]; then
 fi
 
 echo "Setting new DNS configuration"
+# This reuses the first entry in the file since that entry
+# points to the kube_dns service
 kube_dns=$(cat $DNSMASQ_APPGATE|head -1)
 echo $kube_dns > $DNSMASQ_APPGATE
 for i in $(match_domains "$servers" "$domains"); do
