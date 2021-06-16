@@ -21,6 +21,11 @@ EOF
 
 mk_dnsmasq_conf
 
-# Start listening for events from sdp-driver
+# Start dnsmasq now so it has not pid 1
 /usr/sbin/dnsmasq --no-daemon --log-queries --clear-on-reload &
+
+# Start listening for events from sdp-driver
+# socat will fork sdp-dnsmasq-set-dns and it will send data receive in the socket to the
+# process. We set stdout to fd=4 so we can still use stdout in the forked process to log
+# stuff into stdout
 exec socat UNIX-LISTEN:$SETDNS_SOCKET,fork system:/sdp-dnsmasq/sdp-dnsmasq-set-dns,fdout=4
