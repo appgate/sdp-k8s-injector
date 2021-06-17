@@ -1,16 +1,10 @@
 name: Docker
 
-on:
-  push:
-    branches:
-      - main
+on: [push pull_request]
 
 jobs:
   sdp-injector:
     runs-on: ubuntu-latest
-    environment:
-      name: docker-images
-    if: github.ref == 'refs/heads/main'
     steps:
       - uses: actions/checkout@v2
       - name: Build image
@@ -19,29 +13,36 @@ jobs:
         uses: docker/login-action@v1
         with:
           registry: ghcr.io
-          username: ${{ secrets.PACKAGES_USER }}
-          password: ${{ secrets.PACKAGES_TOKEN }}
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
       - name: Push image
-        run: |
-          docker tag sdp-injector:latest ghcr.io/appgate/sdp-injector:latest
-          docker push ghcr.io/appgate/sdp-injector:latest
+        uses: docker/build-push-action@v2
+        with:
+          context: .
+          file: docker/sdp-injector-Dockerfile
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: |
+            ghcr.io/${{ github.repository }}/sdp-injector:latest
+            ghcr.io/${{ github.repository }}/sdp-injector:${{ github.sha }}
 
   sdp-dnsmasq:
     runs-on: ubuntu-latest
-    environment:
-      name: docker-images
-    if: github.ref == 'refs/heads/main'
     steps:
       - uses: actions/checkout@v2
       - name: Build image
-        run: docker build -t sdp-dnsmasq -f docker/sdp-dnsmasq-Dockerfile . 
+        run: docker build -t sdp-dnsmasq -f docker/sdp-dnsmasq-Dockerfile .
       - name: Login to GitHub Container Registry
         uses: docker/login-action@v1
         with:
           registry: ghcr.io
-          username: ${{ secrets.PACKAGES_USER }}
-          password: ${{ secrets.PACKAGES_TOKEN }}
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
       - name: Push image
-        run: |
-          docker tag sdp-dnsmasq:latest ghcr.io/appgate/sdp-dnsmasq:latest
-          docker push ghcr.io/appgate/sdp-dnsmasq:latest
+        uses: docker/build-push-action@v2
+        with:
+          context: .
+          file: docker/sdp-dnsmasq-Dockerfile
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: |
+            ghcr.io/${{ github.repository }}/sdp-dnsmasq:latest
+            ghcr.io/${{ github.repository }}/sdp-dnsmasq:${{ github.sha }}
