@@ -22,6 +22,8 @@ jobs:
       - name: Push image
         uses: docker/build-push-action@v2
         with:
+          build-args: |
+            RELEASE=${{ github.ref == 'refs/heads/main' }}
           context: .
           file: docker/sdp-injector-Dockerfile
           push: ${{ github.ref == 'refs/heads/main' }}

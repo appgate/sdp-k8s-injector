@@ -1,6 +1,6 @@
 FROM rust:1-alpine as sdp-builder
-ARG GIT_REF
-ENV GIT_REF=${GIT_REF:-refs/heads/main}
+ARG RELEASE
+ENV RELEASE=${RELEASE:-false}
 LABEL builder=true
 LABEL sdp=true
 LABEL project=sdp-injector
@@ -9,10 +9,10 @@ RUN apk add --no-cache musl-dev && apk add --no-cache openssl-dev
 RUN cargo init
 COPY Cargo.lock .
 COPY Cargo.toml .
-RUN cargo build $([ $GIT_REF = "refs/heads/main" ] && echo --release)
+RUN cargo build $([ "$RELEASE" = "true" ] && echo --release)
 RUN rm src/*rs
 COPY src src
-RUN cargo build $([ $GIT_REF = "refs/heads/main" ] && echo --release) --bin sdp-injector
+RUN cargo build $([ "$RELEASE" = "true" ] && echo --release) --bin sdp-injector
 
 FROM alpine:3.14.0
 LABEL sdp=true
