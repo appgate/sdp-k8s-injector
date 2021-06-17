@@ -1,6 +1,12 @@
-name: Docker
+name: SDP k8s client
 
-on: [push pull_request]
+on:
+  push:
+    branches:
+      - "**"
+  pull_request:
+    branches:
+      - main
 
 jobs:
   sdp-injector:
