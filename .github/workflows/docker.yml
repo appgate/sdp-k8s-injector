@@ -36,8 +36,8 @@ jobs:
           file: docker/sdp-injector-Dockerfile
           push: ${{ github.ref == 'refs/heads/main' }}
           tags: |
-            ghcr.io/appgate/sdp-injector:latest
-            ghcr.io/appgate/sdp-injector:${{ github.sha }}
+            ghcr.io/${{ github.repository }}/sdp-injector:latest
+            ghcr.io/${{ github.repository }}/sdp-injector:${{ github.sha }}
 
   sdp-dnsmasq:
     runs-on: ubuntu-latest
@@ -56,5 +56,5 @@ jobs:
           file: docker/sdp-dnsmasq-Dockerfile
           push: ${{ github.ref == 'refs/heads/main' }}
           tags: |
-            ghcr.io/appgate/sdp-dnsmasq:latest
-            ghcr.io/appgate/sdp-dnsmasq:${{ github.sha }}
+            ghcr.io/${{ github.repository }}/sdp-dnsmasq:latest
+            ghcr.io/${{ github.repository }}/sdp-dnsmasq:${{ github.sha }}
