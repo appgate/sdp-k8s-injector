@@ -60,7 +60,7 @@
             "-d",
             "-p",
             "/var/run/appgate/.driver.sock",
-            "--webclient"
+            "--container"
         ],
         "command": [
             "/opt/appgate/appgate-driver"
@@ -86,6 +86,20 @@
             {
                 "mountPath": "/dev/net/tun",
                 "name": "tun-device"
+            }
+        ]
+    },
+    {
+        "command": [
+            "/sdp-dnsmasq/sdp-dnsmasq"
+        ],
+        "image": "ghcr.io/appgate/sdp-dnsmasq",
+        "imagePullPolicy": "Always",
+        "name": "sdp-dnsmasq",
+        "volumeMounts": [
+            {
+                "mountPath": "/var/run/appgate",
+                "name": "run-appgate"
             }
         ]
     }

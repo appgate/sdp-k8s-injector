@@ -1,0 +1,32 @@
+#!/usr/bin/env sh
+
+SETDNS_SOCKET=/var/run/appgate/dns-set.sock
+
+mk_dnsmasq_conf () {
+    KUBE_DNS_SERVICE=$(cat /etc/resolv.conf  | awk 'BEGIN{c=0}
+$1 ~ /nameserver/ {print($2);c++}
+END {if(c != 1) exit(1)}')
+
+    if [ $? -ne 0 -o -z "$KUBE_DNS_SERVICE" ]; then
+        echo "Unable to get the kube dns service!. Dying now!"
+        exit 1
+    fi
+    echo server=$KUBE_DNS_SERVICE > /etc/dnsmasq.d/appgate.conf
+    cat > /etc/dnsmasq.conf << EOF
+no-resolv
+listen-address=127.0.0.1
+conf-file=/etc/dnsmasq.d/appgate.conf
+EOF
+}
+
+mk_dnsmasq_conf
+
+# Start dnsmasq now so it has not pid 1
+/usr/sbin/dnsmasq --no-daemon --log-queries --clear-on-reload &
+echo $! > /sdp-dnsmasq/dnsmasq.pid
+
+# Start listening for events from sdp-driver
+# socat will fork sdp-dnsmasq-set-dns and it will send data receive in the socket to the
+# process. We set stdout to fd=4 so we can still use stdout in the forked process to log
+# stuff into stdout
+exec socat UNIX-LISTEN:$SETDNS_SOCKET,fork system:/sdp-dnsmasq/sdp-dnsmasq-set-dns,fdout=4
