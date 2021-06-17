@@ -3,7 +3,7 @@ name: SDP k8s client
 on:
   push:
     branches:
-      - "**"
+      - main
   pull_request:
     branches:
       - main
@@ -13,8 +13,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
-      - name: Build image
-        run: docker build -t sdp-injector -f docker/sdp-injector-Dockerfile .
       - name: Login to GitHub Container Registry
         uses: docker/login-action@v1
         with:
@@ -26,7 +24,7 @@ jobs:
         with:
           context: .
           file: docker/sdp-injector-Dockerfile
-          push: ${{ github.event_name != 'pull_request' }}
+          push: ${{ github.ref == 'refs/heads/master' }}
           tags: |
             ghcr.io/${{ github.repository }}/sdp-injector:latest
             ghcr.io/${{ github.repository }}/sdp-injector:${{ github.sha }}
@@ -35,8 +33,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
-      - name: Build image
-        run: docker build -t sdp-dnsmasq -f docker/sdp-dnsmasq-Dockerfile .
       - name: Login to GitHub Container Registry
         uses: docker/login-action@v1
         with:
@@ -48,7 +44,7 @@ jobs:
         with:
           context: .
           file: docker/sdp-dnsmasq-Dockerfile
-          push: ${{ github.event_name != 'pull_request' }}
+          push: ${{ github.ref == 'refs/heads/master' }}
           tags: |
             ghcr.io/${{ github.repository }}/sdp-dnsmasq:latest
             ghcr.io/${{ github.repository }}/sdp-dnsmasq:${{ github.sha }}
