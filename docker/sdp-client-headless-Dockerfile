@@ -1,4 +1,6 @@
 FROM ubuntu:18.04
+LABEL sdp=true
+LABEL project=sdp-client-headless
 ARG CLIENT_DEB=appgate-headless.deb
 COPY assets/$CLIENT_DEB /tmp
 RUN apt-get update && \
