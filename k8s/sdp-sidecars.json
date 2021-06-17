@@ -42,7 +42,7 @@
                 }
             }
         ],
-        "image": "ghcr.io/appgate/sdp-k8s-client/sdp-headless-driver",
+        "image": "ghcr.io/appgate/sdp-k8s-client/sdp-headless-service",
         "imagePullPolicy": "Always",
         "name": "sdp-service",
         "resources": {},
@@ -56,16 +56,7 @@
         ]
     },
     {
-        "args": [
-            "-d",
-            "-p",
-            "/var/run/appgate/.driver.sock",
-            "--container"
-        ],
-        "command": [
-            "/opt/appgate/appgate-driver"
-        ],
-        "image": "ghcr.io/appgate/sdp-k8s-client/sdp-headless-service",
+        "image": "ghcr.io/appgate/sdp-k8s-client/sdp-headless-driver",
         "imagePullPolicy": "Always",
         "name": "sdp-driver",
         "resources": {},
@@ -76,8 +67,6 @@
                 ]
             }
         },
-        "terminationMessagePath": "/dev/termination-log",
-        "terminationMessagePolicy": "File",
         "volumeMounts": [
             {
                 "mountPath": "/var/run/appgate",
