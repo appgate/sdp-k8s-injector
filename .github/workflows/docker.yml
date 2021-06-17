@@ -1,0 +1,48 @@
+name: Docker
+
+on:
+  push:
+    branches:
+      - master
+
+jobs:
+  sdp-injector:
+    runs-on: ubuntu-latest
+    environment:
+      name: docker-images
+    if: github.ref == 'refs/heads/master'
+    steps:
+      - uses: actions/checkout@v2
+      - name: Build image
+        run: docker build -t sdp-injector -f docker/sdp-injector-Dockerfile .
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v1
+        with:
+          registry: ghcr.io
+          username: ${{ secrets.PACKAGES_USER }}
+          password: ${{ secrets.PACKAGES_TOKEN }}
+      - name: Push image
+        run: |
+          docker tag sdp-injector:latest ghcr.io/appgate/sdp-injector:latest
+          docker push ghcr.io/appgate/sdp-injector:latest
+
+  sdp-dnsmasq:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: docker-images
+    if: github.ref == 'refs/heads/master'
+    steps:
+      - uses: actions/checkout@v2
+      - name: Build image
+        run: docker build -t sdp-dnsmasq -f docker/sdp-dnsmasq-Dockerfile . 
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v1
+        with:
+          registry: ghcr.io
+          username: ${{ secrets.PACKAGES_USER }}
+          password: ${{ secrets.PACKAGES_TOKEN }}
+      - name: Push image
+        run: |
+          docker tag sdp-dnsmasq:latest ghcr.io/appgate/sdp-dnsmasq:latest
+          docker push ghcr.io/appgate/sdp-dnsmasq:latest
