@@ -1,6 +1,6 @@
 FROM rust:1-alpine as sdp-builder
-ARG RELEASE
-ENV RELEASE=${RELEASE:-false}
+ARG PROFILE
+ENV PROFILE=${PROFILE:-debug}
 LABEL builder=true
 LABEL sdp=true
 LABEL project=sdp-injector
@@ -9,14 +9,16 @@ RUN apk add --no-cache musl-dev && apk add --no-cache openssl-dev
 RUN cargo init
 COPY Cargo.lock .
 COPY Cargo.toml .
-RUN cargo build $([ "$RELEASE" = "true" ] && echo --release)
+RUN cargo build $([ "$PROFILE" = "release" ] && echo --release)
 RUN rm src/*rs
 COPY src src
-RUN cargo build $([ "$RELEASE" = "true" ] && echo --release) --bin sdp-injector
+RUN cargo build $([ "$PROFILE" = "release" ] && echo --release) --bin sdp-injector
 
 FROM alpine:3.14.0
+ARG PROFILE
+ENV PROFILE=${PROFILE:-debug}
 LABEL sdp=true
 LABEL project=sdp-injector
-COPY --from=sdp-builder /usr/src/sdp-injector/target/release/sdp-injector /usr/bin/sdp-injector
+COPY --from=sdp-builder /usr/src/sdp-injector/target/$PROFILE/sdp-injector /usr/bin/sdp-injector
 WORKDIR /sdp-injector
 CMD ["/usr/bin/sdp-injector"]

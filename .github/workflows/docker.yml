@@ -12,6 +12,14 @@ jobs:
   sdp-injector:
     runs-on: ubuntu-latest
     steps:
+      - name: Get build profile
+        run: |
+          if [ "${{ github.ref == 'refs/heads/main' }} ]; then
+              echo '::set-output name=PROFILE::release'
+          else
+              echo '::set-output name=PROFILE::debug'
+          fi
+        id: build-profile
       - uses: actions/checkout@v2
       - name: Login to GitHub Container Registry
         uses: docker/login-action@v1
@@ -23,7 +31,7 @@ jobs:
         uses: docker/build-push-action@v2
         with:
           build-args: |
-            RELEASE=${{ github.ref == 'refs/heads/main' }}
+            PROFILE=${{ steps.build-profile.outputs.PROFILE }}
           context: .
           file: docker/sdp-injector-Dockerfile
           push: ${{ github.ref == 'refs/heads/main' }}
@@ -46,7 +54,7 @@ jobs:
         with:
           context: .
           file: docker/sdp-dnsmasq-Dockerfile
-          push: ${{ github.ref == 'refs/heads/master' }}
+          push: ${{ github.ref == 'refs/heads/main' }}
           tags: |
             ghcr.io/${{ github.repository }}/sdp-dnsmasq:latest
             ghcr.io/${{ github.repository }}/sdp-dnsmasq:${{ github.sha }}
