@@ -24,7 +24,7 @@ jobs:
         with:
           context: .
           file: docker/sdp-injector-Dockerfile
-          push: ${{ github.ref == 'refs/heads/master' }}
+          push: ${{ github.ref == 'refs/heads/main' }}
           tags: |
             ghcr.io/${{ github.repository }}/sdp-injector:latest
             ghcr.io/${{ github.repository }}/sdp-injector:${{ github.sha }}
