@@ -1,4 +1,6 @@
 FROM ubuntu:18.04
+LABEL sdp=true
+LABEL project=sdp-client-headless
 ARG CLIENT_DEB=appgate-headless.deb
 COPY assets/$CLIENT_DEB /tmp
 RUN apt-get update && \
@@ -6,11 +8,11 @@ RUN apt-get update && \
     apt install -y /tmp/$CLIENT_DEB iproute2 socat && \
     apt-get clean && \
     rm -rf /usr/share/doc /usr/share/man /var/lib/apt /var/lib/dpkg /var/cache /etc/machine-id /tmp/$CLIENT_DEB
-COPY assets/sdp-client-headless-service.sh /opt/appgate/appgate-service.sh
+COPY assets/sdp-client-headless-service /opt/appgate/sdp-client-headless-service
 COPY assets/sdp-driver-set-dns /opt/appgate/linux/set_dns
-RUN chmod +x /opt/appgate/appgate-service.sh
+RUN chmod +x /opt/appgate/sdp-client-headless-service
 RUN chmod +x /opt/appgate/linux/set_dns
 
 WORKDIR /root
 
-CMD ["/opt/appgate/appgate-service.sh"]
+CMD ["/opt/appgate/sdp-client-headless-service"]
