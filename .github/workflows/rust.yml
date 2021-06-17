@@ -2,22 +2,16 @@ name: Appgate SDP Kubernetes Client
 
 on:
   push:
-    branches:
-      - master
+    branches-ignore:
+      - main
   pull_request:
     branches:
-      - master
+      - main
 
 jobs:
-  build:
+  build-rust:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
-      - uses: actions-rs/toolchain@v1
-        name: Setup rust
-        with:
-          toolchain: stable
-      - uses: actions-rs/cargo@v1
-        name: Build and test
-        with:
-          command: build
+      - name: Build rust code
+        run: docker build -t sdp-injector --target sdp-builder -f docker/sdp-injector-Dockerfile .
