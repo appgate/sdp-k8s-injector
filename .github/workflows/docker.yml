@@ -3,14 +3,14 @@ name: Docker
 on:
   push:
     branches:
-      - master
+      - main
 
 jobs:
   sdp-injector:
     runs-on: ubuntu-latest
     environment:
       name: docker-images
-    if: github.ref == 'refs/heads/master'
+    if: github.ref == 'refs/heads/main'
     steps:
       - uses: actions/checkout@v2
       - name: Build image
@@ -27,11 +27,10 @@ jobs:
           docker push ghcr.io/appgate/sdp-injector:latest
 
   sdp-dnsmasq:
-    needs: build
     runs-on: ubuntu-latest
     environment:
       name: docker-images
-    if: github.ref == 'refs/heads/master'
+    if: github.ref == 'refs/heads/main'
     steps:
       - uses: actions/checkout@v2
       - name: Build image
