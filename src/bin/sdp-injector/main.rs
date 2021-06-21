@@ -88,18 +88,18 @@ trait SDPPod {
 
     fn annotations(&self) -> Option<&BTreeMap<String, String>>;
 
-    fn patch_sidecars(&self, spd_sidecars: &SDPSidecars) -> Result<Option<Patch>, Box<dyn Error>> {
+    fn patch_sidecars(&self, sdp_sidecars: &SDPSidecars) -> Result<Option<Patch>, Box<dyn Error>> {
         info!("Patching POD with SDP client");
         let mut patches = vec![];
-        if self.needs_patching(&spd_sidecars) {
-            for c in spd_sidecars.containers.iter() {
+        if self.needs_patching(&sdp_sidecars) {
+            for c in sdp_sidecars.containers.iter() {
                 patches.push(Add(AddOperation {
                     path: "/spec/containers/-".to_string(),
                     value: serde_json::to_value(&c)?,
                 }));
             }
             if self.volumes().is_some() {
-                for v in spd_sidecars.volumes.iter() {
+                for v in sdp_sidecars.volumes.iter() {
                     patches.push(Add(AddOperation {
                         path: "/spec/volumes/-".to_string(),
                         value: serde_json::to_value(&v)?,
@@ -108,7 +108,7 @@ trait SDPPod {
             } else {
                 patches.push(Add(AddOperation {
                     path: "/spec/volumes".to_string(),
-                    value: serde_json::to_value(&spd_sidecars.volumes)?,
+                    value: serde_json::to_value(&sdp_sidecars.volumes)?,
                 }));
             }
         }
@@ -120,12 +120,12 @@ trait SDPPod {
         }
     }
 
-    fn validate_sidecars(&self, spd_sidecars: &SDPSidecars) -> Result<(), String> {
+    fn validate_sidecars(&self, sdp_sidecars: &SDPSidecars) -> Result<(), String> {
         let expected_volume_names = HashSet::from_iter(
-            spd_sidecars.volumes.iter().map(|v| v.name.clone()));
+            sdp_sidecars.volumes.iter().map(|v| v.name.clone()));
         let expected_container_names = HashSet::from_iter(
-            spd_sidecars.containers.iter().map(|c| c.name.clone()));
-        let container_names = HashSet::from_iter(self.sidecar_names(spd_sidecars)
+            sdp_sidecars.containers.iter().map(|c| c.name.clone()));
+        let container_names = HashSet::from_iter(self.sidecar_names(sdp_sidecars)
             .unwrap_or(vec![])
             .iter().cloned());
         let volume_names = HashSet::from_iter(self.volume_names()
