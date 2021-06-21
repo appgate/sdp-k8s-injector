@@ -200,58 +200,47 @@ async fn mutate(request: HttpRequest, body: String) -> Result<HttpResponse, Http
 #[cfg(test)]
 mod tests {
     use k8s_openapi::api::core::v1::{Pod, Container};
-    use std::collections::{BTreeMap, HashSet};
+    use std::collections::HashSet;
     use crate::{SDPPod, SDP_SIDECAR_NAMES, load_sidecar_containers, SDPPodDisplay, generate_patch};
     use std::iter::FromIterator;
     use kube::core::admission::AdmissionReview;
     use serde_json::json;
+    use json_patch::Patch;
 
     const SDP_VOLUME_NAMES: [&str; 2] = ["run-appgate", "tun-device"];
 
-    fn create_labels(labels: &[(&str, &str)]) -> BTreeMap<String, String> {
-        let mut bm = BTreeMap::new();
-        for (k, v) in labels {
-            bm.insert(k.to_string(), v.to_string());
+    macro_rules! test_pod {
+        (containers $cs:expr) => {{
+            {
+                let mut pod: Pod = Default::default();
+                pod.spec = Some(Default::default());
+                pod.spec = Some(Default::default());
+                let test_cs: Vec<Container> = $cs.iter().map(|x| {
+                    let mut c: Container = Default::default();
+                    c.name = x.to_string();
+                    c
+                }).collect();
+                if let Some(spec) = pod.spec.as_mut() {
+                    spec.containers = test_cs;
+                }
+                pod
         }
-        bm
+        }}
     }
 
-    fn create_container(name: &str) -> Container {
-        let mut c: Container = Default::default();
-        c.name = name.to_string();
-        c
-    }
-
-    fn run_test<F>(pod: &mut Pod, test: &TestInject, predicate: &mut F) -> (bool, String, String)
-        where F: FnMut(&mut Pod, &TestInject) -> (bool, String, String) {
-        pod.metadata.labels = test.labels.as_ref()
-            .map(|xs| create_labels(&xs[..]));
-        let test_cs: Vec<Container> = test.containers.iter()
-            .map(|&x| create_container(x)).collect();
-        if let Some(spec) = pod.spec.as_mut() {
-            spec.containers = test_cs;
-        }
-        predicate(pod, test)
-    }
-
-    fn assert_tests<F>(tests: &[TestInject], predicate: &mut F) -> () where
-        F: FnMut(&mut Pod, &TestInject) -> (bool, String, String)
-    {
-        let mut test_errors: Vec<(&TestInject, String, String)> = Vec::new();
-        let ok = tests.iter().fold(true, |total, t| {
-            let mut pod: Pod = Default::default();
-            pod.spec = Some(Default::default());
-            pod.spec = Some(Default::default());
-            let (result, test_description, error_message) = run_test(&mut pod, t, predicate);
+    fn assert_tests(test_results: &[TestResult]) -> () {
+        let mut test_errors: Vec<(u32, String, String)> = Vec::new();
+        let mut c = 0;
+        let ok = test_results.iter().fold(true, |total, (result, test_description, error_message)| {
             if !result {
-                test_errors.push((t, test_description, error_message));
+                test_errors.push((c, test_description.clone(), error_message.clone()));
+                c += c;
             }
-            total && result
+            total && *result
         });
         if !ok {
             let errors: Vec<String> = test_errors.iter().map(|x|
-                format!("Test {} failed for {:?}, reason: {}",
-                        x.1, x.0, x.2).to_string()
+                format!("Test {} [#{}] failed, reason: {}", x.1, x.0, x.2).to_string()
             ).collect();
             panic!("Inject test failed: {}", errors.join("\n"));
         }
@@ -259,81 +248,47 @@ mod tests {
     }
 
     #[derive(Debug)]
-    struct TestInject<'a> {
-        labels: Option<Vec<(&'a str, &'a str)>>,
-        containers: Vec<&'a str>,
+    struct TestPatch {
+        pod: Pod,
         needs_patching: bool,
     }
 
-    fn tests() -> Vec<TestInject<'static>> {
+    type TestResult = (bool, String, String);
+
+    fn tests() -> Vec<TestPatch> {
         vec![
-            TestInject {
-                labels: Some(vec![("sdp-inject", "false")]),
-                containers: vec![],
+            TestPatch {
+                pod: test_pod!(containers Vec::<&str>::new()),
                 needs_patching: false,
             },
-            TestInject {
-                labels: Some(vec![]),
-                containers: vec![],
-                needs_patching: false,
-            },
-            TestInject {
-                labels: None,
-                containers: vec![],
-                needs_patching: false,
-            },
-            TestInject {
-                labels: Some(vec![("sdp-inject", "true")]),
-                containers: vec![],
-                needs_patching: false,
-            },
-            TestInject {
-                labels: Some(vec![("sdp-inject", "true")]),
-                containers: vec![],
-                needs_patching: false,
-            },
-            TestInject {
-                labels: Some(vec![("sdp-inject", "true")]),
-                containers: vec!["some-random-service"],
+            TestPatch {
+                pod: test_pod!(containers vec!["random-service"]),
                 needs_patching: true,
             },
-            TestInject {
-                labels: Some(vec![("sdp-inject", "true")]),
-                containers: vec!["some-random-service-1", "some-random-service-2"],
+            TestPatch {
+                pod: test_pod!(containers vec!["some-random-service-1", "some-random-service-2"]),
                 needs_patching: true,
             },
-            TestInject {
-                labels: Some(vec![("sdp-inject", "false")]),
-                containers: vec!["some-random-service-1", "some-random-service-2"],
+            TestPatch {
+                pod: test_pod!(containers vec![SDP_SIDECAR_NAMES[0], SDP_SIDECAR_NAMES[1],
+                    "some-random-service"]),
                 needs_patching: false,
             },
-            TestInject {
-                labels: Some(vec![("sdp-inject", "true")]),
-                containers: vec![SDP_SIDECAR_NAMES[0], SDP_SIDECAR_NAMES[1],
-                                 "some-random-service"],
+            TestPatch {
+                pod: test_pod!(containers vec![SDP_SIDECAR_NAMES[1], "some-random-service"]),
                 needs_patching: false,
             },
-            TestInject {
-                labels: Some(vec![("sdp-inject", "true")]),
-                containers: vec![SDP_SIDECAR_NAMES[1], "some-random-service"],
-                needs_patching: false,
-            },
-            TestInject {
-                labels: Some(vec![("sdp-inject", "true")]),
-                containers: vec![SDP_SIDECAR_NAMES[0], "some-random-service"],
-                needs_patching: false,
-            }
         ]
     }
 
     #[test]
-    fn needs_injection_simple() {
-        let mut predicate = |pod: &mut Pod, test: &TestInject| -> (bool, String, String) {
-            (test.needs_patching == pod.needs_patching(), "Injection Simple Test".to_string(),
-             format!("{}", SDPPodDisplay(pod)))
-        };
-
-        assert_tests(&tests(), &mut predicate)
+    fn needs_patching() {
+        let results: Vec<TestResult> = tests().iter().map(|t| {
+            let needs_patching = t.pod.needs_patching();
+            (t.needs_patching == needs_patching, "Needs patching simple".to_string(),
+             format!("Got {}, expected {}", needs_patching, t.needs_patching))
+        }).collect();
+        assert_tests(&results)
     }
 
     #[test]
@@ -350,58 +305,54 @@ mod tests {
         };
         let sdp_context = load_sidecar_containers()
             .expect("Unable to load the sidecar information");
-        let mut predicate = |pod: &mut Pod, test: &TestInject| -> (bool, String, String) {
-            let message = format!("Failure for {}", SDPPodDisplay(pod));
-            let needs_patching = pod.needs_patching();
-            let assert_patch = || -> Result<bool, String> {
-                match pod.patch_sidecars(&sdp_context) {
-                    Ok(Some(patch)) => {
-                        let unpatched_containers = pod.container_names().unwrap_or(vec![]);
-                        let unpatched_volumes = pod.volume_names().unwrap_or(vec![]);
-                        let mut unpatched_pod = serde_json::to_value(pod)
-                            .map_err(|e| format!("Unable to convert POD to value [{}]", e.to_string()))?;
-                        json_patch::patch(&mut unpatched_pod, &patch)
-                            .map_err(|e| format!("Unable to patch POD [{}]", e.to_string()))?;
-                        let patched_pod: Pod = serde_json::from_value(unpatched_pod)
-                            .map_err(|e| format!("Unable to convert patched POD [{}]", e.to_string()))?;
-                        let patched_containers = HashSet::from_iter(patched_pod.container_names()
-                            .unwrap_or(vec![]).iter().cloned());
-                        (patched_containers == expected_containers(&unpatched_containers)).then(|| true)
-                            .ok_or(format!("Wrong containers after patch, got {:?}, expected {:?}", patched_containers,
-                                           expected_containers(&unpatched_containers)))?;
-                        let patched_volumes = HashSet::from_iter(patched_pod.volume_names()
-                            .unwrap_or(vec![]).iter().cloned());
-                        (patched_volumes == expected_volumes(&unpatched_volumes)).then(|| true)
-                            .ok_or(format!("Wrong volumes after patch, got {:?}, expected {:?}", patched_volumes,
-                                           expected_volumes(&unpatched_volumes)))?;
-                        Ok(true)
-                    }
-                    Ok(None) => Err(format!("Patch was expected for {}", SDPPodDisplay(pod))),
-                    Err(error) =>
-                        Err(format!("Unable to generate patch for {}, {}", SDPPodDisplay(pod), error.to_string()))
-                }
-            };
+        let assert_patch = |pod: &Pod, mb: Option<Patch>| -> Result<bool, String> {
+            mb.ok_or("Patch not found!".to_string()).and_then(|patch| {
+                let unpatched_containers = pod.container_names().unwrap_or(vec![]);
+                let unpatched_volumes = pod.volume_names().unwrap_or(vec![]);
+                let mut unpatched_pod = serde_json::to_value(pod)
+                    .map_err(|e| format!("Unable to convert POD to value [{}]", e.to_string()))?;
+                json_patch::patch(&mut unpatched_pod, &patch)
+                    .map_err(|e| format!("Unable to patch POD [{}]", e.to_string()))?;
+                let patched_pod: Pod = serde_json::from_value(unpatched_pod)
+                    .map_err(|e| format!("Unable to convert patched POD [{}]", e.to_string()))?;
+                let patched_containers = HashSet::from_iter(patched_pod.container_names()
+                    .unwrap_or(vec![]).iter().cloned());
+                (patched_containers == expected_containers(&unpatched_containers)).then(|| true)
+                    .ok_or(format!("Wrong containers after patch, got {:?}, expected {:?}", patched_containers,
+                                   expected_containers(&unpatched_containers)))?;
+                let patched_volumes = HashSet::from_iter(patched_pod.volume_names()
+                    .unwrap_or(vec![]).iter().cloned());
+                (patched_volumes == expected_volumes(&unpatched_volumes)).then(|| true)
+                    .ok_or(format!("Wrong volumes after patch, got {:?}, expected {:?}", patched_volumes,
+                                   expected_volumes(&unpatched_volumes)))?;
+                Ok(true)
+            })
+        };
+        let test_description = || "Test patch".to_string();
+        let results: Vec<TestResult> = tests().iter().map(|test| {
+            let needs_patching = test.pod.needs_patching();
+            let patch = test.pod.patch_sidecars(&sdp_context);
             if test.needs_patching && needs_patching {
-                if let Err(error_message) = assert_patch() {
-                    (false, "Injection Containers Test".to_string(), error_message)
-                } else {
-                    (true, "Injection Containers Test".to_string(), message)
+                match patch.map_err(|e| e.to_string()).and_then(|p| assert_patch(&test.pod, p)) {
+                    Ok(res) => (res, test_description(), "".to_string()),
+                    Err(error) => (false, test_description(), format!("Error applying patch: {}", error))
                 }
             } else if test.needs_patching != needs_patching {
-                (false, "Injection Containers Test".to_string(), message)
+                (false, test_description(), format!("Expected needs_patching {}, got {}",
+                                                    test.needs_patching, needs_patching))
             } else {
-                (true, "Injection Containers Test".to_string(), message)
+                (true, test_description(), "".to_string())
             }
-        };
+        }).collect();
 
-        assert_tests(&tests(), &mut predicate)
+        assert_tests(&results)
     }
 
     #[test]
     fn test_responses() {
-        let mut predicate = |pod: &mut Pod, test: &TestInject| -> (bool, String, String) {
-            let pod_value = serde_json::to_value(&pod)
-                .expect(&format!("Unable to parse test input {}", SDPPodDisplay(&pod)));
+        let assert_response = |test: &TestPatch| -> Result<bool, String> {
+            let pod_value = serde_json::to_value(&test.pod)
+                .expect(&format!("Unable to parse test input {}", SDPPodDisplay(&test.pod)));
             let admission_review_value = json!({
                 "apiVersion": "admission.k8s.io/v1",
                 "kind": "AdmissionReview",
@@ -424,45 +375,46 @@ mod tests {
                     }
                 },
                 "object": pod_value});
-            let assert_response = || -> Result<bool, String> {
-                let mut admission_review: AdmissionReview<Pod> = serde_json::from_value(admission_review_value)
-                    .map_err(|e| format!("Unable to parse generated AdmissionReview value: {}", e.to_string()))?;
-                // copy the POD
-                let copied_pod: Pod = serde_json::to_value(&pod)
-                    .and_then(|v| serde_json::from_value(v))
-                    .map_err(|e| format!("Unable to deserialize POD {}", e.to_string()))?;
-                if let Some(request) = admission_review.request.as_mut() {
-                    request.object = Some(copied_pod);
-                }
-                // Serialize the request into a string
-                let admission_review_str = serde_json::to_string(&admission_review)
-                    .map_err(|e| format!("Unable to convert to string generated AdmissionReview value: {}",e.to_string()))?;
-                let sdp_context = load_sidecar_containers()
-                    .map_err(|e| format!("Unable to load the sidecar information {}", e.to_string()))?;
+            let mut admission_review: AdmissionReview<Pod> = serde_json::from_value(admission_review_value)
+                .map_err(|e| format!("Unable to parse generated AdmissionReview value: {}",
+                                     e.to_string()))?;
+            // copy the POD
+            let copied_pod: Pod = serde_json::to_value(&test.pod)
+                .and_then(|v| serde_json::from_value(v))
+                .map_err(|e| format!("Unable to deserialize POD {}", e.to_string()))?;
+            if let Some(request) = admission_review.request.as_mut() {
+                request.object = Some(copied_pod);
+            }
+            // Serialize the request into a string
+            let admission_review_str = serde_json::to_string(&admission_review)
+                .map_err(|e| format!("Unable to convert to string generated AdmissionReview value: {}",e.to_string()))?;
+            let sdp_context = load_sidecar_containers()
+                .map_err(|e| format!("Unable to load the sidecar information {}", e.to_string()))?;
 
-                // test the generate_patch function now
-                let admission_review = generate_patch(&admission_review_str, &sdp_context)
-                    .map_err(|e| format!("Error getting response: {}", e.to_string()))?;
-                let r = true;
-                if let Some(response) = admission_review.response {
-                    let response_allowed = test.needs_patching;
-                    if response.allowed == response_allowed {
-                        Ok(r)
-                    } else {
-                        Err(format!("{} got response allowed = {} but it expected {}", SDPPodDisplay(&pod),
-                                    response.allowed, test.needs_patching))
-                    }
+            // test the generate_patch function now
+            let admission_review = generate_patch(&admission_review_str, &sdp_context)
+                .map_err(|e| format!("Error getting response: {}", e.to_string()))?;
+            let r = true;
+            if let Some(response) = admission_review.response {
+                let response_allowed = test.needs_patching;
+                if response.allowed == response_allowed {
+                    Ok(r)
                 } else {
-                    Err("Could not find a response!".to_string())
+                    Err(format!("{} got response allowed = {} but it expected {}", SDPPodDisplay(&test.pod),
+                                response.allowed, test.needs_patching))
                 }
-            };
-            match assert_response() {
-                Ok(r) => (r, "Injection Containers Test".to_string(), "Unknown".to_string()),
-                Err(error) => (false, "Injection Containers Test".to_string(), error)
-
+            } else {
+                Err("Could not find a response!".to_string())
             }
         };
-        assert_tests(&tests(), &mut predicate)
+
+        let results: Vec<TestResult> = tests().iter().map(|test| {
+            match assert_response(test) {
+                Ok(r) => (r, "Injection Containers Test".to_string(), "Unknown".to_string()),
+                Err(error) => (false, "Injection Containers Test".to_string(), error)
+            }
+        }).collect();
+        assert_tests(&results)
     }
 }
 
