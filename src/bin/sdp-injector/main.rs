@@ -280,20 +280,12 @@ async fn validate(request: HttpRequest, body: String) -> Result<HttpResponse, Ht
 #[cfg(test)]
 mod tests {
     use k8s_openapi::api::core::v1::{Pod, Container, Volume};
-    use std::collections::{BTreeMap, HashSet};
+    use std::collections::HashSet;
     use crate::{SDPPod, load_sidecar_containers, SDPPodDisplay, SDP_SIDECARS_FILE_ENV, SDPSidecars, patch_request};
     use std::iter::FromIterator;
     use kube::core::admission::AdmissionReview;
     use serde_json::json;
     use json_patch::Patch;
-
-    fn create_labels(labels: &[(&str, &str)]) -> BTreeMap<String, String> {
-        let mut bm = BTreeMap::new();
-        for (k, v) in labels {
-            bm.insert(k.to_string(), v.to_string());
-        }
-        bm
-    }
 
     fn load_sidecar_containers_env() -> Result<SDPSidecars, String> {
         std::env::set_var(SDP_SIDECARS_FILE_ENV, "k8s/sdp-sidecars.json");
@@ -410,7 +402,7 @@ mod tests {
         ]
     }
 
-    fn validation_tests(sdp_sidecars: &SDPSidecars) -> Vec<TestValidate> {
+    fn validation_tests() -> Vec<TestValidate> {
         vec![
             TestValidate {
                 pod: test_pod!(),
@@ -603,7 +595,7 @@ POD is missing needed volumes: run-appgate, tun-device"#.to_string())
         let sdp_sidecars = load_sidecar_containers_env()
             .expect("Unable to load sidecars context");
         let test_description = || "Test POD validation".to_string();
-        let results: Vec<TestResult> = validation_tests(&sdp_sidecars).iter().map(|t| {
+        let results: Vec<TestResult> = validation_tests().iter().map(|t| {
             let pass_validation = t.pod.validate_sidecars(&sdp_sidecars);
             match (pass_validation, t.validation_errors.as_ref()) {
                 (Ok(_), Some(expected_error)) => {
