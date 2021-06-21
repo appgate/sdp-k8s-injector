@@ -122,20 +122,22 @@ trait SDPPod {
         let volume_names = HashSet::from_iter(self.volume_names()
             .unwrap_or(vec![])
             .iter().cloned());
-        let container_i: HashSet<String> = container_names.intersection(&expected_container_names)
-            .cloned().collect();
-        let volumes_i: HashSet<String> = volume_names.intersection(&expected_volume_names)
-            .cloned().collect();
         let mut errors: Vec<String> = vec![];
-        if !container_i.is_empty() {
-            errors.push(format!("POD is missing needed containers {}",
-                                expected_container_names.difference(&container_i)
-                                    .cloned().collect::<Vec<String>>().join(",")));
+        if !expected_container_names.is_subset(&container_names) {
+            let container_i: HashSet<String> = container_names.intersection(&expected_container_names)
+                .cloned().collect();
+            let mut missing_containers: Vec<String> = expected_container_names
+                .difference(&container_i).cloned().collect();
+            missing_containers.sort();
+            errors.push(format!("POD is missing needed containers: {}", missing_containers.join(", ")));
         }
-        if !volumes_i.is_empty() {
-            errors.push(format!("POD is missing needed volumes {}",
-                                expected_volume_names.difference(&volumes_i)
-                                    .cloned().collect::<Vec<String>>().join(",")));
+        if !expected_volume_names.is_subset(&volume_names) {
+            let volumes_i: HashSet<String> = volume_names.intersection(&expected_volume_names)
+                .cloned().collect();
+            let mut missing_volumes: Vec<String> = expected_volume_names
+                .difference(&volumes_i).cloned().collect();
+            missing_volumes.sort();
+            errors.push(format!("POD is missing needed volumes: {}", missing_volumes.join(", ")));
         }
         if errors.is_empty() {
             Ok(())
