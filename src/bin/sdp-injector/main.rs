@@ -280,7 +280,7 @@ async fn validate(request: HttpRequest, body: String) -> Result<HttpResponse, Ht
 #[cfg(test)]
 mod tests {
     use k8s_openapi::api::core::v1::{Pod, Container, Volume};
-    use std::collections::HashSet;
+    use std::collections::{BTreeMap, HashSet};
     use crate::{SDPPod, load_sidecar_containers, SDPPodDisplay, SDP_SIDECARS_FILE_ENV, SDPSidecars, patch_request};
     use std::iter::FromIterator;
     use kube::core::admission::AdmissionReview;
@@ -316,7 +316,14 @@ mod tests {
                     spec.volumes = Some(volumes);
                 }
             }
-        }
+        };
+        ($pod:expr, annotations => $cs:expr) => {
+            let mut bm = BTreeMap::new();
+            for (k, v) in $cs {
+                bm.insert(k.to_string(), v.to_string());
+            }
+            $pod.metadata.annotations = Some(bm);
+        };
     }
 
     macro_rules! test_pod {
@@ -380,7 +387,17 @@ mod tests {
                 needs_patching: false,
             },
             TestPatch {
-                pod: test_pod!( containers => vec!["random-service"]),
+                pod: test_pod!(containers => vec!["random-service"]),
+                needs_patching: true,
+            },
+            TestPatch {
+                pod: test_pod!(containers => vec!["random-service"],
+                               annotations => vec![("sdp-injector", "false")]),
+                needs_patching: false,
+            },
+            TestPatch {
+                pod: test_pod!(containers => vec!["random-service"],
+                               annotations => vec![("sdp-injector", "true")]),
                 needs_patching: true,
             },
             TestPatch {
@@ -388,13 +405,27 @@ mod tests {
                 needs_patching: true,
             },
             TestPatch {
-                pod: test_pod!(containers => vec![sdp_sidecar_names[0].clone(), sdp_sidecar_names[1].clone(),
-                    "some-random-service".to_string()]),
+                pod: test_pod!(containers => vec![sdp_sidecar_names[0].clone(),
+                                                  sdp_sidecar_names[1].clone(),
+                                                  "some-random-service".to_string()]),
+                needs_patching: false,
+            },
+            TestPatch {
+                pod: test_pod!(containers => vec![sdp_sidecar_names[0].clone(),
+                                                  sdp_sidecar_names[1].clone(),
+                                                  "some-random-service".to_string()],
+                               annotations => vec![("sdp-injector", "true")]),
                 needs_patching: false,
             },
             TestPatch {
                 pod: test_pod!(containers => vec![sdp_sidecar_names[1].clone(),
-                    "some-random-service".to_string()]),
+                                                  "some-random-service".to_string()]),
+                needs_patching: false,
+            },
+            TestPatch {
+                pod: test_pod!(containers => vec![sdp_sidecar_names[1].clone(),
+                                                  "some-random-service".to_string()],
+                               annotations => vec![("sdp-injector", "true")]),
                 needs_patching: false,
             },
         ]
