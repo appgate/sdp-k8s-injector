@@ -320,26 +320,24 @@ mod tests {
     }
 
     macro_rules! test_pod {
-        () => {
-            {
-                let mut pod: Pod = Default::default();
-                pod.spec = Some(Default::default());
-                pod
+        () => {{
+            let mut pod: Pod = Default::default();
+            pod.spec = Some(Default::default());
+            pod
         }};
-        (containers $cs:expr) => {
-            {
-                let mut pod: Pod = Default::default();
-                pod.spec = Some(Default::default());
-                set_pod_field!(pod, containers => $cs);
-                pod
+        ($pod:expr) => {{$pod}};
+        ($($fs:ident => $es:expr),*) => {{
+            let mut pod: Pod = Default::default();
+            pod.spec = Some(Default::default());
+            test_pod!(pod,$($fs => $es),*)
         }};
-        (containers $cs:expr, volumes $vs:expr) => {
-            {
-                let mut pod: Pod = Default::default();
-                pod.spec = Some(Default::default());
-                set_pod_field!(pod, containers => $cs);
-                set_pod_field!(pod, volumes => $vs);
-                pod
+        ($pod:expr,$f:ident => $e:expr) => {{
+            set_pod_field!($pod, $f => $e);
+            test_pod!($pod)
+        }};
+        ($pod:expr,$f:ident => $e:expr,$($fs:ident => $es:expr),*) => {{
+            set_pod_field!($pod, $f => $e);
+            test_pod!($pod,$($fs => $es),*)
         }};
     }
 
@@ -382,20 +380,20 @@ mod tests {
                 needs_patching: false,
             },
             TestPatch {
-                pod: test_pod!(containers vec!["random-service"]),
+                pod: test_pod!( containers => vec!["random-service"]),
                 needs_patching: true,
             },
             TestPatch {
-                pod: test_pod!(containers vec!["some-random-service-1", "some-random-service-2"]),
+                pod: test_pod!(containers => vec!["some-random-service-1", "some-random-service-2"]),
                 needs_patching: true,
             },
             TestPatch {
-                pod: test_pod!(containers vec![sdp_sidecar_names[0].clone(), sdp_sidecar_names[1].clone(),
+                pod: test_pod!(containers => vec![sdp_sidecar_names[0].clone(), sdp_sidecar_names[1].clone(),
                     "some-random-service".to_string()]),
                 needs_patching: false,
             },
             TestPatch {
-                pod: test_pod!(containers vec![sdp_sidecar_names[1].clone(),
+                pod: test_pod!(containers => vec![sdp_sidecar_names[1].clone(),
                     "some-random-service".to_string()]),
                 needs_patching: false,
             },
@@ -410,41 +408,42 @@ mod tests {
 POD is missing needed volumes: run-appgate, tun-device"#.to_string())
             },
             TestValidate {
-                pod: test_pod!(containers vec!["sdp-dnsmasq"]),
+                pod: test_pod!(containers => vec!["sdp-dnsmasq"]),
                 validation_errors: Some(r#"Unable to run SDP client on POD: POD is missing needed containers: sdp-driver, sdp-service
 POD is missing needed volumes: run-appgate, tun-device"#.to_string())
             },
             TestValidate {
-                pod: test_pod!(containers vec!["sdp-dnsmasq", "sdp-service"]),
+                pod: test_pod!(containers => vec!["sdp-dnsmasq", "sdp-service"]),
                 validation_errors: Some(r#"Unable to run SDP client on POD: POD is missing needed containers: sdp-driver
 POD is missing needed volumes: run-appgate, tun-device"#.to_string())
             },
             TestValidate {
-                pod: test_pod!(containers vec!["sdp-service", "sdp-dnsmasq", "sdp-driver"]),
+                pod: test_pod!(containers => vec!["sdp-service", "sdp-dnsmasq", "sdp-driver"]),
                 validation_errors: Some(r#"Unable to run SDP client on POD: POD is missing needed volumes: run-appgate, tun-device"#.to_string())
             },
             TestValidate {
-                pod: test_pod!(containers vec!["sdp-service", "sdp-dnsmasq", "sdp-driver"],
-                               volumes vec!["run-appgate"]),
+                pod: test_pod!(containers => vec!["sdp-service", "sdp-dnsmasq", "sdp-driver"],
+                               volumes => vec!["run-appgate"]),
                 validation_errors: Some(r#"Unable to run SDP client on POD: POD is missing needed volumes: tun-device"#.to_string())
             },
             TestValidate {
-                pod: test_pod!(containers vec!["sdp-service", "sdp-dnsmasq", "sdp-driver"],
-                               volumes vec!["run-appgate"]),
+                pod: test_pod!(containers => vec!["sdp-service", "sdp-dnsmasq", "sdp-driver"],
+                               volumes => vec!["run-appgate"]),
                 validation_errors: Some(r#"Unable to run SDP client on POD: POD is missing needed volumes: tun-device"#.to_string())
             },
             TestValidate {
-                pod: test_pod!(containers vec!["sdp-driver"], volumes vec!["run-appgate", "tun-device"]),
+                pod: test_pod!(containers => vec!["sdp-driver"],
+                               volumes => vec!["run-appgate", "tun-device"]),
                 validation_errors: Some(r#"Unable to run SDP client on POD: POD is missing needed containers: sdp-dnsmasq, sdp-service"#.to_string())
             },
             TestValidate {
-                pod: test_pod!(containers vec!["sdp-service", "sdp-dnsmasq", "sdp-driver"],
-                               volumes vec!["run-appgate", "tun-device"]),
+                pod: test_pod!(containers => vec!["sdp-service", "sdp-dnsmasq", "sdp-driver"],
+                               volumes => vec!["run-appgate", "tun-device"]),
                 validation_errors: None
             },
             TestValidate {
-                pod: test_pod!(containers vec!["_sdp-service", "_sdp-dnsmasq", "_sdp-driver"],
-                               volumes vec!["_run-appgate", "_tun-device"]),
+                pod: test_pod!(containers => vec!["_sdp-service", "_sdp-dnsmasq", "_sdp-driver"],
+                               volumes => vec!["_run-appgate", "_tun-device"]),
                 validation_errors: Some(r#"Unable to run SDP client on POD: POD is missing needed containers: sdp-dnsmasq, sdp-driver, sdp-service
 POD is missing needed volumes: run-appgate, tun-device"#.to_string())
             },
