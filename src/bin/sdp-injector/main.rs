@@ -279,7 +279,7 @@ async fn validate(request: HttpRequest, body: String) -> Result<HttpResponse, Ht
 
 #[cfg(test)]
 mod tests {
-    use k8s_openapi::api::core::v1::{Pod, Container};
+    use k8s_openapi::api::core::v1::{Pod, Container, Volume};
     use std::collections::{BTreeMap, HashSet};
     use crate::{SDPPod, load_sidecar_containers, SDPPodDisplay, SDP_SIDECARS_FILE_ENV, SDPSidecars, patch_request};
     use std::iter::FromIterator;
@@ -301,32 +301,62 @@ mod tests {
             .map_err(|e| format!("Unable to load the sidecar information {}", e.to_string()))
     }
 
+    macro_rules! set_pod_field {
+        ($pod:expr, containers => $cs:expr) => {
+            let test_cs: Vec<Container> = $cs.iter().map(|x| {
+                let mut c: Container = Default::default();
+                c.name = x.to_string();
+                c
+            }).collect();
+            if let Some(spec) = $pod.spec.as_mut() {
+                spec.containers = test_cs;
+            }
+        };
+        ($pod:expr, volumes => $vs:expr) => {
+            let volumes: Vec<Volume> = $vs.iter().map(|x| {
+                    let mut v: Volume = Default::default();
+                    v.name = x.to_string();
+                    v
+            }).collect();
+
+            if volumes.len() > 0 {
+                if let Some(spec) = $pod.spec.as_mut() {
+                    spec.volumes = Some(volumes);
+                }
+            }
+        }
+    }
+
     macro_rules! test_pod {
-        (containers $cs:expr) => {{
+        () => {
             {
                 let mut pod: Pod = Default::default();
                 pod.spec = Some(Default::default());
-                let test_cs: Vec<Container> = $cs.iter().map(|x| {
-                    let mut c: Container = Default::default();
-                    c.name = x.to_string();
-                    c
-                }).collect();
-
-                if let Some(spec) = pod.spec.as_mut() {
-                    spec.containers = test_cs;
-                }
                 pod
-        }
-        }}
+        }};
+        (containers $cs:expr) => {
+            {
+                let mut pod: Pod = Default::default();
+                pod.spec = Some(Default::default());
+                set_pod_field!(pod, containers => $cs);
+                pod
+        }};
+        (containers $cs:expr, volumes $vs:expr) => {
+            {
+                let mut pod: Pod = Default::default();
+                pod.spec = Some(Default::default());
+                set_pod_field!(pod, containers => $cs);
+                set_pod_field!(pod, volumes => $vs);
+                pod
+        }};
     }
 
     fn assert_tests(test_results: &[TestResult]) -> () {
-        let mut test_errors: Vec<(u32, String, String)> = Vec::new();
-        let mut c = 0;
-        let ok = test_results.iter().fold(true, |total, (result, test_description, error_message)| {
+        let mut test_errors: Vec<(usize, String, String)> = Vec::new();
+        let ok = test_results.iter()
+            .enumerate().fold(true, |total, (c, (result, test_description, error_message))| {
             if !result {
                 test_errors.push((c, test_description.clone(), error_message.clone()));
-                c += c;
             }
             total && *result
         });
@@ -345,13 +375,18 @@ mod tests {
         needs_patching: bool,
     }
 
+    struct TestValidate {
+        pod: Pod,
+        validation_errors: Option<String>,
+    }
+
     type TestResult = (bool, String, String);
 
-    fn tests(sdp_sidecars: &SDPSidecars) -> Vec<TestPatch> {
+    fn patch_tests(sdp_sidecars: &SDPSidecars) -> Vec<TestPatch> {
         let sdp_sidecar_names = sdp_sidecars.container_names();
         vec![
             TestPatch {
-                pod: test_pod!(containers Vec::<&str>::new()),
+                pod: test_pod!(),
                 needs_patching: false,
             },
             TestPatch {
@@ -375,11 +410,60 @@ mod tests {
         ]
     }
 
+    fn validation_tests(sdp_sidecars: &SDPSidecars) -> Vec<TestValidate> {
+        vec![
+            TestValidate {
+                pod: test_pod!(),
+                validation_errors: Some(r#"Unable to run SDP client on POD: POD is missing needed containers: sdp-dnsmasq, sdp-driver, sdp-service
+POD is missing needed volumes: run-appgate, tun-device"#.to_string())
+            },
+            TestValidate {
+                pod: test_pod!(containers vec!["sdp-dnsmasq"]),
+                validation_errors: Some(r#"Unable to run SDP client on POD: POD is missing needed containers: sdp-driver, sdp-service
+POD is missing needed volumes: run-appgate, tun-device"#.to_string())
+            },
+            TestValidate {
+                pod: test_pod!(containers vec!["sdp-dnsmasq", "sdp-service"]),
+                validation_errors: Some(r#"Unable to run SDP client on POD: POD is missing needed containers: sdp-driver
+POD is missing needed volumes: run-appgate, tun-device"#.to_string())
+            },
+            TestValidate {
+                pod: test_pod!(containers vec!["sdp-service", "sdp-dnsmasq", "sdp-driver"]),
+                validation_errors: Some(r#"Unable to run SDP client on POD: POD is missing needed volumes: run-appgate, tun-device"#.to_string())
+            },
+            TestValidate {
+                pod: test_pod!(containers vec!["sdp-service", "sdp-dnsmasq", "sdp-driver"],
+                               volumes vec!["run-appgate"]),
+                validation_errors: Some(r#"Unable to run SDP client on POD: POD is missing needed volumes: tun-device"#.to_string())
+            },
+            TestValidate {
+                pod: test_pod!(containers vec!["sdp-service", "sdp-dnsmasq", "sdp-driver"],
+                               volumes vec!["run-appgate"]),
+                validation_errors: Some(r#"Unable to run SDP client on POD: POD is missing needed volumes: tun-device"#.to_string())
+            },
+            TestValidate {
+                pod: test_pod!(containers vec!["sdp-driver"], volumes vec!["run-appgate", "tun-device"]),
+                validation_errors: Some(r#"Unable to run SDP client on POD: POD is missing needed containers: sdp-dnsmasq, sdp-service"#.to_string())
+            },
+            TestValidate {
+                pod: test_pod!(containers vec!["sdp-service", "sdp-dnsmasq", "sdp-driver"],
+                               volumes vec!["run-appgate", "tun-device"]),
+                validation_errors: None
+            },
+            TestValidate {
+                pod: test_pod!(containers vec!["_sdp-service", "_sdp-dnsmasq", "_sdp-driver"],
+                               volumes vec!["_run-appgate", "_tun-device"]),
+                validation_errors: Some(r#"Unable to run SDP client on POD: POD is missing needed containers: sdp-dnsmasq, sdp-driver, sdp-service
+POD is missing needed volumes: run-appgate, tun-device"#.to_string())
+            },
+        ]
+    }
+
     #[test]
     fn needs_patching() {
         let sdp_sidecars = load_sidecar_containers_env()
             .expect("Unable to load sidecars context");
-        let results: Vec<TestResult> = tests(&sdp_sidecars).iter().map(|t| {
+        let results: Vec<TestResult> = patch_tests(&sdp_sidecars).iter().map(|t| {
             let needs_patching = t.pod.needs_patching(&sdp_sidecars);
             (t.needs_patching == needs_patching, "Needs patching simple".to_string(),
              format!("Got {}, expected {}", needs_patching, t.needs_patching))
@@ -426,7 +510,7 @@ mod tests {
         };
 
         let test_description = || "Test patch".to_string();
-        let results: Vec<TestResult> = tests(&sdp_sidecars).iter().map(|test| {
+        let results: Vec<TestResult> = patch_tests(&sdp_sidecars).iter().map(|test| {
             let needs_patching = test.pod.needs_patching(&sdp_sidecars);
             let patch = test.pod.patch_sidecars(&sdp_sidecars);
             if test.needs_patching && needs_patching {
@@ -505,12 +589,40 @@ mod tests {
             }
         };
 
-        let results: Vec<TestResult> = tests(&sdp_sidecars).iter().map(|test| {
+        let results: Vec<TestResult> = patch_tests(&sdp_sidecars).iter().map(|test| {
             match assert_response(test) {
                 Ok(r) => (r, "Injection Containers Test".to_string(), "Unknown".to_string()),
                 Err(error) => (false, "Injection Containers Test".to_string(), error)
             }
         }).collect();
+        assert_tests(&results)
+    }
+
+    #[test]
+    fn test_pod_validation() {
+        let sdp_sidecars = load_sidecar_containers_env()
+            .expect("Unable to load sidecars context");
+        let test_description = || "Test POD validation".to_string();
+        let results: Vec<TestResult> = validation_tests(&sdp_sidecars).iter().map(|t| {
+            let pass_validation = t.pod.validate_sidecars(&sdp_sidecars);
+            match (pass_validation, t.validation_errors.as_ref()) {
+                (Ok(_), Some(expected_error)) => {
+                    let error_message = format!("Got no validation error, expected '{}'", expected_error);
+                    (false, test_description(), error_message)
+                },
+                (Ok(_), None) => (true, test_description(), "".to_string()),
+                (Err(error), None) => {
+                    let error_message = format!("Got validation error '{}', expected none", error);
+                    (false, test_description(), error_message)
+                },
+                (Err(error), Some(expected_error)) if !error.eq(expected_error) => {
+                    let error_message = format!("Got validation error '{}', expected '{}'", error, expected_error);
+                    (false, test_description(), error_message)
+                },
+                (Err(_), Some(_)) => {
+                    (true, test_description(), "".to_string())
+                },
+            }}).collect();
         assert_tests(&results)
     }
 }
