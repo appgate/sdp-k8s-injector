@@ -15,9 +15,11 @@ use json_patch::{Patch, AddOperation};
 use json_patch::PatchOperation::Add;
 use std::convert::TryInto;
 use kube::api::DynamicObject;
+use std::collections::HashSet;
+use std::iter::FromIterator;
 
-const SDP_SIDECAR_NAMES: [&str; 2] = ["sdp-service", "sdp-driver"];
 const SDP_SIDECARS_FILE: &str = "/opt/sdp-injector/k8s/sdp-sidecars.json";
+const SDP_SIDECARS_FILE_ENV: &str = "SDP_SIDECARS_FILE";
 const SDP_CERT_FILE_ENV: &str = "SDP_CERT_FILE";
 const SDP_KEY_FILE_ENV: &str = "SDP_KEY_FILE";
 const SDP_CERT_FILE: &str = "/opt/sdp-injector/k8s/sdp-injector-crt.pem";
@@ -29,18 +31,18 @@ fn reader_from_cwd(file_name: &str) -> Result<BufReader<File>, Box<dyn Error>> {
     Ok(BufReader::new(file))
 }
 
-struct SDPPodDisplay<'a>(&'a Pod);
+struct SDPPodDisplay<'a>(&'a Pod, &'a SDPSidecars);
 
 trait SDPPod {
-    fn sidecars(&self) -> Option<Vec<&Container>> {
+    fn sidecars(&self, sdp_sidecars: &SDPSidecars) -> Option<Vec<&Container>> {
         self.containers().map(|cs|
             cs.iter()
-                .filter(|&c| SDP_SIDECAR_NAMES.contains(&&c.name[..]))
+                .filter(|&c| sdp_sidecars.container_names().contains(&c.name))
                 .collect())
     }
 
-    fn sidecar_names(&self) -> Option<Vec<String>> {
-        self.sidecars().map(|xs|
+    fn sidecar_names(&self, sdp_sidecars: &SDPSidecars) -> Option<Vec<String>> {
+        self.sidecars(sdp_sidecars).map(|xs|
             xs.iter().map(|&x| x.name.clone()).collect())
     }
 
@@ -53,13 +55,13 @@ trait SDPPod {
         self.volumes().map(|vs| vs.iter().map(|v| v.name.clone()).collect())
     }
 
-    fn has_any_sidecars(&self) -> bool {
-        self.sidecars().map(|xs| xs.len() != 0).unwrap_or(false)
+    fn has_any_sidecars(&self, sdp_sidecars: &SDPSidecars) -> bool {
+        self.sidecars(sdp_sidecars).map(|xs| xs.len() != 0).unwrap_or(false)
     }
 
-    fn has_all_sidecars(&self) -> bool {
-        self.sidecars()
-            .map(|xs| xs.len() == SDP_SIDECAR_NAMES.len())
+    fn has_all_sidecars(&self, sdp_sidecars: &SDPSidecars) -> bool {
+        self.sidecars(sdp_sidecars)
+            .map(|xs| xs.len() == sdp_sidecars.containers.len())
             .unwrap_or(false)
     }
 
@@ -67,8 +69,8 @@ trait SDPPod {
         self.containers().unwrap_or(&vec![]).len() > 0
     }
 
-    fn needs_patching(&self) -> bool {
-        self.has_containers() && !self.has_any_sidecars()
+    fn needs_patching(&self, sdp_sidecars: &SDPSidecars) -> bool {
+        self.has_containers() && !self.has_any_sidecars(sdp_sidecars)
     }
 
     fn containers(&self) -> Option<&Vec<Container>>;
@@ -80,7 +82,7 @@ trait SDPPod {
     fn patch_sidecars(&self, spd_sidecars: &SDPSidecars) -> Result<Option<Patch>, Box<dyn Error>> {
         info!("Patching POD with SDP client");
         let mut patches = vec![];
-        if self.needs_patching() {
+        if self.needs_patching(&spd_sidecars) {
             for c in spd_sidecars.containers.iter() {
                 patches.push(Add(AddOperation {
                     path: "/spec/containers/-".to_string(),
@@ -108,6 +110,39 @@ trait SDPPod {
             Ok(Some(Patch(patches)))
         }
     }
+
+    fn validate_sidecars(&self, spd_sidecars: &SDPSidecars) -> Result<(), String> {
+        let expected_volume_names = HashSet::from_iter(
+            spd_sidecars.volumes.iter().map(|v| v.name.clone()));
+        let expected_container_names = HashSet::from_iter(
+            spd_sidecars.containers.iter().map(|c| c.name.clone()));
+        let container_names = HashSet::from_iter(self.sidecar_names(spd_sidecars)
+            .unwrap_or(vec![])
+            .iter().cloned());
+        let volume_names = HashSet::from_iter(self.volume_names()
+            .unwrap_or(vec![])
+            .iter().cloned());
+        let container_i: HashSet<String> = container_names.intersection(&expected_container_names)
+            .cloned().collect();
+        let volumes_i: HashSet<String> = volume_names.intersection(&expected_volume_names)
+            .cloned().collect();
+        let mut errors: Vec<String> = vec![];
+        if !container_i.is_empty() {
+            errors.push(format!("POD is missing needed containers {}",
+                                expected_container_names.difference(&container_i)
+                                    .cloned().collect::<Vec<String>>().join(",")));
+        }
+        if !volumes_i.is_empty() {
+            errors.push(format!("POD is missing needed volumes {}",
+                                expected_volume_names.difference(&volumes_i)
+                                    .cloned().collect::<Vec<String>>().join(",")));
+        }
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            Err(format!("Unable to run SDP client on POD: {}", errors.join("\n")).to_string())
+        }
+    }
 }
 
 impl SDPPod for Pod {
@@ -128,8 +163,9 @@ impl SDPPod for Pod {
 impl Display for SDPPodDisplay<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> FResult {
         let pod = self.0;
+        let sdp_sidecars = self.1;
         write!(f, "POD(name:{}, needs_patching:{}, containers:[{}], volumes: [{}])",
-               pod.name(), pod.needs_patching(),
+               pod.name(), pod.needs_patching(sdp_sidecars),
                pod.container_names().unwrap_or(vec![]).join(","),
                pod.volume_names().unwrap_or(vec![]).join(","))
     }
@@ -141,6 +177,16 @@ struct SDPSidecars {
     volumes: Box<Vec<Volume>>,
 }
 
+impl SDPSidecars {
+    fn container_names(&self) -> Vec<String> {
+        self.containers.iter().map(|c| c.name.clone()).collect()
+    }
+
+    fn volume_names(&self) -> Vec<String> {
+        self.volumes.iter().map(|c| c.name.clone()).collect()
+    }
+}
+
 fn error_to_bad_request(e: Box<dyn Error>) -> HttpResponse {
     HttpResponse::BadRequest().body(e.to_string())
 }
@@ -148,7 +194,11 @@ fn error_to_bad_request(e: Box<dyn Error>) -> HttpResponse {
 fn load_sidecar_containers() -> Result<SDPSidecars, Box<dyn Error>> {
     debug!("Loading SDP context");
     let cwd = std::env::current_dir()?;
-    let file = File::open(cwd.join(PathBuf::from(SDP_SIDECARS_FILE).as_path()))?;
+    let mut sidecars_path = cwd.join(PathBuf::from(SDP_SIDECARS_FILE).as_path());
+    if let Ok(sidecars_file) = std::env::var(SDP_SIDECARS_FILE_ENV) {
+        sidecars_path = PathBuf::from(sidecars_file);
+    }
+    let file = File::open(sidecars_path)?;
     let reader = BufReader::new(file);
     let sdp_sidecars = serde_json::from_reader(reader)?;
     debug!("SDP context loaded successful");
@@ -164,7 +214,7 @@ fn load_cert_files() -> Result<(BufReader<File>, BufReader<File>), Box<dyn Error
 }
 
 
-fn generate_patch(request_body: &str, context: &SDPSidecars) -> Result<AdmissionReview<DynamicObject>, Box<dyn Error>> {
+fn patch_request(request_body: &str, context: &SDPSidecars) -> Result<AdmissionReview<DynamicObject>, Box<dyn Error>> {
     let admision_review = serde_json::from_str::<AdmissionReview<Pod>>(&request_body)
         .map_err(|e| format!("Error parsing payload: {}", e.to_string()))?;
     let admission_request: AdmissionRequest<Pod> = admision_review.try_into()?;
@@ -183,15 +233,43 @@ fn generate_patch(request_body: &str, context: &SDPSidecars) -> Result<Admission
     Ok(admission_response.into_review())
 }
 
+fn validate_request(request_body: &str, context: &SDPSidecars) -> Result<AdmissionReview<DynamicObject>, Box<dyn Error>> {
+    let admision_review = serde_json::from_str::<AdmissionReview<Pod>>(&request_body)
+        .map_err(|e| format!("Error parsing payload: {}", e.to_string()))?;
+    let admission_request: AdmissionRequest<Pod> = admision_review.try_into()?;
+    let pod = admission_request.object.as_ref().ok_or("Admission review does not contain a POD")?;
+    let mut admission_response = AdmissionResponse::from(&admission_request);
+    if let Err(error) = pod.validate_sidecars(&context) {
+        let mut status: Status = Default::default();
+        status.code = Some(40);
+        status.message = Some(error);
+        admission_response.allowed = false;
+        admission_response.result = status;
+    }
+    Ok(admission_response.into_review())
+}
+
 #[post("/mutate")]
 async fn mutate(request: HttpRequest, body: String) -> Result<HttpResponse, HttpResponse> {
     let context = request.app_data::<SDPSidecars>()
         .expect("Unable to get app context");
-    let admission_review = generate_patch(&body, context);
+    let admission_review = patch_request(&body, context);
     if admission_review.is_err() {
         error!("Error injecting SDP client into POD: {}", admission_review.as_ref().unwrap_err());
     }
-    //     Ok(HttpResponse::Ok().json(&admission_response.into_review()))
+    admission_review
+        .and_then(|r| Ok(HttpResponse::Ok().json(&r)))
+        .map_err(error_to_bad_request)
+}
+
+#[post("/validate")]
+async fn validate(request: HttpRequest, body: String) -> Result<HttpResponse, HttpResponse> {
+    let context = request.app_data::<SDPSidecars>()
+        .expect("Unable to get app context");
+    let admission_review = validate_request(&body, context);
+    if admission_review.is_err() {
+        error!("Error validating POD with SDP client: {}", admission_review.as_ref().unwrap_err());
+    }
     admission_review
         .and_then(|r| Ok(HttpResponse::Ok().json(&r)))
         .map_err(error_to_bad_request)
@@ -200,26 +278,38 @@ async fn mutate(request: HttpRequest, body: String) -> Result<HttpResponse, Http
 #[cfg(test)]
 mod tests {
     use k8s_openapi::api::core::v1::{Pod, Container};
-    use std::collections::HashSet;
-    use crate::{SDPPod, SDP_SIDECAR_NAMES, load_sidecar_containers, SDPPodDisplay, generate_patch};
+    use std::collections::{BTreeMap, HashSet};
+    use crate::{SDPPod, load_sidecar_containers, SDPPodDisplay, SDP_SIDECARS_FILE_ENV, SDPSidecars, patch_request};
     use std::iter::FromIterator;
     use kube::core::admission::AdmissionReview;
     use serde_json::json;
     use json_patch::Patch;
 
-    const SDP_VOLUME_NAMES: [&str; 2] = ["run-appgate", "tun-device"];
+    fn create_labels(labels: &[(&str, &str)]) -> BTreeMap<String, String> {
+        let mut bm = BTreeMap::new();
+        for (k, v) in labels {
+            bm.insert(k.to_string(), v.to_string());
+        }
+        bm
+    }
+
+    fn load_sidecar_containers_env() -> Result<SDPSidecars, String> {
+        std::env::set_var(SDP_SIDECARS_FILE_ENV, "k8s/sdp-sidecars.json");
+        load_sidecar_containers()
+            .map_err(|e| format!("Unable to load the sidecar information {}", e.to_string()))
+    }
 
     macro_rules! test_pod {
         (containers $cs:expr) => {{
             {
                 let mut pod: Pod = Default::default();
                 pod.spec = Some(Default::default());
-                pod.spec = Some(Default::default());
                 let test_cs: Vec<Container> = $cs.iter().map(|x| {
                     let mut c: Container = Default::default();
                     c.name = x.to_string();
                     c
                 }).collect();
+
                 if let Some(spec) = pod.spec.as_mut() {
                     spec.containers = test_cs;
                 }
@@ -255,7 +345,8 @@ mod tests {
 
     type TestResult = (bool, String, String);
 
-    fn tests() -> Vec<TestPatch> {
+    fn tests(sdp_sidecars: &SDPSidecars) -> Vec<TestPatch> {
+        let sdp_sidecar_names = sdp_sidecars.container_names();
         vec![
             TestPatch {
                 pod: test_pod!(containers Vec::<&str>::new()),
@@ -270,12 +361,13 @@ mod tests {
                 needs_patching: true,
             },
             TestPatch {
-                pod: test_pod!(containers vec![SDP_SIDECAR_NAMES[0], SDP_SIDECAR_NAMES[1],
-                    "some-random-service"]),
+                pod: test_pod!(containers vec![sdp_sidecar_names[0].clone(), sdp_sidecar_names[1].clone(),
+                    "some-random-service".to_string()]),
                 needs_patching: false,
             },
             TestPatch {
-                pod: test_pod!(containers vec![SDP_SIDECAR_NAMES[1], "some-random-service"]),
+                pod: test_pod!(containers vec![sdp_sidecar_names[1].clone(),
+                    "some-random-service".to_string()]),
                 needs_patching: false,
             },
         ]
@@ -283,8 +375,10 @@ mod tests {
 
     #[test]
     fn needs_patching() {
-        let results: Vec<TestResult> = tests().iter().map(|t| {
-            let needs_patching = t.pod.needs_patching();
+        let sdp_sidecars = load_sidecar_containers_env()
+            .expect("Unable to load sidecars context");
+        let results: Vec<TestResult> = tests(&sdp_sidecars).iter().map(|t| {
+            let needs_patching = t.pod.needs_patching(&sdp_sidecars);
             (t.needs_patching == needs_patching, "Needs patching simple".to_string(),
              format!("Got {}, expected {}", needs_patching, t.needs_patching))
         }).collect();
@@ -292,19 +386,19 @@ mod tests {
     }
 
     #[test]
-    fn test_pod_inject_sidecar() {
+    fn test_pod_patch_sidecars() {
+        let sdp_sidecars = load_sidecar_containers_env()
+            .expect("Unable to load sidecars context");
         let expected_containers = |vs: &[String]| -> HashSet<String> {
-            let mut xs: Vec<String> = SDP_SIDECAR_NAMES.iter().map(|n| n.to_string()).collect();
+            let mut xs: Vec<String> = sdp_sidecars.container_names();
             xs.extend_from_slice(vs);
             HashSet::from_iter(xs.iter().cloned())
         };
         let expected_volumes = |vs: &[String]| -> HashSet<String> {
-            let mut xs: Vec<String> = SDP_VOLUME_NAMES.iter().map(|n| n.to_string()).collect();
+            let mut xs: Vec<String> = sdp_sidecars.volume_names();
             xs.extend_from_slice(vs);
             HashSet::from_iter(xs.iter().cloned())
         };
-        let sdp_context = load_sidecar_containers()
-            .expect("Unable to load the sidecar information");
         let assert_patch = |pod: &Pod, mb: Option<Patch>| -> Result<bool, String> {
             mb.ok_or("Patch not found!".to_string()).and_then(|patch| {
                 let unpatched_containers = pod.container_names().unwrap_or(vec![]);
@@ -328,18 +422,19 @@ mod tests {
                 Ok(true)
             })
         };
+
         let test_description = || "Test patch".to_string();
-        let results: Vec<TestResult> = tests().iter().map(|test| {
-            let needs_patching = test.pod.needs_patching();
-            let patch = test.pod.patch_sidecars(&sdp_context);
+        let results: Vec<TestResult> = tests(&sdp_sidecars).iter().map(|test| {
+            let needs_patching = test.pod.needs_patching(&sdp_sidecars);
+            let patch = test.pod.patch_sidecars(&sdp_sidecars);
             if test.needs_patching && needs_patching {
                 match patch.map_err(|e| e.to_string()).and_then(|p| assert_patch(&test.pod, p)) {
                     Ok(res) => (res, test_description(), "".to_string()),
                     Err(error) => (false, test_description(), format!("Error applying patch: {}", error))
                 }
             } else if test.needs_patching != needs_patching {
-                (false, test_description(), format!("Expected needs_patching {}, got {}",
-                                                    test.needs_patching, needs_patching))
+                (false, test_description(), format!("Got needs_patching {}, expected {}", needs_patching,
+                                                    test.needs_patching))
             } else {
                 (true, test_description(), "".to_string())
             }
@@ -349,10 +444,11 @@ mod tests {
     }
 
     #[test]
-    fn test_responses() {
+    fn test_mutate_responses() {
+        let sdp_sidecars = load_sidecar_containers_env().expect("Unable to load sidecars context");
         let assert_response = |test: &TestPatch| -> Result<bool, String> {
             let pod_value = serde_json::to_value(&test.pod)
-                .expect(&format!("Unable to parse test input {}", SDPPodDisplay(&test.pod)));
+                .expect(&format!("Unable to parse test input {}", SDPPodDisplay(&test.pod, &sdp_sidecars)));
             let admission_review_value = json!({
                 "apiVersion": "admission.k8s.io/v1",
                 "kind": "AdmissionReview",
@@ -375,6 +471,7 @@ mod tests {
                     }
                 },
                 "object": pod_value});
+
             let mut admission_review: AdmissionReview<Pod> = serde_json::from_value(admission_review_value)
                 .map_err(|e| format!("Unable to parse generated AdmissionReview value: {}",
                                      e.to_string()))?;
@@ -387,12 +484,9 @@ mod tests {
             }
             // Serialize the request into a string
             let admission_review_str = serde_json::to_string(&admission_review)
-                .map_err(|e| format!("Unable to convert to string generated AdmissionReview value: {}",e.to_string()))?;
-            let sdp_context = load_sidecar_containers()
-                .map_err(|e| format!("Unable to load the sidecar information {}", e.to_string()))?;
-
-            // test the generate_patch function now
-            let admission_review = generate_patch(&admission_review_str, &sdp_context)
+                .map_err(|e| format!("Unable to convert to string generated AdmissionReview value: {}", e.to_string()))?;
+            // test the patch_request function now
+            let admission_review = patch_request(&admission_review_str, &sdp_sidecars)
                 .map_err(|e| format!("Error getting response: {}", e.to_string()))?;
             let r = true;
             if let Some(response) = admission_review.response {
@@ -400,15 +494,16 @@ mod tests {
                 if response.allowed == response_allowed {
                     Ok(r)
                 } else {
-                    Err(format!("{} got response allowed = {} but it expected {}", SDPPodDisplay(&test.pod),
-                                response.allowed, test.needs_patching))
+                    Err(format!("{} got response allowed {}, expected response allowed {}",
+                                SDPPodDisplay(&test.pod, &sdp_sidecars), response.allowed,
+                                test.needs_patching))
                 }
             } else {
                 Err("Could not find a response!".to_string())
             }
         };
 
-        let results: Vec<TestResult> = tests().iter().map(|test| {
+        let results: Vec<TestResult> = tests(&sdp_sidecars).iter().map(|test| {
             match assert_response(test) {
                 Ok(r) => (r, "Injection Containers Test".to_string(), "Unknown".to_string()),
                 Err(error) => (false, "Injection Containers Test".to_string(), error)
@@ -443,6 +538,7 @@ async fn main() -> std::io::Result<()> {
         App::new()
             .app_data(sdp_context.clone())
             .service(mutate)
+            .service(validate)
     })
         .bind_rustls("0.0.0.0:8443", ssl_config)?
         .run()
