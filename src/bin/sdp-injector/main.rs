@@ -15,7 +15,7 @@ use json_patch::{Patch, AddOperation};
 use json_patch::PatchOperation::Add;
 use std::convert::TryInto;
 use kube::api::DynamicObject;
-use std::collections::HashSet;
+use std::collections::{HashSet, BTreeMap};
 use std::iter::FromIterator;
 
 const SDP_SIDECARS_FILE: &str = "/opt/sdp-injector/k8s/sdp-sidecars.json";
@@ -69,8 +69,15 @@ trait SDPPod {
         self.containers().unwrap_or(&vec![]).len() > 0
     }
 
+    fn disabled_by_annotations(&self) -> bool {
+        self.annotations()
+            .and_then(|bm|bm.get("sdp-injector"))
+            .map(|a| a.eq("false"))
+            .unwrap_or(false)
+    }
+
     fn needs_patching(&self, sdp_sidecars: &SDPSidecars) -> bool {
-        self.has_containers() && !self.has_any_sidecars(sdp_sidecars)
+        self.has_containers() && !self.has_any_sidecars(sdp_sidecars) && !self.disabled_by_annotations()
     }
 
     fn containers(&self) -> Option<&Vec<Container>>;
@@ -78,6 +85,8 @@ trait SDPPod {
     fn volumes(&self) -> Option<&Vec<Volume>>;
 
     fn name(&self) -> String;
+
+    fn annotations(&self) -> Option<&BTreeMap<String, String>>;
 
     fn patch_sidecars(&self, spd_sidecars: &SDPSidecars) -> Result<Option<Patch>, Box<dyn Error>> {
         info!("Patching POD with SDP client");
@@ -159,6 +168,10 @@ impl SDPPod for Pod {
     fn name(&self) -> String {
         self.metadata.name.as_ref().map(|x| x.clone())
             .unwrap_or("Unnamed".to_string())
+    }
+
+    fn annotations(&self) -> Option<&BTreeMap<String, String>> {
+        self.metadata.annotations.as_ref()
     }
 }
 
@@ -397,11 +410,17 @@ mod tests {
             },
             TestPatch {
                 pod: test_pod!(containers => vec!["random-service"],
+                               annotations => vec![("sdp-injector", "who-knows")]),
+                needs_patching: true,
+            },
+            TestPatch {
+                pod: test_pod!(containers => vec!["random-service"],
                                annotations => vec![("sdp-injector", "true")]),
                 needs_patching: true,
             },
             TestPatch {
-                pod: test_pod!(containers => vec!["some-random-service-1", "some-random-service-2"]),
+                pod: test_pod!(containers => vec!["some-random-service-1",
+                                                  "some-random-service-2"]),
                 needs_patching: true,
             },
             TestPatch {
