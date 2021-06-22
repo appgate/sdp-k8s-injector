@@ -1,4 +1,11 @@
 #!/usr/bin/env python3
+"""
+Small demo worker constantly retrying connections to the given urls.
+It uses the following environment variables:
+- DEMO_URLS: Mandatory. Comma separated list of URLs to connect to.
+- DEMO_TIMEOUT: Optional, default to 3.0. Connection time out to given URLs.
+- DEMO_UPDATE_INTERVAL: Optional, default to 2.0. Sleep time between each update.
+"""
 import concurrent.futures
 import functools
 import logging
