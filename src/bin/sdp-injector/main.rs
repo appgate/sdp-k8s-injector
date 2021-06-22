@@ -31,18 +31,38 @@ fn reader_from_cwd(file_name: &str) -> Result<BufReader<File>, Box<dyn Error>> {
     Ok(BufReader::new(file))
 }
 
-struct SDPPodDisplay<'a>(&'a Pod, &'a SDPSidecars);
+struct SDPPod<'a> {
+    pod: &'a Pod,
+    sdp_sidecars: &'a SDPSidecars
+}
 
-trait SDPPod {
-    fn sidecars(&self, sdp_sidecars: &SDPSidecars) -> Option<Vec<&Container>> {
+impl SDPPod<'_> {
+    fn containers(&self) -> Option<&Vec<Container>> {
+        self.pod.spec.as_ref().map(|s| &s.containers)
+    }
+
+    fn volumes(&self) -> Option<&Vec<Volume>> {
+        self.pod.spec.as_ref().and_then(|s| s.volumes.as_ref())
+    }
+
+    fn name(&self) -> String {
+        self.pod.metadata.name.as_ref().map(|x| x.clone())
+            .unwrap_or("Unnamed".to_string())
+    }
+
+    fn annotations(&self) -> Option<&BTreeMap<String, String>> {
+        self.pod.metadata.annotations.as_ref()
+    }
+
+    fn sidecars(&self) -> Option<Vec<&Container>> {
         self.containers().map(|cs|
             cs.iter()
-                .filter(|&c| sdp_sidecars.container_names().contains(&c.name))
+                .filter(|&c| self.sdp_sidecars.container_names().contains(&c.name))
                 .collect())
     }
 
-    fn sidecar_names(&self, sdp_sidecars: &SDPSidecars) -> Option<Vec<String>> {
-        self.sidecars(sdp_sidecars).map(|xs|
+    fn sidecar_names(&self) -> Option<Vec<String>> {
+        self.sidecars().map(|xs|
             xs.iter().map(|&x| x.name.clone()).collect())
     }
 
@@ -55,14 +75,8 @@ trait SDPPod {
         self.volumes().map(|vs| vs.iter().map(|v| v.name.clone()).collect())
     }
 
-    fn has_any_sidecars(&self, sdp_sidecars: &SDPSidecars) -> bool {
-        self.sidecars(sdp_sidecars).map(|xs| xs.len() != 0).unwrap_or(false)
-    }
-
-    fn has_all_sidecars(&self, sdp_sidecars: &SDPSidecars) -> bool {
-        self.sidecars(sdp_sidecars)
-            .map(|xs| xs.len() == sdp_sidecars.containers.len())
-            .unwrap_or(false)
+    fn has_any_sidecars(&self) -> bool {
+        self.sidecars().map(|xs| xs.len() != 0).unwrap_or(false)
     }
 
     fn has_containers(&self) -> bool {
@@ -76,30 +90,22 @@ trait SDPPod {
             .unwrap_or(false)
     }
 
-    fn needs_patching(&self, sdp_sidecars: &SDPSidecars) -> bool {
-        self.has_containers() && !self.has_any_sidecars(sdp_sidecars) && !self.disabled_by_annotations()
+    fn needs_patching(&self) -> bool {
+        self.has_containers() && !self.has_any_sidecars() && !self.disabled_by_annotations()
     }
 
-    fn containers(&self) -> Option<&Vec<Container>>;
-
-    fn volumes(&self) -> Option<&Vec<Volume>>;
-
-    fn name(&self) -> String;
-
-    fn annotations(&self) -> Option<&BTreeMap<String, String>>;
-
-    fn patch_sidecars(&self, sdp_sidecars: &SDPSidecars) -> Result<Option<Patch>, Box<dyn Error>> {
+    fn patch_sidecars(&self,) -> Result<Patch, Box<dyn Error>> {
         info!("Patching POD with SDP client");
         let mut patches = vec![];
-        if self.needs_patching(&sdp_sidecars) {
-            for c in sdp_sidecars.containers.iter() {
+        if self.needs_patching() {
+            for c in self.sdp_sidecars.containers.iter() {
                 patches.push(Add(AddOperation {
                     path: "/spec/containers/-".to_string(),
                     value: serde_json::to_value(&c)?,
                 }));
             }
             if self.volumes().is_some() {
-                for v in sdp_sidecars.volumes.iter() {
+                for v in self.sdp_sidecars.volumes.iter() {
                     patches.push(Add(AddOperation {
                         path: "/spec/volumes/-".to_string(),
                         value: serde_json::to_value(&v)?,
@@ -108,24 +114,24 @@ trait SDPPod {
             } else {
                 patches.push(Add(AddOperation {
                     path: "/spec/volumes".to_string(),
-                    value: serde_json::to_value(&sdp_sidecars.volumes)?,
+                    value: serde_json::to_value(&self.sdp_sidecars.volumes)?,
                 }));
             }
         }
         if patches.is_empty() {
             debug!("POD does not require patching");
-            Ok(None)
+            Ok(Patch(vec![]))
         } else {
-            Ok(Some(Patch(patches)))
+            Ok(Patch(patches))
         }
     }
 
-    fn validate_sidecars(&self, sdp_sidecars: &SDPSidecars) -> Result<(), String> {
+    fn validate_sidecars(&self) -> Result<(), String> {
         let expected_volume_names = HashSet::from_iter(
-            sdp_sidecars.volumes.iter().map(|v| v.name.clone()));
+            self.sdp_sidecars.volumes.iter().map(|v| v.name.clone()));
         let expected_container_names = HashSet::from_iter(
-            sdp_sidecars.containers.iter().map(|c| c.name.clone()));
-        let container_names = HashSet::from_iter(self.sidecar_names(sdp_sidecars)
+            self.sdp_sidecars.containers.iter().map(|c| c.name.clone()));
+        let container_names = HashSet::from_iter(self.sidecar_names()
             .unwrap_or(vec![])
             .iter().cloned());
         let volume_names = HashSet::from_iter(self.volume_names()
@@ -156,33 +162,12 @@ trait SDPPod {
     }
 }
 
-impl SDPPod for Pod {
-    fn containers(&self) -> Option<&Vec<Container>> {
-        self.spec.as_ref().map(|s| &s.containers)
-    }
-
-    fn volumes(&self) -> Option<&Vec<Volume>> {
-        self.spec.as_ref().and_then(|s| s.volumes.as_ref())
-    }
-
-    fn name(&self) -> String {
-        self.metadata.name.as_ref().map(|x| x.clone())
-            .unwrap_or("Unnamed".to_string())
-    }
-
-    fn annotations(&self) -> Option<&BTreeMap<String, String>> {
-        self.metadata.annotations.as_ref()
-    }
-}
-
-impl Display for SDPPodDisplay<'_> {
+impl Display for SDPPod<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> FResult {
-        let pod = self.0;
-        let sdp_sidecars = self.1;
         write!(f, "POD(name:{}, needs_patching:{}, containers:[{}], volumes: [{}])",
-               pod.name(), pod.needs_patching(sdp_sidecars),
-               pod.container_names().unwrap_or(vec![]).join(","),
-               pod.volume_names().unwrap_or(vec![]).join(","))
+               self.name(), self.needs_patching(),
+               self.container_names().unwrap_or(vec![]).join(","),
+               self.volume_names().unwrap_or(vec![]).join(","))
     }
 }
 
@@ -195,10 +180,6 @@ struct SDPSidecars {
 impl SDPSidecars {
     fn container_names(&self) -> Vec<String> {
         self.containers.iter().map(|c| c.name.clone()).collect()
-    }
-
-    fn volume_names(&self) -> Vec<String> {
-        self.volumes.iter().map(|c| c.name.clone()).collect()
     }
 }
 
@@ -229,18 +210,21 @@ fn load_cert_files() -> Result<(BufReader<File>, BufReader<File>), Box<dyn Error
 }
 
 
-fn patch_request(request_body: &str, context: &SDPSidecars) -> Result<AdmissionReview<DynamicObject>, Box<dyn Error>> {
+fn patch_request(request_body: &str, sdp_sidecars: &SDPSidecars) -> Result<AdmissionReview<DynamicObject>, Box<dyn Error>> {
     let admision_review = serde_json::from_str::<AdmissionReview<Pod>>(&request_body)
         .map_err(|e| format!("Error parsing payload: {}", e.to_string()))?;
     let admission_request: AdmissionRequest<Pod> = admision_review.try_into()?;
     let pod = admission_request.object.as_ref().ok_or("Admission review does not contain a POD")?;
+    let sdp_pod = SDPPod { pod, sdp_sidecars };
     let mut admission_response = AdmissionResponse::from(&admission_request);
-    match pod.patch_sidecars(&context)? {
-        Some(p) => admission_response = admission_response.with_patch(p)?,
-        None => {
+    match sdp_pod.patch_sidecars() {
+        Ok(patch) => {
+            admission_response = admission_response.with_patch(patch)?
+        },
+        Err(error) => {
             let mut status: Status = Default::default();
             status.code = Some(40);
-            status.message = Some("This POD can not be patched".to_string());
+            status.message = Some(format!("This POD can not be patched {}", error.to_string()));
             admission_response.allowed = false;
             admission_response.result = status;
         }
@@ -248,13 +232,14 @@ fn patch_request(request_body: &str, context: &SDPSidecars) -> Result<AdmissionR
     Ok(admission_response.into_review())
 }
 
-fn validate_request(request_body: &str, context: &SDPSidecars) -> Result<AdmissionReview<DynamicObject>, Box<dyn Error>> {
+fn validate_request(request_body: &str, sdp_sidecars: &SDPSidecars) -> Result<AdmissionReview<DynamicObject>, Box<dyn Error>> {
     let admision_review = serde_json::from_str::<AdmissionReview<Pod>>(&request_body)
         .map_err(|e| format!("Error parsing payload: {}", e.to_string()))?;
     let admission_request: AdmissionRequest<Pod> = admision_review.try_into()?;
     let pod = admission_request.object.as_ref().ok_or("Admission review does not contain a POD")?;
+    let sdp_pod = SDPPod { pod, sdp_sidecars };
     let mut admission_response = AdmissionResponse::from(&admission_request);
-    if let Err(error) = pod.validate_sidecars(&context) {
+    if let Err(error) = sdp_pod.validate_sidecars() {
         let mut status: Status = Default::default();
         status.code = Some(40);
         status.message = Some(error);
@@ -294,7 +279,7 @@ async fn validate(request: HttpRequest, body: String) -> Result<HttpResponse, Ht
 mod tests {
     use k8s_openapi::api::core::v1::{Pod, Container, Volume};
     use std::collections::{BTreeMap, HashSet};
-    use crate::{SDPPod, load_sidecar_containers, SDPPodDisplay, SDP_SIDECARS_FILE_ENV, SDPSidecars, patch_request};
+    use crate::{SDPPod, load_sidecar_containers, SDP_SIDECARS_FILE_ENV, SDPSidecars, patch_request};
     use std::iter::FromIterator;
     use kube::core::admission::AdmissionReview;
     use serde_json::json;
@@ -505,7 +490,8 @@ POD is missing needed volumes: run-appgate, tun-device"#.to_string())
         let sdp_sidecars = load_sidecar_containers_env()
             .expect("Unable to load sidecars context");
         let results: Vec<TestResult> = patch_tests(&sdp_sidecars).iter().map(|t| {
-            let needs_patching = t.pod.needs_patching(&sdp_sidecars);
+            let sdp_pod = SDPPod { pod: &t.pod, sdp_sidecars: &sdp_sidecars };
+            let needs_patching = sdp_pod.needs_patching();
             (t.needs_patching == needs_patching, "Needs patching simple".to_string(),
              format!("Got {}, expected {}", needs_patching, t.needs_patching))
         }).collect();
@@ -521,41 +507,42 @@ POD is missing needed volumes: run-appgate, tun-device"#.to_string())
             xs.extend_from_slice(vs);
             HashSet::from_iter(xs.iter().cloned())
         };
+
         let expected_volumes = |vs: &[String]| -> HashSet<String> {
-            let mut xs: Vec<String> = sdp_sidecars.volume_names();
+            let mut xs: Vec<String> = sdp_sidecars.volumes.iter().map(|c| c.name.clone()).collect();
             xs.extend_from_slice(vs);
             HashSet::from_iter(xs.iter().cloned())
         };
-        let assert_patch = |pod: &Pod, mb: Option<Patch>| -> Result<bool, String> {
-            mb.ok_or("Patch not found!".to_string()).and_then(|patch| {
-                let unpatched_containers = pod.container_names().unwrap_or(vec![]);
-                let unpatched_volumes = pod.volume_names().unwrap_or(vec![]);
-                let mut unpatched_pod = serde_json::to_value(pod)
-                    .map_err(|e| format!("Unable to convert POD to value [{}]", e.to_string()))?;
-                json_patch::patch(&mut unpatched_pod, &patch)
-                    .map_err(|e| format!("Unable to patch POD [{}]", e.to_string()))?;
-                let patched_pod: Pod = serde_json::from_value(unpatched_pod)
-                    .map_err(|e| format!("Unable to convert patched POD [{}]", e.to_string()))?;
-                let patched_containers = HashSet::from_iter(patched_pod.container_names()
-                    .unwrap_or(vec![]).iter().cloned());
-                (patched_containers == expected_containers(&unpatched_containers)).then(|| true)
-                    .ok_or(format!("Wrong containers after patch, got {:?}, expected {:?}", patched_containers,
-                                   expected_containers(&unpatched_containers)))?;
-                let patched_volumes = HashSet::from_iter(patched_pod.volume_names()
-                    .unwrap_or(vec![]).iter().cloned());
-                (patched_volumes == expected_volumes(&unpatched_volumes)).then(|| true)
-                    .ok_or(format!("Wrong volumes after patch, got {:?}, expected {:?}", patched_volumes,
-                                   expected_volumes(&unpatched_volumes)))?;
-                Ok(true)
-            })
+        let assert_patch = |sdp_pod: &SDPPod, patch: Patch| -> Result<bool, String> {
+            let unpatched_containers = sdp_pod.container_names().unwrap_or(vec![]);
+            let unpatched_volumes = sdp_pod.volume_names().unwrap_or(vec![]);
+            let mut unpatched_pod = serde_json::to_value(sdp_pod.pod)
+                .map_err(|e| format!("Unable to convert POD to value [{}]", e.to_string()))?;
+            json_patch::patch(&mut unpatched_pod, &patch)
+                .map_err(|e| format!("Unable to patch POD [{}]", e.to_string()))?;
+            let patched_pod: Pod = serde_json::from_value(unpatched_pod)
+                .map_err(|e| format!("Unable to convert patched POD [{}]", e.to_string()))?;
+            let patched_sdp_pod = SDPPod { pod: &patched_pod, sdp_sidecars: &sdp_sidecars };
+            let patched_containers = HashSet::from_iter(patched_sdp_pod.container_names()
+                .unwrap_or(vec![]).iter().cloned());
+            (patched_containers == expected_containers(&unpatched_containers)).then(|| true)
+                .ok_or(format!("Wrong containers after patch, got {:?}, expected {:?}", patched_containers,
+                               expected_containers(&unpatched_containers)))?;
+            let patched_volumes = HashSet::from_iter(patched_sdp_pod.volume_names()
+                .unwrap_or(vec![]).iter().cloned());
+            (patched_volumes == expected_volumes(&unpatched_volumes)).then(|| true)
+                .ok_or(format!("Wrong volumes after patch, got {:?}, expected {:?}", patched_volumes,
+                               expected_volumes(&unpatched_volumes)))?;
+            Ok(true)
         };
 
         let test_description = || "Test patch".to_string();
         let results: Vec<TestResult> = patch_tests(&sdp_sidecars).iter().map(|test| {
-            let needs_patching = test.pod.needs_patching(&sdp_sidecars);
-            let patch = test.pod.patch_sidecars(&sdp_sidecars);
+            let sdp_pod = SDPPod { pod: &test.pod, sdp_sidecars: &sdp_sidecars };
+            let needs_patching = sdp_pod.needs_patching();
+            let patch = sdp_pod.patch_sidecars();
             if test.needs_patching && needs_patching {
-                match patch.map_err(|e| e.to_string()).and_then(|p| assert_patch(&test.pod, p)) {
+                match patch.map_err(|e| e.to_string()).and_then(|p| assert_patch(&sdp_pod, p)) {
                     Ok(res) => (res, test_description(), "".to_string()),
                     Err(error) => (false, test_description(), format!("Error applying patch: {}", error))
                 }
@@ -574,8 +561,9 @@ POD is missing needed volumes: run-appgate, tun-device"#.to_string())
     fn test_mutate_responses() {
         let sdp_sidecars = load_sidecar_containers_env().expect("Unable to load sidecars context");
         let assert_response = |test: &TestPatch| -> Result<bool, String> {
-            let pod_value = serde_json::to_value(&test.pod)
-                .expect(&format!("Unable to parse test input {}", SDPPodDisplay(&test.pod, &sdp_sidecars)));
+            let sdp_pod = SDPPod { pod: &test.pod, sdp_sidecars: &sdp_sidecars };
+            let pod_value = serde_json::to_value(&sdp_pod.pod)
+                .expect(&format!("Unable to parse test input {}", sdp_pod));
             let admission_review_value = json!({
                 "apiVersion": "admission.k8s.io/v1",
                 "kind": "AdmissionReview",
@@ -613,20 +601,24 @@ POD is missing needed volumes: run-appgate, tun-device"#.to_string())
             let admission_review_str = serde_json::to_string(&admission_review)
                 .map_err(|e| format!("Unable to convert to string generated AdmissionReview value: {}", e.to_string()))?;
             // test the patch_request function now
-            let admission_review = patch_request(&admission_review_str, &sdp_sidecars)
-                .map_err(|e| format!("Error getting response: {}", e.to_string()))?;
-            let r = true;
-            if let Some(response) = admission_review.response {
-                let response_allowed = test.needs_patching;
-                if response.allowed == response_allowed {
-                    Ok(r)
-                } else {
-                    Err(format!("{} got response allowed {}, expected response allowed {}",
-                                SDPPodDisplay(&test.pod, &sdp_sidecars), response.allowed,
-                                test.needs_patching))
-                }
-            } else {
-                Err("Could not find a response!".to_string())
+            // TODO: Test responses not allowing the patch!
+            match patch_request(&admission_review_str, &sdp_sidecars).map(|r| r.response) {
+                Ok(Some(response)) if !response.allowed =>
+                    Err(format!("{} got response not allowed,, expected response allowed", sdp_pod)),
+                Ok(Some(response)) => response.patch
+                    .ok_or(format!("{} could not find Patch in the response!", sdp_pod))
+                    .and_then(|ps| match (test.needs_patching, ps.len() > 2) {
+                        (true, true) => Ok(true),
+                        (true, false) => Err(
+                            format!("Pod {} needs patching but not patches were included in the response",
+                                    sdp_pod)),
+                        (false, true) => Err(
+                            format!("Pod {} does not need patching but patches were included in the response: {:?}",
+                                    sdp_pod, ps)),
+                        (false, false) => Ok(true),
+                    }),
+                Ok(None) => Err("Could not find a response!".to_string()),
+                Err(error) => Err(format!("Could not generate a response: {}", error.to_string())),
             }
         };
 
@@ -645,7 +637,8 @@ POD is missing needed volumes: run-appgate, tun-device"#.to_string())
             .expect("Unable to load sidecars context");
         let test_description = || "Test POD validation".to_string();
         let results: Vec<TestResult> = validation_tests().iter().map(|t| {
-            let pass_validation = t.pod.validate_sidecars(&sdp_sidecars);
+            let sdp_pod = SDPPod { pod: &t.pod, sdp_sidecars: &sdp_sidecars };
+            let pass_validation = sdp_pod.validate_sidecars();
             match (pass_validation, t.validation_errors.as_ref()) {
                 (Ok(_), Some(expected_error)) => {
                     let error_message = format!("Got no validation error, expected '{}'", expected_error);
