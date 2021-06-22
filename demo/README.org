@@ -1,0 +1,107 @@
+* Building docker image
+
+#+begin_src shell
+  export DOCKER_REGISTRY="mydocker-registry:5501"
+  docker build -f sdp-k8s-client-demo-worker-Dockerfile . -t sdp-k8s-client-demo-worker
+  docker tag sdp-k8s-client-demo-worker:latest ${DOCKER_REGISTRY}/sdp-k8s-client-demo-worker:latest
+  docker push ${DOCKER_REGISTRY}/sdp-k8s-client-demo-worker:latest
+#+end_src
+
+* Running with docker
+
+#+begin_src shell
+  docker run --dns 10.97.2.20  -e DEMO_TIMEOUT=0.1 -e DEMO_UPDATE_INTERVAL=5 -e DEMO_URLS=http://grafana.devops:3000,http://apt.devops sdp-k8s-client-demo-worker
+#+end_src
+
+* Demo - tutorial
+** Deploy sdp-injector
+*** Cleanup
+Delete possible old versions of the *sdp-injector*:
+
+#+begin_src shell
+  kubectl -n sdp-k8s delete deployment --all
+  kubectl -n sdp-k8s delete service --all
+  kubectl -n sdp-k8s delete mutatingwebhookconfigurations sdp-injector
+  kubectl delete ns sdp-k8s
+#+end_src
+
+*** Deploy sdp-injector
+We can now deploy it like this:
+
+#+begin_src shell
+  ./tools/sdp-k8s delete-certs
+  ./tools/sdp-k8s delete-yaml
+  ./tools/sdp-k8s mk-certs
+  ./tools/sdp-k8s mk-certs
+  ./tools/sdp-k8s sdp-install
+#+end_src
+
+** Prepare the pods for the demo
+*** Cleanup
+Delete possible old versions of the demo deployments.
+
+#+begin_src shell
+  kubectl -n my-demo delete deployments --all
+  kubectl -n my-demo delete service --all
+  kubectl delete ns my-demo
+#+end_src
+
+*** Preparations
+Now let's prepare the yaml files, first delete old versions:
+#+begin_src shell
+  for label in apt-access grafana-access full-access none-access; do
+      rm -f "$label-demo-access.yaml"
+  done
+#+end_src
+
+next, generate the new ones:
+
+#+begin_src shell
+  export DOCKER_REGISTRY=${DOCKER_REGISTRY:-your-registry}
+  for label in apt-access grafana-access full-access none-access; do
+      POD_NAME=$label envsubst < demo-deployment.tmpl > $label-demo-deployment.yaml
+  done
+#+end_src
+
+*** Configure a namespace
+Create a namespace and tag it to use *sdp-injector*:
+
+#+begin_src shell
+  kubectl create ns my-demo
+  kubectl label namespace my-demo --overwrite sdp-injection=enabled
+#+end_src
+
+Now we need to create a secrets yaml with the client secrets and a config-map
+yaml file with the client configuration:
+
+#+begin_src shell
+  rm -f client-secrets.yaml
+  CLIENT_USERNAME=myuser \
+		 CLIENT_PASSWORD=mypassword \
+		 CLIENT_PROFILE_URL=profileurl \
+		 envsubst < client-secrets.tmpl > client-secrets.yaml
+#+end_src
+
+Now we can deploy everything:
+
+#+begin_src shell
+  for f in client-secrets.yaml client-config.yaml; do
+      kubectl -n my-demo delete -f demo/$f
+      kubectl -n my-demo create -f demo/$f
+  done
+
+  for f in *demo-deployment.yaml; do
+      kubectl -n my-demo create -f demo/$f;
+  done
+#+end_src
+
+At this point everything should be running and if we had the proper entitlements
+in our sdp system we could see that:
+
+ - apt-access POD has access to *apt.devops* and *internal-server*
+ - grafana-access POD has access to *grafana.devops* and *internal-server*
+ - full-access POD has access to *apt.devops*, *grafana.devops* and *internal-server*
+ - none-access POD has only access to *internal-server* (thought we have a
+   client in there and it managed to connecto to our SDP system)
+ - internal-server POD hasn't any SDP client injected
+ - PODs created in other namespaces dont get SDP client attached.
