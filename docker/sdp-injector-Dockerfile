@@ -12,6 +12,8 @@ COPY Cargo.toml .
 RUN cargo build $([ "$PROFILE" = "release" ] && echo --release)
 RUN rm src/*rs
 COPY src src
+COPY k8s/sdp-sidecars.json k8s/sdp-sidecars.json
+RUN cargo test $([ "$PROFILE" = "release" ] && echo --release) --all-targets
 RUN cargo build $([ "$PROFILE" = "release" ] && echo --release) --bin sdp-injector
 
 FROM alpine:3.14.0
