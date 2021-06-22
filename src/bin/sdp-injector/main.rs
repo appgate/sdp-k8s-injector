@@ -181,10 +181,6 @@ impl SDPSidecars {
     fn container_names(&self) -> Vec<String> {
         self.containers.iter().map(|c| c.name.clone()).collect()
     }
-
-    fn volume_names(&self) -> Vec<String> {
-        self.volumes.iter().map(|c| c.name.clone()).collect()
-    }
 }
 
 fn error_to_bad_request(e: Box<dyn Error>) -> HttpResponse {
@@ -511,8 +507,9 @@ POD is missing needed volumes: run-appgate, tun-device"#.to_string())
             xs.extend_from_slice(vs);
             HashSet::from_iter(xs.iter().cloned())
         };
+
         let expected_volumes = |vs: &[String]| -> HashSet<String> {
-            let mut xs: Vec<String> = sdp_sidecars.volume_names();
+            let mut xs: Vec<String> = sdp_sidecars.volumes.iter().map(|c| c.name.clone()).collect();
             xs.extend_from_slice(vs);
             HashSet::from_iter(xs.iter().cloned())
         };
