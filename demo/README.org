@@ -2,6 +2,7 @@
 
 #+begin_src shell
   export DOCKER_REGISTRY="mydocker-registry:5501"
+  cd docker
   docker build -f sdp-k8s-client-demo-worker-Dockerfile . -t sdp-k8s-client-demo-worker
   docker tag sdp-k8s-client-demo-worker:latest ${DOCKER_REGISTRY}/sdp-k8s-client-demo-worker:latest
   docker push ${DOCKER_REGISTRY}/sdp-k8s-client-demo-worker:latest
