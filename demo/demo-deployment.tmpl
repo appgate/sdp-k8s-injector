@@ -1,0 +1,22 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: ${POD_NAME}
+  name: ${POD_NAME}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ${POD_NAME}
+  template:
+    metadata:
+      labels:
+        app: ${POD_NAME}
+    spec:
+      containers:
+      - image: ${DOCKER_REGISTRY}/sdp-k8s-client-demo-worker
+        name: worker
+        env:
+          - name: DEMO_URLS
+            value: http://grafana.devops:3000,http://apt.devops,http://internal-server

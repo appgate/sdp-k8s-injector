@@ -1,0 +1,157 @@
+
+
+* Demo - tutorial
+** Worker image
+Under ~docker~ directory we have the files required to build the image used in
+this demo. This is basically an image that tries to reach some services via HTTP
+and report the status. The main purpose is to test that the policies in our SDP
+system are assigned properly to each client injected in the demo.
+
+*** Building worker image
+In order to build the worker image just type this commands:
+
+#+begin_src shell
+  export DOCKER_REGISTRY="mydocker-registry:5501"
+  cd docker
+  docker build -f sdp-k8s-client-demo-worker-Dockerfile . -t sdp-k8s-client-demo-worker
+  docker tag sdp-k8s-client-demo-worker:latest ${DOCKER_REGISTRY}/sdp-k8s-client-demo-worker:latest
+  docker push ${DOCKER_REGISTRY}/sdp-k8s-client-demo-worker:latest
+#+end_src
+
+*** Running with docker
+We can test the image we have just created locally using doker like this:
+
+#+begin_src shell
+  docker run --dns 10.97.2.20 \
+	 -e DEMO_TIMEOUT=2.0 \
+	 -e DEMO_UPDATE_INTERVAL=5 \
+	 -e DEMO_URLS=http://grafana.devops:3000,http://apt.devops sdp-k8s-client-demo-worker
+#+end_src
+
+** Deploy sdp-injector
+*** Cleanup
+Delete possible old versions of the *sdp-injector*:
+
+#+begin_src shell
+  kubectl -n sdp-k8s delete deployment --all
+  kubectl -n sdp-k8s delete service --all
+  kubectl -n sdp-k8s delete mutatingwebhookconfigurations sdp-injector
+  kubectl delete ns sdp-k8s
+#+end_src
+
+*** Deploy sdp-injector
+We can now deploy it like this:
+
+#+begin_src shell
+  ./tools/sdp-k8s delete-certs
+  ./tools/sdp-k8s delete-yaml
+  ./tools/sdp-k8s mk-certs
+  ./tools/sdp-k8s mk-yaml
+  ./tools/sdp-k8s sdp-install
+#+end_src
+
+** Prepare the pods for the demo
+*** Cleanup
+Delete possible old versions of the demo deployments.
+
+#+begin_src shell
+  export NS=mydemo
+  kubectl -n $NS delete deployments --all
+  kubectl -n $NS delete service --all
+  kubectl delete ns $NS
+#+end_src
+
+*** Preparations
+Now let's prepare the yaml files, first delete old versions:
+#+begin_src shell
+  for label in apt-access grafana-access full-access none-access; do
+      rm -f "demo/$label-demo-deployment.yaml"
+  done
+#+end_src
+
+next, generate the new ones:
+
+#+begin_src shell
+  export DOCKER_REGISTRY=your-registry
+  for label in apt-access grafana-access full-access none-access; do
+      POD_NAME=$label envsubst < demo/demo-deployment.tmpl > demo/$label-demo-deployment.yaml
+  done
+#+end_src
+
+*** Configure a namespace
+Create a namespace and tag it to use *sdp-injector*:
+
+#+begin_src shell
+  kubectl create ns $NS
+  kubectl label namespace $NS --overwrite sdp-injection=enabled
+#+end_src
+
+Now we need to create a secrets yaml with the client secrets and a config-map
+yaml file with the client configuration:
+
+#+begin_src shell
+  rm -f demo/client-secrets.yaml
+  CLIENT_USERNAME=$(pass show sdp-k8s-demo/username | base64 | tr -d '\n') \
+		 CLIENT_PASSWORD=$(pass show sdp-k8s-demo/password | base64 | tr -d '\n') \
+		 CONTROLLER_PROFILE_URL=$(pass show sdp-k8s-demo/controller-profile-url | base64 | tr -d '\n') \
+		 envsubst < demo/client-secrets.tmpl > demo/client-secrets.yaml
+#+end_src
+
+Now we can deploy everything:
+
+#+begin_src shell
+  for f in client-secrets.yaml client-config.yaml; do
+      kubectl -n $NS delete -f demo/$f
+      kubectl -n $NS create -f demo/$f
+  done
+
+  for f in demo/*deployment.yaml; do
+      kubectl -n $NS create -f $f;
+  done
+#+end_src
+
+At this point everything should be running and if we had the proper entitlements
+in our sdp system we could see that:
+
+ - apt-access POD has access to *apt.devops* and *internal-server*
+   #+begin_example
+     2021-06-23 15:02:24,669 apt-access-595cf88bfb-w4bhw INFO Fetching http://grafana.devops:3000
+     2021-06-23 15:02:24,670 apt-access-595cf88bfb-w4bhw INFO Fetching http://apt.devops
+     2021-06-23 15:02:24,671 apt-access-595cf88bfb-w4bhw INFO Fetching http://internal-server
+     2021-06-23 15:02:27,685 apt-access-595cf88bfb-w4bhw INFO http://grafana.devops:3000: <urlopen error [Errno 99] Cannot assign requested address>
+     2021-06-23 15:02:27,685 apt-access-595cf88bfb-w4bhw INFO http://apt.devops: ok
+     2021-06-23 15:02:27,685 apt-access-595cf88bfb-w4bhw INFO http://internal-server: ok
+   #+end_example
+ - grafana-access POD has access to *grafana.devops* and *internal-server*
+   #+begin_example
+     2021-06-23 15:03:36,651 grafana-access-8657bfdd7f-vcsx7 INFO Fetching http://grafana.devops:3000
+     2021-06-23 15:03:36,651 grafana-access-8657bfdd7f-vcsx7 INFO Fetching http://apt.devops
+     2021-06-23 15:03:36,653 grafana-access-8657bfdd7f-vcsx7 INFO Fetching http://internal-server
+     2021-06-23 15:03:39,670 grafana-access-8657bfdd7f-vcsx7 INFO http://grafana.devops:3000: ok
+     2021-06-23 15:03:39,670 grafana-access-8657bfdd7f-vcsx7 INFO http://apt.devops: <urlopen error [Errno 99] Cannot assign requested address>
+     2021-06-23 15:03:39,670 grafana-access-8657bfdd7f-vcsx7 INFO http://internal-server: ok
+   #+end_example
+ - full-access POD has access to *apt.devops*, *grafana.devops* and *internal-server*
+   #+begin_example
+     2021-06-23 15:04:35,283 full-access-596cbd4f46-2d7mm INFO Fetching http://grafana.devops:3000
+     2021-06-23 15:04:35,284 full-access-596cbd4f46-2d7mm INFO Fetching http://apt.devops
+     2021-06-23 15:04:35,284 full-access-596cbd4f46-2d7mm INFO Fetching http://internal-server
+     2021-06-23 15:04:35,308 full-access-596cbd4f46-2d7mm INFO http://grafana.devops:3000: ok
+     2021-06-23 15:04:35,308 full-access-596cbd4f46-2d7mm INFO http://apt.devops: ok
+     2021-06-23 15:04:35,308 full-access-596cbd4f46-2d7mm INFO http://internal-server: ok
+   #+end_example
+ - none-access POD has only access to *internal-server* (thought we have a
+   client in there and it managed to connecto to our SDP system)
+   #+begin_example
+     2021-06-23 15:05:02,390 none-access-7d7f99d749-jl79r INFO Fetching http://grafana.devops:3000
+     2021-06-23 15:05:02,390 none-access-7d7f99d749-jl79r INFO Fetching http://apt.devops
+     2021-06-23 15:05:02,391 none-access-7d7f99d749-jl79r INFO Fetching http://internal-server
+     2021-06-23 15:05:05,408 none-access-7d7f99d749-jl79r INFO http://grafana.devops:3000: <urlopen error [Errno 99] Cannot assign requested address>
+     2021-06-23 15:05:05,408 none-access-7d7f99d749-jl79r INFO http://apt.devops: <urlopen error [Errno 99] Cannot assign requested address>
+     2021-06-23 15:05:05,408 none-access-7d7f99d749-jl79r INFO http://internal-server: ok
+   #+end_example
+ - internal-server POD hasn't any SDP client injected
+ #+begin_example
+   internal-server-7d47f9f9b6-7nwr2   1/1     Running   0          3m27s
+ #+end_example
+ - PODs created in other namespaces dont get SDP client attached.
