@@ -1,4 +1,14 @@
-* Building docker image
+
+
+* Demo - tutorial
+** Worker image
+Under ~docker~ directory we have the files required to build the image used in
+this demo. This is basically an image that tries to reach some services via HTTP
+and report the status. The main purpose is to test that the policies in our SDP
+system are assigned properly to each client injected in the demo.
+
+*** Building worker image
+In order to build the worker image just type this commands:
 
 #+begin_src shell
   export DOCKER_REGISTRY="mydocker-registry:5501"
@@ -8,7 +18,8 @@
   docker push ${DOCKER_REGISTRY}/sdp-k8s-client-demo-worker:latest
 #+end_src
 
-* Running with docker
+*** Running with docker
+We can test the image we have just created locally using doker like this:
 
 #+begin_src shell
   docker run --dns 10.97.2.20 \
@@ -17,7 +28,6 @@
 	 -e DEMO_URLS=http://grafana.devops:3000,http://apt.devops sdp-k8s-client-demo-worker
 #+end_src
 
-* Demo - tutorial
 ** Deploy sdp-injector
 *** Cleanup
 Delete possible old versions of the *sdp-injector*:
