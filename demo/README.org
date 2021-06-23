@@ -68,7 +68,7 @@ next, generate the new ones:
   done
 #+end_src
 
-*** COMMENT Configure a namespace
+*** Configure a namespace
 Create a namespace and tag it to use *sdp-injector*:
 
 #+begin_src shell
