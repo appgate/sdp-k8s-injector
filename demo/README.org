@@ -104,9 +104,44 @@ At this point everything should be running and if we had the proper entitlements
 in our sdp system we could see that:
 
  - apt-access POD has access to *apt.devops* and *internal-server*
+   #+begin_example
+     2021-06-23 15:02:24,669 apt-access-595cf88bfb-w4bhw INFO Fetching http://grafana.devops:3000
+     2021-06-23 15:02:24,670 apt-access-595cf88bfb-w4bhw INFO Fetching http://apt.devops
+     2021-06-23 15:02:24,671 apt-access-595cf88bfb-w4bhw INFO Fetching http://internal-server
+     2021-06-23 15:02:27,685 apt-access-595cf88bfb-w4bhw INFO http://grafana.devops:3000: <urlopen error [Errno 99] Cannot assign requested address>
+     2021-06-23 15:02:27,685 apt-access-595cf88bfb-w4bhw INFO http://apt.devops: ok
+     2021-06-23 15:02:27,685 apt-access-595cf88bfb-w4bhw INFO http://internal-server: ok
+   #+end_example
  - grafana-access POD has access to *grafana.devops* and *internal-server*
+   #+begin_example
+     2021-06-23 15:03:36,651 grafana-access-8657bfdd7f-vcsx7 INFO Fetching http://grafana.devops:3000
+     2021-06-23 15:03:36,651 grafana-access-8657bfdd7f-vcsx7 INFO Fetching http://apt.devops
+     2021-06-23 15:03:36,653 grafana-access-8657bfdd7f-vcsx7 INFO Fetching http://internal-server
+     2021-06-23 15:03:39,670 grafana-access-8657bfdd7f-vcsx7 INFO http://grafana.devops:3000: ok
+     2021-06-23 15:03:39,670 grafana-access-8657bfdd7f-vcsx7 INFO http://apt.devops: <urlopen error [Errno 99] Cannot assign requested address>
+     2021-06-23 15:03:39,670 grafana-access-8657bfdd7f-vcsx7 INFO http://internal-server: ok
+   #+end_example
  - full-access POD has access to *apt.devops*, *grafana.devops* and *internal-server*
+   #+begin_example
+     2021-06-23 15:04:35,283 full-access-596cbd4f46-2d7mm INFO Fetching http://grafana.devops:3000
+     2021-06-23 15:04:35,284 full-access-596cbd4f46-2d7mm INFO Fetching http://apt.devops
+     2021-06-23 15:04:35,284 full-access-596cbd4f46-2d7mm INFO Fetching http://internal-server
+     2021-06-23 15:04:35,308 full-access-596cbd4f46-2d7mm INFO http://grafana.devops:3000: ok
+     2021-06-23 15:04:35,308 full-access-596cbd4f46-2d7mm INFO http://apt.devops: ok
+     2021-06-23 15:04:35,308 full-access-596cbd4f46-2d7mm INFO http://internal-server: ok
+   #+end_example
  - none-access POD has only access to *internal-server* (thought we have a
    client in there and it managed to connecto to our SDP system)
+   #+begin_example
+     2021-06-23 15:05:02,390 none-access-7d7f99d749-jl79r INFO Fetching http://grafana.devops:3000
+     2021-06-23 15:05:02,390 none-access-7d7f99d749-jl79r INFO Fetching http://apt.devops
+     2021-06-23 15:05:02,391 none-access-7d7f99d749-jl79r INFO Fetching http://internal-server
+     2021-06-23 15:05:05,408 none-access-7d7f99d749-jl79r INFO http://grafana.devops:3000: <urlopen error [Errno 99] Cannot assign requested address>
+     2021-06-23 15:05:05,408 none-access-7d7f99d749-jl79r INFO http://apt.devops: <urlopen error [Errno 99] Cannot assign requested address>
+     2021-06-23 15:05:05,408 none-access-7d7f99d749-jl79r INFO http://internal-server: ok
+   #+end_example
  - internal-server POD hasn't any SDP client injected
+ #+begin_example
+   internal-server-7d47f9f9b6-7nwr2   1/1     Running   0          3m27s
+ #+end_example
  - PODs created in other namespaces dont get SDP client attached.
