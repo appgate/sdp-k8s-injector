@@ -204,6 +204,8 @@ Now we can create our workflows on kubertenes in the labeled namespace, the
 sdp-injector will add a new sidecar with the SDP client whenever a new POD
 object is created.
 
+*** Demo
+There is a complete demo under the ~demo~ directory.
 
 ** NOTES
 *** sdp-dnsmasq explained
