@@ -79,8 +79,8 @@ mk_certs() {
 
 ## YAML files
 
-YAML_SECRETS_TMPL=$K8S_DIR/sdp-secrets-tmpl.yaml
-YAML_ADMISSION_TMPL=$K8S_DIR/sdp-admission-tmpl.yaml
+YAML_SECRETS_TMPL=$K8S_DIR/sdp-secrets.tmpl
+YAML_ADMISSION_TMPL=$K8S_DIR/sdp-admission.tmpl
 JSON_SIDECARS="$K8S_DIR/sdp-sidecars.json"
 YAML_SECRETS=$K8S_DIR/sdp-secrets.yaml
 YAML_ADMISSION=$K8S_DIR/sdp-admission.yaml
