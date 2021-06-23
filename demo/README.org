@@ -33,7 +33,7 @@ We can now deploy it like this:
   ./tools/sdp-k8s delete-certs
   ./tools/sdp-k8s delete-yaml
   ./tools/sdp-k8s mk-certs
-  ./tools/sdp-k8s mk-certs
+  ./tools/sdp-k8s mk-yaml
   ./tools/sdp-k8s sdp-install
 #+end_src
 
@@ -42,57 +42,58 @@ We can now deploy it like this:
 Delete possible old versions of the demo deployments.
 
 #+begin_src shell
-  kubectl -n my-demo delete deployments --all
-  kubectl -n my-demo delete service --all
-  kubectl delete ns my-demo
+  export NS=mydemo
+  kubectl -n $NS delete deployments --all
+  kubectl -n $NS delete service --all
+  kubectl delete ns $NS
 #+end_src
 
 *** Preparations
 Now let's prepare the yaml files, first delete old versions:
 #+begin_src shell
   for label in apt-access grafana-access full-access none-access; do
-      rm -f "$label-demo-access.yaml"
+      rm -f "demo/$label-demo-deployment.yaml"
   done
 #+end_src
 
 next, generate the new ones:
 
 #+begin_src shell
-  export DOCKER_REGISTRY=${DOCKER_REGISTRY:-your-registry}
+  export DOCKER_REGISTRY=your-registry
   for label in apt-access grafana-access full-access none-access; do
-      POD_NAME=$label envsubst < demo-deployment.tmpl > $label-demo-deployment.yaml
+      POD_NAME=$label envsubst < demo/demo-deployment.tmpl > demo/$label-demo-deployment.yaml
   done
 #+end_src
 
-*** Configure a namespace
+*** COMMENT Configure a namespace
 Create a namespace and tag it to use *sdp-injector*:
 
 #+begin_src shell
-  kubectl create ns my-demo
-  kubectl label namespace my-demo --overwrite sdp-injection=enabled
+  kubectl create ns $NS
+  kubectl label namespace $NS --overwrite sdp-injection=enabled
 #+end_src
 
 Now we need to create a secrets yaml with the client secrets and a config-map
 yaml file with the client configuration:
 
 #+begin_src shell
-  rm -f client-secrets.yaml
-  CLIENT_USERNAME=myuser \
-		 CLIENT_PASSWORD=mypassword \
-		 CLIENT_PROFILE_URL=profileurl \
-		 envsubst < client-secrets.tmpl > client-secrets.yaml
+  rm -f demo/client-secrets.yaml
+  CLIENT_USERNAME=$(pass show sdp-k8s-demo/username | base64 | tr -d '\n') \
+		 CLIENT_PASSWORD=$(pass show sdp-k8s-demo/password | base64 | tr -d '\n') \
+		 CONTROLLER_PROFILE_URL=$(pass show sdp-k8s-demo/controller-profile-url | base64 | tr -d '\n') \
+		 envsubst < demo/client-secrets.tmpl > demo/client-secrets.yaml
 #+end_src
 
 Now we can deploy everything:
 
 #+begin_src shell
   for f in client-secrets.yaml client-config.yaml; do
-      kubectl -n my-demo delete -f demo/$f
-      kubectl -n my-demo create -f demo/$f
+      kubectl -n $NS delete -f demo/$f
+      kubectl -n $NS create -f demo/$f
   done
 
-  for f in *demo-deployment.yaml; do
-      kubectl -n my-demo create -f demo/$f;
+  for f in demo/*deployment.yaml; do
+      kubectl -n $NS create -f $f;
   done
 #+end_src
 
