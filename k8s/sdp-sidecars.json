@@ -1,9 +1,6 @@
 {
     "containers": [
     {
-        "command": [
-            "/opt/appgate/appgate-service.sh"
-        ],
         "env": [
             {
                 "name": "CLIENT_LOGLEVEL",
