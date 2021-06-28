@@ -57,19 +57,19 @@
         "imagePullPolicy": "Always",
         "name": "sdp-driver",
         "env": [
-           {
+            {
                 "name": "POD_NODE",
                 "valueFrom": {
                     "fieldRef": {
-                        "fieldPath": "spec.nodeName",
+                        "fieldPath": "spec.nodeName"
                     }
                 }
-           },
+            },
 	    {
 		"name": "POD_NAME",
                 "valueFrom": {
                     "fieldRef": {
-                        "fieldPath": "metadata.name",
+                        "fieldPath": "metadata.name"
                     }
                 }
 	    },
@@ -77,7 +77,7 @@
                 "name": "POD_NAMESPACE",
                 "valueFrom": {
                     "fieldRef": {
-                        "fieldPath": "metadata.namespace",
+                        "fieldPath": "metadata.namespace"
                     }
                 }
             },
@@ -85,7 +85,7 @@
                 "name": "POD_SERVICE_ACCOUNT",
                 "valueFrom": {
                     "fieldRef": {
-                        "fieldPath": "spec.serviceAccountName",
+                        "fieldPath": "spec.serviceAccountName"
                     }
                 }
             }
