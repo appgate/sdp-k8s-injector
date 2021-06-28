@@ -75,6 +75,10 @@
             {
                 "mountPath": "/dev/net/tun",
                 "name": "tun-device"
+            },
+            {
+                "mountPath": "/etc/pod-info",
+                "name": "pod-info"
             }
         ]
     },
@@ -94,15 +98,34 @@
     }
     ],
     "volumes": [
-            {
-                "mountPath": "/var/run/appgate",
-                "name": "run-appgate"
+        {
+            "mountPath": "/var/run/appgate",
+            "name": "run-appgate"
+        },
+        {
+            "hostPath": {
+                "path": "/dev/net/tun"
             },
-            {
-                "hostPath": {
-		    "path": "/dev/net/tun"
-		},
-                "name": "tun-device"
+            "name": "tun-device"
+        },
+        {
+            "name": "pod-info",
+            "downwardAPI": {
+                "items": [
+                    {
+                        "path": "labels",
+                        "fieldRef": {
+                            "fieldPath": "metadata.labels"
+                        }
+                    },
+                    {
+                        "path": "annotations",
+                        "fieldRef": {
+                            "fieldPath": "metadata.annotations"
+                        }
+                    }
+                ]
             }
+        }
     ]
 }
