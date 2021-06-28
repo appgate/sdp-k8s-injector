@@ -59,7 +59,40 @@
         "image": "ghcr.io/appgate/sdp-k8s-client/sdp-headless-driver",
         "imagePullPolicy": "Always",
         "name": "sdp-driver",
-        "resources": {},
+        "env": [
+           {
+                "name": "POD_NODE",
+                "valueFrom": {
+                    "fieldRef": {
+                        "fieldPath": "spec.nodeName",
+                    }
+                }
+           },
+	    {
+		"name": "POD_NAME",
+                "valueFrom": {
+                    "fieldRef": {
+                        "fieldPath": "metadata.name",
+                    }
+                }
+	    },
+	    {
+                "name": "POD_NAMESPACE",
+                "valueFrom": {
+                    "fieldRef": {
+                        "fieldPath": "metadata.namespace",
+                    }
+                }
+            },
+	    {
+                "name": "POD_SERVICE_ACCOUNT",
+                "valueFrom": {
+                    "fieldRef": {
+                        "fieldPath": "spec.serviceAccountName",
+                    }
+                }
+            }
+	],
         "securityContext": {
             "capabilities": {
                 "add": [
