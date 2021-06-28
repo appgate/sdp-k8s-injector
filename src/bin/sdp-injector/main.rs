@@ -209,7 +209,6 @@ fn load_cert_files() -> Result<(BufReader<File>, BufReader<File>), Box<dyn Error
     Ok((cert_buf, key_buf))
 }
 
-
 fn patch_request(request_body: &str, sdp_sidecars: &SDPSidecars) -> Result<AdmissionReview<DynamicObject>, Box<dyn Error>> {
     let admision_review = serde_json::from_str::<AdmissionReview<Pod>>(&request_body)
         .map_err(|e| format!("Error parsing payload: {}", e.to_string()))?;
@@ -440,47 +439,47 @@ mod tests {
             TestValidate {
                 pod: test_pod!(),
                 validation_errors: Some(r#"Unable to run SDP client on POD: POD is missing needed containers: sdp-dnsmasq, sdp-driver, sdp-service
-POD is missing needed volumes: run-appgate, tun-device"#.to_string())
+POD is missing needed volumes: pod-info, run-appgate, tun-device"#.to_string())
             },
             TestValidate {
                 pod: test_pod!(containers => vec!["sdp-dnsmasq"]),
                 validation_errors: Some(r#"Unable to run SDP client on POD: POD is missing needed containers: sdp-driver, sdp-service
-POD is missing needed volumes: run-appgate, tun-device"#.to_string())
+POD is missing needed volumes: pod-info, run-appgate, tun-device"#.to_string())
             },
             TestValidate {
                 pod: test_pod!(containers => vec!["sdp-dnsmasq", "sdp-service"]),
                 validation_errors: Some(r#"Unable to run SDP client on POD: POD is missing needed containers: sdp-driver
-POD is missing needed volumes: run-appgate, tun-device"#.to_string())
+POD is missing needed volumes: pod-info, run-appgate, tun-device"#.to_string())
             },
             TestValidate {
                 pod: test_pod!(containers => vec!["sdp-service", "sdp-dnsmasq", "sdp-driver"]),
-                validation_errors: Some(r#"Unable to run SDP client on POD: POD is missing needed volumes: run-appgate, tun-device"#.to_string())
+                validation_errors: Some(r#"Unable to run SDP client on POD: POD is missing needed volumes: pod-info, run-appgate, tun-device"#.to_string())
             },
             TestValidate {
                 pod: test_pod!(containers => vec!["sdp-service", "sdp-dnsmasq", "sdp-driver"],
                                volumes => vec!["run-appgate"]),
-                validation_errors: Some(r#"Unable to run SDP client on POD: POD is missing needed volumes: tun-device"#.to_string())
+                validation_errors: Some(r#"Unable to run SDP client on POD: POD is missing needed volumes: pod-info, tun-device"#.to_string())
             },
             TestValidate {
                 pod: test_pod!(containers => vec!["sdp-service", "sdp-dnsmasq", "sdp-driver"],
                                volumes => vec!["run-appgate"]),
-                validation_errors: Some(r#"Unable to run SDP client on POD: POD is missing needed volumes: tun-device"#.to_string())
+                validation_errors: Some(r#"Unable to run SDP client on POD: POD is missing needed volumes: pod-info, tun-device"#.to_string())
             },
             TestValidate {
                 pod: test_pod!(containers => vec!["sdp-driver"],
-                               volumes => vec!["run-appgate", "tun-device"]),
+                               volumes => vec!["run-appgate", "tun-device", "pod-info"]),
                 validation_errors: Some(r#"Unable to run SDP client on POD: POD is missing needed containers: sdp-dnsmasq, sdp-service"#.to_string())
             },
             TestValidate {
                 pod: test_pod!(containers => vec!["sdp-service", "sdp-dnsmasq", "sdp-driver"],
-                               volumes => vec!["run-appgate", "tun-device"]),
+                               volumes => vec!["run-appgate", "tun-device", "pod-info"]),
                 validation_errors: None
             },
             TestValidate {
                 pod: test_pod!(containers => vec!["_sdp-service", "_sdp-dnsmasq", "_sdp-driver"],
                                volumes => vec!["_run-appgate", "_tun-device"]),
                 validation_errors: Some(r#"Unable to run SDP client on POD: POD is missing needed containers: sdp-dnsmasq, sdp-driver, sdp-service
-POD is missing needed volumes: run-appgate, tun-device"#.to_string())
+POD is missing needed volumes: pod-info, run-appgate, tun-device"#.to_string())
             },
         ]
     }
