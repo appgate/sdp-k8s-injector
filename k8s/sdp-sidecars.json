@@ -37,27 +37,8 @@
                         "name": "sdp-injector-client-secrets"
                     }
                 }
-            }
-        ],
-        "image": "ghcr.io/appgate/sdp-k8s-client/sdp-headless-service",
-        "imagePullPolicy": "Always",
-        "name": "sdp-service",
-        "resources": {},
-        "terminationMessagePath": "/dev/termination-log",
-        "terminationMessagePolicy": "File",
-        "volumeMounts": [
-            {
-                "mountPath": "/var/run/appgate",
-                "name": "run-appgate"
-            }
-        ]
-    },
-    {
-        "image": "ghcr.io/appgate/sdp-k8s-client/sdp-headless-driver",
-        "imagePullPolicy": "Always",
-        "name": "sdp-driver",
-        "env": [
-            {
+            },
+	    {
                 "name": "POD_NODE",
                 "valueFrom": {
                     "fieldRef": {
@@ -89,7 +70,28 @@
                     }
                 }
             }
-	],
+        ],
+        "imagePullPolicy": "Always",
+        "name": "sdp-service",
+        "image": "ghcr.io/appgate/sdp-k8s-client/sdp-headless-service",
+        "resources": {},
+        "terminationMessagePath": "/dev/termination-log",
+        "terminationMessagePolicy": "File",
+        "volumeMounts": [
+            {
+                "mountPath": "/var/run/appgate",
+                "name": "run-appgate"
+            },
+	    {
+                "mountPath": "/etc/pod-info",
+                "name": "pod-info"
+            }
+        ]
+    },
+    {
+        "imagePullPolicy": "Always",
+        "name": "sdp-driver",
+        "image": "ghcr.io/appgate/sdp-k8s-client/sdp-headless-driver",
         "securityContext": {
             "capabilities": {
                 "add": [
@@ -105,10 +107,6 @@
             {
                 "mountPath": "/dev/net/tun",
                 "name": "tun-device"
-            },
-            {
-                "mountPath": "/etc/pod-info",
-                "name": "pod-info"
             }
         ]
     },
