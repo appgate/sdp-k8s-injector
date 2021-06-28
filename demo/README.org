@@ -47,7 +47,7 @@ We can now deploy it like this:
   ./tools/sdp-k8s delete-yaml
   ./tools/sdp-k8s mk-certs
   ./tools/sdp-k8s mk-yaml
-  ./tools/sdp-k8s sdp-install
+  ./tools/sdp-k8s install-sdp
 #+end_src
 
 ** Prepare the pods for the demo
