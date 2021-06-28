@@ -1,5 +1,6 @@
 use actix_web::{post, App, HttpResponse, HttpServer, HttpRequest};
-use k8s_openapi::api::core::v1::{Container, Pod, Volume};
+use k8s_openapi::api::core::v1::{Container, Pod, Volume, EnvVar, EnvVarSource, ConfigMapKeySelector,
+                                 SecretKeySelector, ObjectFieldSelector};
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::Status;
 use std::path::PathBuf;
 use std::fs::File;
@@ -24,6 +25,66 @@ const SDP_CERT_FILE_ENV: &str = "SDP_CERT_FILE";
 const SDP_KEY_FILE_ENV: &str = "SDP_KEY_FILE";
 const SDP_CERT_FILE: &str = "/opt/sdp-injector/k8s/sdp-injector-crt.pem";
 const SDP_KEY_FILE: &str = "/opt/sdp-injector/k8s/sdp-injector-key.pem";
+const SDP_ANNOTATION_CLIENT_CONFIG: &str = "sdp-injector-client-config";
+const SDP_ANNOTATION_CLIENT_SECRETS: &str = "sdp-injector-client-secrets";
+const SDP_DEFAULT_CLIENT_CONFIG: &str = "sdp-injector-client-config";
+const SDP_DEFAULT_CLIENT_SECRETS: &str = "sdp-injector-client-secrets";
+
+macro_rules! env_var {
+    (configMap :: $env_name:expr => $map_name:expr) => {{
+        let mut env: EnvVar = Default::default();
+        env.name = $env_name.to_string();
+        let mut env_source: EnvVarSource = Default::default();
+        env_source.config_map_key_ref = Some(ConfigMapKeySelector {
+            key: $env_name.to_lowercase().replace("_", "-"),
+            name: Some($map_name.to_string()),
+            optional: Some(false)
+        });
+        env
+    }};
+    (secrets :: $env_name:expr => $map_name:expr) => {{
+        let mut env: EnvVar = Default::default();
+        env.name = $env_name.to_string();
+        let mut env_source: EnvVarSource = Default::default();
+        env_source.secret_key_ref = Some(SecretKeySelector {
+            key: $env_name.to_lowercase().replace("_", "-"),
+            name: Some($map_name.to_string()),
+            optional: Some(false)
+        });
+        env
+    }};
+    (fieldRef :: $env_name:expr => $field_path:expr) => {{
+        let mut env: EnvVar = Default::default();
+        env.name = $env_name.to_string();
+        let mut env_source: EnvVarSource = Default::default();
+        env_source.field_ref = Some(ObjectFieldSelector {
+            field_path: $field_path.to_string(),
+            api_version: None,
+        });
+        env
+    }};
+}
+
+fn get_env_vars(client_config: &str, client_secret: &str) -> Vec<EnvVar> {
+    vec![
+        env_var!(
+            configMap :: "CLIENT_LOG_LEVEL" => client_config),
+        env_var!(
+            secrets :: "CLIENT_CONTROLLER_URL" => client_secret),
+        env_var!(
+            secrets :: "CLIENT_USERNAME" => client_secret),
+        env_var!(
+            secrets :: "CLIENT_PASSWORD" => client_secret),
+        env_var!(
+            fieldRef :: "POD_NODE" => "spec.nodeName"),
+        env_var!(
+            fieldRef :: "POD_NAME" => "metadata.name"),
+        env_var!(
+            fieldRef :: "POD_NAMESPACE" => "metadata.namespace"),
+        env_var!(
+            fieldRef :: "POD_SERVICE_ACCOUNT" => "spec.serviceAccountName")
+    ]
+}
 
 fn reader_from_cwd(file_name: &str) -> Result<BufReader<File>, Box<dyn Error>> {
     let cwd = std::env::current_dir()?;
@@ -94,11 +155,22 @@ impl SDPPod<'_> {
         self.has_containers() && !self.has_any_sidecars() && !self.disabled_by_annotations()
     }
 
-    fn patch_sidecars(&self,) -> Result<Patch, Box<dyn Error>> {
+    fn patch_sidecars(&self) -> Result<Patch, Box<dyn Error>> {
         info!("Patching POD with SDP client");
+        let config_map = self.annotations()
+            .and_then(|bt| bt.get(SDP_ANNOTATION_CLIENT_CONFIG))
+            .map(|s| s.clone())
+            .unwrap_or(SDP_DEFAULT_CLIENT_CONFIG.to_string());
+        let secrets = self.annotations()
+            .and_then(|bt| bt.get(SDP_ANNOTATION_CLIENT_SECRETS))
+            .map(|s| s.clone())
+            .unwrap_or(SDP_DEFAULT_CLIENT_SECRETS.to_string());
         let mut patches = vec![];
         if self.needs_patching() {
-            for c in self.sdp_sidecars.containers.iter() {
+            for c in self.sdp_sidecars.containers.clone().iter_mut() {
+                if c.name == "sdp-driver" {
+                    c.env = Some(get_env_vars(&config_map, &secrets));
+                }
                 patches.push(Add(AddOperation {
                     path: "/spec/containers/-".to_string(),
                     value: serde_json::to_value(&c)?,
