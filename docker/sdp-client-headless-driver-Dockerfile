@@ -10,6 +10,8 @@ RUN apt-get update && \
 RUN apt install -y iproute2 socat
 RUN rm -rf /usr/share/doc /usr/share/man /var/lib/apt /var/lib/dpkg /var/cache /etc/machine-id /tmp/$CLIENT_DEB
 COPY assets/sdp-driver-set-dns /opt/appgate/linux/set_dns
+COPY assets/sdp-driver-pod-info /opt/appgate/linux/pod_info
 RUN chmod +x /opt/appgate/linux/set_dns
+RUN chmod +x /opt/appgate/linux/pod_info
 WORKDIR /root
 CMD ["/opt/appgate/appgate-driver", "-d", "-p", "/var/run/appgate/.driver.sock", "--container"]
