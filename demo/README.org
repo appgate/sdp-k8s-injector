@@ -77,7 +77,10 @@ next, generate the new ones:
       POD_NAME=$label envsubst < demo/demo-deployment.tmpl > demo/$label-demo-deployment.yaml
   done
   for label in none-access; do
-      CLIENT_SECRETS=custom-secrets CLIENT_CONFIG=custom-config POD_NAME=$label envsubst < demo/demo-custom-deployment.tmpl > demo/$label-demo-deployment.yaml
+      CLIENT_SECRETS=custom-secrets \
+      CLIENT_CONFIG=custom-config \
+      POD_NAME=$label \
+      envsubst < demo/demo-custom-deployment.tmpl > demo/$label-demo-deployment.yaml
   done
 #+end_src
 
