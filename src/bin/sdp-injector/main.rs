@@ -97,7 +97,7 @@ fn reader_from_cwd(file_name: &str) -> Result<BufReader<File>, Box<dyn Error>> {
 
 struct SDPPod<'a> {
     pod: &'a Pod,
-    sdp_sidecars: &'a SDPSidecars
+    sdp_sidecars: &'a SDPSidecars,
 }
 
 impl SDPPod<'_> {
@@ -149,7 +149,7 @@ impl SDPPod<'_> {
 
     fn disabled_by_annotations(&self) -> bool {
         self.annotations()
-            .and_then(|bm|bm.get("sdp-injector"))
+            .and_then(|bm| bm.get("sdp-injector"))
             .map(|a| a.eq("false"))
             .unwrap_or(false)
     }
@@ -294,7 +294,7 @@ fn patch_request(request_body: &str, sdp_sidecars: &SDPSidecars) -> Result<Admis
     match sdp_pod.patch_sidecars() {
         Ok(patch) => {
             admission_response = admission_response.with_patch(patch)?
-        },
+        }
         Err(error) => {
             let mut status: Status = Default::default();
             status.code = Some(40);
