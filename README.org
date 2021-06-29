@@ -158,6 +158,18 @@ the label ~sdp-injection=true~ into the desired namespace:
   sdp-k8s-poc   Active   105m   enabled
 #+end_example
 
+Once a namespace has the label all the PODs created there will get an SDP client
+injected. If we want to avoid the injection on a POD we can do it by annotating
+the POD spec with:
+
+#+begin_example
+  annotations:
+    sdp-injector: "false"
+#+end_example
+
+PODs that have that annotation in their spec template won't get an SDP client
+even if they are in a namespace with the label.
+
 **** client configuration (config map an secrets)
 From now, all the PODs created in that namespace will get attached an SDP
 client, so now we need to add the configuration for those clients. To do this we
