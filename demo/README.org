@@ -35,7 +35,7 @@ Delete possible old versions of the *sdp-injector*:
 #+begin_src shell
   kubectl -n sdp-k8s delete deployment --all
   kubectl -n sdp-k8s delete service --all
-  kubectl -n sdp-k8s delete mutatingwebhookconfigurations sdp-injector
+  kubectl delete mutatingwebhookconfigurations sdp-injector
   kubectl delete ns sdp-k8s
 #+end_src
 
@@ -77,10 +77,7 @@ next, generate the new ones:
       POD_NAME=$label envsubst < demo/demo-deployment.tmpl > demo/$label-demo-deployment.yaml
   done
   for label in none-access; do
-      CLIENT_SECRETS=custom-secrets \
-		    CLIENT_CONFIG=custom-config \
-		    POD_NAME=$label \
-		    envsubst < demo/demo-custom-deployment.tmpl > demo/$label-demo-deployment.yaml
+      CLIENT_SECRETS=custom-secrets CLIENT_CONFIG=custom-config POD_NAME=$label envsubst < demo/demo-custom-deployment.tmpl > demo/$label-demo-deployment.yaml
   done
 #+end_src
 
@@ -98,17 +95,19 @@ yaml file with the client configuration:
 #+begin_src shell
   rm -f demo/client-secrets.yaml
   CLIENT_USERNAME=$(pass show sdp-k8s-demo/username | base64 | tr -d '\n') \
-		 CLIENT_PASSWORD=$(pass show sdp-k8s-demo/password | base64 | tr -d '\n') \
-		 CONTROLLER_PROFILE_URL=$(pass show sdp-k8s-demo/controller-profile-url | base64 | tr -d '\n') \
-		 SECRETS_NAME=sdp-injector-client-secrets \
-		 envsubst < demo/client-secrets.tmpl > demo/client-secrets.yaml
+    NAME=sdp-injector-client-secrets \
+    CLIENT_PASSWORD=$(pass show sdp-k8s-demo/password | base64 | tr -d '\n') \
+    CONTROLLER_PROFILE_URL=$(pass show sdp-k8s-demo/controller-profile-url | base64 | tr -d '\n') \
+    SECRETS_NAME=sdp-injector-client-secrets \
+    envsubst < demo/client-secrets.tmpl > demo/client-secrets.yaml
 
   rm -f demo/custom-secrets.yaml
   CLIENT_USERNAME=$(pass show sdp-k8s-demo/username | base64 | tr -d '\n') \
-		 CLIENT_PASSWORD=$(pass show sdp-k8s-demo/password | base64 | tr -d '\n') \
-		 CONTROLLER_PROFILE_URL=$(pass show sdp-k8s-demo/controller-profile-url | base64 | tr -d '\n') \
-		 SECRETS_NAME=custom-secrets \
-		 envsubst < demo/client-secrets.tmpl > demo/custom-secrets.yaml
+    NAME=custom-secrets \
+    CLIENT_PASSWORD=$(pass show sdp-k8s-demo/password | base64 | tr -d '\n') \
+    CONTROLLER_PROFILE_URL=$(pass show sdp-k8s-demo/controller-profile-url | base64 | tr -d '\n') \
+    SECRETS_NAME=custom-secrets \
+    envsubst < demo/client-secrets.tmpl > demo/custom-secrets.yaml
 #+end_src
 
 Now we can deploy everything:
