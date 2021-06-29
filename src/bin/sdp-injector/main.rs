@@ -25,6 +25,7 @@ const SDP_CERT_FILE_ENV: &str = "SDP_CERT_FILE";
 const SDP_KEY_FILE_ENV: &str = "SDP_KEY_FILE";
 const SDP_CERT_FILE: &str = "/opt/sdp-injector/k8s/sdp-injector-crt.pem";
 const SDP_KEY_FILE: &str = "/opt/sdp-injector/k8s/sdp-injector-key.pem";
+const SDP_SERVICE_CONTAINER_NAME: &str = "sdp-service";
 const SDP_ANNOTATION_CLIENT_CONFIG: &str = "sdp-injector-client-config";
 const SDP_ANNOTATION_CLIENT_SECRETS: &str = "sdp-injector-client-secrets";
 const SDP_DEFAULT_CLIENT_CONFIG: &str = "sdp-injector-client-config";
@@ -171,7 +172,7 @@ impl SDPPod<'_> {
         let mut patches = vec![];
         if self.needs_patching() {
             for c in self.sdp_sidecars.containers.clone().iter_mut() {
-                if c.name == "sdp-driver" {
+                if c.name == SDP_SERVICE_CONTAINER_NAME {
                     c.env = Some(get_env_vars(&config_map, &secrets));
                 }
                 patches.push(Add(AddOperation {
@@ -353,7 +354,7 @@ async fn validate(request: HttpRequest, body: String) -> Result<HttpResponse, Ht
 mod tests {
     use k8s_openapi::api::core::v1::{Pod, Container, Volume};
     use std::collections::{BTreeMap, HashSet};
-    use crate::{SDPPod, load_sidecar_containers, SDP_SIDECARS_FILE_ENV, SDPSidecars, patch_request, SDP_DEFAULT_CLIENT_CONFIG, SDP_ANNOTATION_CLIENT_CONFIG, SDP_DEFAULT_CLIENT_SECRETS, SDP_ANNOTATION_CLIENT_SECRETS};
+    use crate::{SDPPod, load_sidecar_containers, SDP_SIDECARS_FILE_ENV, SDPSidecars, patch_request, SDP_DEFAULT_CLIENT_CONFIG, SDP_ANNOTATION_CLIENT_CONFIG, SDP_DEFAULT_CLIENT_SECRETS, SDP_ANNOTATION_CLIENT_SECRETS, SDP_SERVICE_CONTAINER_NAME};
     use std::iter::FromIterator;
     use kube::core::admission::AdmissionReview;
     use serde_json::json;
@@ -642,9 +643,9 @@ POD is missing needed volumes: pod-info, run-appgate, tun-device"#.to_string()),
         let assert_envs = |patched_sdp_pod: &SDPPod, test_patch: &TestPatch| -> Result<bool, String> {
             let css = patched_sdp_pod.containers()
                 .ok_or("Containers not found in POD")?;
-            let cs = css.iter().filter(|c| c.name == "sdp-driver").collect::<Vec<&Container>>();
-            let c = cs.get(0).ok_or("sdp-driver container not found in POD")?;
-            let env_vars = c.env.as_ref().ok_or("Environment not found in sdp-driver container")?;
+            let cs = css.iter().filter(|c| c.name == SDP_SERVICE_CONTAINER_NAME).collect::<Vec<&Container>>();
+            let c = cs.get(0).ok_or("sdp-service container not found in POD")?;
+            let env_vars = c.env.as_ref().ok_or("Environment not found in sdp-service container")?;
             let mut env_errors: Vec<String> = vec![];
             for env_var in env_vars.iter() {
                 if let Some(env_var_src) = env_var.value_from.as_ref() {
@@ -675,7 +676,7 @@ POD is missing needed volumes: pod-info, run-appgate, tun-device"#.to_string()),
                 }
             };
             if env_errors.len() > 0 {
-                Err(format!("Found errors on sdp-driver container environments: {}", env_errors.join(", ")))
+                Err(format!("Found errors on sdp-service container environments: {}", env_errors.join(", ")))
             } else {
                 Ok(true)
             }
