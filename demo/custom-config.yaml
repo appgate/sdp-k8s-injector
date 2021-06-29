@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: custom-config
+data:
+  client-log-level: Debug
+ 

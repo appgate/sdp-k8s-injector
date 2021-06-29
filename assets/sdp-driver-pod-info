@@ -12,7 +12,7 @@
 ##   labels :: dict of key, value pairs with all the labels defined
 ##             in the pod
 
-POD_INFO_DIR=${POD_INFO_DIR:-/etc/pod-info/labels}
+POD_INFO_DIR=${POD_INFO_DIR:-/etc/pod-info}
 POD_INFO_FILES="${POD_INFO_DIR}/labels ${POD_INFO_DIR}/annotations"
 POD_INFO_ENVS="POD_NODE POD_NAME POD_NAMESPACE POD_SERVICE_ACCOUNT"
 N=0
@@ -54,7 +54,7 @@ function collect_envs () {
 
 echo -n "{"
 collect_envs
-for f in ${POD_INFO_DIR}/labels ${POD_INFO_DIR}/annotations; do
+for f in ${POD_INFO_FILES}; do
     if [ ! -f $f ]; then
         continue
     fi
