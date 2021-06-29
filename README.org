@@ -158,15 +158,28 @@ the label ~sdp-injection=true~ into the desired namespace:
   sdp-k8s-poc   Active   105m   enabled
 #+end_example
 
+Once a namespace has the label all the PODs created there will get an SDP client
+injected. If we want to avoid the injection on a POD we can do it by annotating
+the POD spec with:
+
+#+begin_example
+  annotations:
+    sdp-injector: "false"
+#+end_example
+
+PODs that have that annotation in their spec template won't get an SDP client
+even if they are in a namespace with the label.
+
 **** client configuration (config map an secrets)
 From now, all the PODs created in that namespace will get attached an SDP
 client, so now we need to add the configuration for those clients. To do this we
 need to create a secrets object and a config map object to store the credentials
 and the configuration for the clients injected in our PODs.
 
-The config map needs to have the log level used by the client.
+The config map needs to have the following entries:
+ - client-log-level :: Log level for the client
 
-Its name should be *sdp-injector-client-config* and it must be located in the
+Its name is by default *sdp-injector-client-config* and it must be located in the
 same namespace where the PODs will be deployed. Example:
 
 #+begin_example
@@ -176,7 +189,15 @@ same namespace where the PODs will be deployed. Example:
     name: sdp-injector-client-config
     namespace: sdp-k8s-poc
   data:
-    client-loglevel: Debug
+    client-log-level: Debug
+#+end_example
+
+If you want to use another configmap for the client injected in that POD it can
+be done adding an annotation like this:
+
+#+begin_example
+  annotations:
+    sdp-injector-client-config: "some-custom-config-map"
 #+end_example
 
 The secrets object needs to define 3 secrets:
@@ -184,7 +205,7 @@ The secrets object needs to define 3 secrets:
  - client-password :: password used to login
  - client-controller-url :: profile url used to connect to the controller
 
-It needs to be called *sdp-injector-client-secrets* and it needs to be located
+Its name by default is *sdp-injector-client-secrets* and it needs to be located
 in the same namespace where the PODs will be deployed. Example:
 
 #+begin_example
@@ -198,6 +219,14 @@ in the same namespace where the PODs will be deployed. Example:
     client-username: YWRtaW4=
     client-password: YWRtaW4=
     client-controller-url: c29tZXByb2ZpbGV1cmw=
+#+end_example
+
+If you want to use another secrets for the client injected in that POD it can
+be done adding an annotation like this:
+
+#+begin_example
+  annotations:
+    sdp-injector-client-secrets: "some-custom-secrets"
 #+end_example
 
 Now we can create our workflows on kubertenes in the labeled namespace, the
