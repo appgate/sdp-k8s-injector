@@ -73,8 +73,14 @@ next, generate the new ones:
 
 #+begin_src shell
   export DOCKER_REGISTRY=your-registry
-  for label in apt-access grafana-access full-access none-access; do
+  for label in apt-access grafana-access full-access; do
       POD_NAME=$label envsubst < demo/demo-deployment.tmpl > demo/$label-demo-deployment.yaml
+  done
+  for label in none-access; do
+      CLIENT_SECRETS=custom-secrets \
+		    CLIENT_CONFIG=custom-config \
+		    POD_NAME=$label \
+		    envsubst < demo/demo-custom-deployment.tmpl > demo/$label-demo-deployment.yaml
   done
 #+end_src
 
@@ -94,13 +100,21 @@ yaml file with the client configuration:
   CLIENT_USERNAME=$(pass show sdp-k8s-demo/username | base64 | tr -d '\n') \
 		 CLIENT_PASSWORD=$(pass show sdp-k8s-demo/password | base64 | tr -d '\n') \
 		 CONTROLLER_PROFILE_URL=$(pass show sdp-k8s-demo/controller-profile-url | base64 | tr -d '\n') \
+		 SECRETS_NAME=sdp-injector-client-secrets \
 		 envsubst < demo/client-secrets.tmpl > demo/client-secrets.yaml
+
+  rm -f demo/custom-secrets.yaml
+  CLIENT_USERNAME=$(pass show sdp-k8s-demo/username | base64 | tr -d '\n') \
+		 CLIENT_PASSWORD=$(pass show sdp-k8s-demo/password | base64 | tr -d '\n') \
+		 CONTROLLER_PROFILE_URL=$(pass show sdp-k8s-demo/controller-profile-url | base64 | tr -d '\n') \
+		 SECRETS_NAME=custom-secrets \
+		 envsubst < demo/client-secrets.tmpl > demo/custom-secrets.yaml
 #+end_src
 
 Now we can deploy everything:
 
 #+begin_src shell
-  for f in client-secrets.yaml client-config.yaml; do
+  for f in client-secrets.yaml client-config.yaml custom-secrets.yaml custom-config.yaml; do
       kubectl -n $NS delete -f demo/$f
       kubectl -n $NS create -f demo/$f
   done
