@@ -3,5 +3,5 @@ kind: ConfigMap
 metadata:
   name: sdp-injector-client-config
 data:
-  client-loglevel: Info
+  client-log-level: Info
  

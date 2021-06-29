@@ -177,7 +177,7 @@ need to create a secrets object and a config map object to store the credentials
 and the configuration for the clients injected in our PODs.
 
 The config map needs to have the following entries:
- - client-loglevel :: Log level for the client
+ - client-log-level :: Log level for the client
 
 Its name is by default *sdp-injector-client-config* and it must be located in the
 same namespace where the PODs will be deployed. Example:
@@ -189,7 +189,7 @@ same namespace where the PODs will be deployed. Example:
     name: sdp-injector-client-config
     namespace: sdp-k8s-poc
   data:
-    client-loglevel: Debug
+    client-log-level: Debug
 #+end_example
 
 If you want to use another configmap for the client injected in that POD it can
