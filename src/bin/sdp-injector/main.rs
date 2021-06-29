@@ -40,17 +40,19 @@ macro_rules! env_var {
             name: Some($map_name.to_string()),
             optional: Some(false)
         });
+        env.value_from = Some(env_source);
         env
     }};
-    (secrets :: $env_name:expr => $map_name:expr) => {{
+    (secrets :: $env_name:expr => $secret_name:expr) => {{
         let mut env: EnvVar = Default::default();
         env.name = $env_name.to_string();
         let mut env_source: EnvVarSource = Default::default();
         env_source.secret_key_ref = Some(SecretKeySelector {
             key: $env_name.to_lowercase().replace("_", "-"),
-            name: Some($map_name.to_string()),
+            name: Some($secret_name.to_string()),
             optional: Some(false)
         });
+        env.value_from = Some(env_source);
         env
     }};
     (fieldRef :: $env_name:expr => $field_path:expr) => {{
@@ -61,6 +63,7 @@ macro_rules! env_var {
             field_path: $field_path.to_string(),
             api_version: None,
         });
+        env.value_from = Some(env_source);
         env
     }};
 }
