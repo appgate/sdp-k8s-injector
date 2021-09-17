@@ -13,6 +13,18 @@ DNSMASQ_APPGATE=/etc/dnsmasq.d/appgate.conf
 # points to the kube_dns service
 KUBE_DNS=$(cat $DNSMASQ_APPGATE|head -1)
 
+# What does the AWKward AWK script?
+#
+# It matches 2 types of entries:
+#   1. entries with `dns.server`:
+#     1.1. if it contains `.default$` then it's a plain DNS server entry
+#     1.2. else it's a match domain entry + DNS server entry
+#   2. other entries (we assume it's a normal server entry)
+#
+# The script collects plain DNS servers and match domain DNS servers.
+
+# If a plain DNS server is used to resolve a match domain then it's not
+# used anymore as plain DNS server.
 match_domains () {
     servers="$1"
     domains="$2"
