@@ -8,6 +8,7 @@
 
 DNSMASQ_PID=/var/run/dnsmasq.pid
 DNSMASQ_APPGATE=/etc/dnsmasq.d/appgate.conf
+USE_SERVER_ENTRIES=0
 
 # This reuses later the first entry in the file since that entry
 # points to the kube_dns service
@@ -23,12 +24,13 @@ KUBE_DNS=$(cat $DNSMASQ_APPGATE|head -1)
 #
 # The script collects plain DNS servers and match domain DNS servers.
 
-# If a plain DNS server is used to resolve a match domain then it's not
-# used anymore as plain DNS server.
+# NOT: plain DNS entries are ignored. Only match domains are supported.
 match_domains () {
     servers="$1"
     domains="$2"
-echo -n "$domains" | awk -vSERVERS="$servers" -e '
+    echo -n "$domains" | awk -vSERVERS="$servers" \
+                             -vSERVER_ENTRIES="$SERVER_ENTRIES" \
+                             -e '
 BEGIN {
   RS = ","
   lend = 0
@@ -53,9 +55,11 @@ BEGIN {
   }
 }
 END {
-  for (s in servers) {
-    if (! servers_for_domains[servers[s]]) {
+  if (SERVER_ENTRIES) {
+    for (s in servers) {
+      if (! servers_for_domains[servers[s]]) {
         print("server=" servers[s])
+      }
     }
   }
   for (d in domains) {
