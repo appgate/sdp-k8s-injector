@@ -9,6 +9,10 @@
 DNSMASQ_PID=/var/run/dnsmasq.pid
 DNSMASQ_APPGATE=/etc/dnsmasq.d/appgate.conf
 
+# This reuses later the first entry in the file since that entry
+# points to the kube_dns service
+KUBE_DNS=$(cat $DNSMASQ_APPGATE|head -1)
+
 match_domains () {
     servers="$1"
     domains="$2"
@@ -43,9 +47,15 @@ END {
 read cli
 echo "Got new DNS configuration from sdp-driver: $cli"
 opt=${cli%% *}
+reset=0
 while [ ! -z $opt ]; do
     case ${opt%%=*} in
-       --servers)
+        --reset)
+            reset=1
+            rm -rf $DNSMASQ_APPGATE
+            break
+            ;;
+        --servers)
             servers="${opt##*=}"
             ;;
         --domains)
@@ -62,16 +72,15 @@ while [ ! -z $opt ]; do
     fi
 done
 
-if [ -z "$servers" ]; then
-    echo "--servers not provided, aborting"
-    exit 1
+if [[ -z "$servers" && -z $domains ]]; then
+    if [[ $reset == 0 ]]; then
+        echo "--servers not provided, doing nothing"
+        exit 0
+    fi
 fi
 
 echo "Setting new DNS configuration"
-# This reuses the first entry in the file since that entry
-# points to the kube_dns service
-kube_dns=$(cat $DNSMASQ_APPGATE|head -1)
-echo $kube_dns > $DNSMASQ_APPGATE
+echo $KUBE_DNS > $DNSMASQ_APPGATE
 for i in $(match_domains "$servers" "$domains"); do
    echo $i >> $DNSMASQ_APPGATE
 done
