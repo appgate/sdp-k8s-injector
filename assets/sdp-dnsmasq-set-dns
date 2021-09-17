@@ -19,24 +19,32 @@ match_domains () {
 echo -n "$domains" | awk -vSERVERS="$servers" -e '
 BEGIN {
   RS = ","
-  len = 0
-  split(SERVERS, servers, ",")
+  lend = 0
+  lens = split(SERVERS, servers, ",")
 }
 {
   if (match($0, "dns.server")) {
     # sdp-driver sent an entry with the form: dns.server.X.Y.Z.W.domain
     #    where X.Y.Z.W is the DNS to use to resolve hosts in domain
-    domains[len++] = gensub(/dns.server\.([0-9]+\.[0-9]+\.[0-9]+\.[0-9]+).(.+)/, "server=/\\2/\\1", "g")
+    if (match($0, ".default$")) {
+        servers[++lens] = gensub(/dns.server\.([0-9]+\.[0-9]+\.[0-9]+\.[0-9]+).(.+)/, "\\1", "g")
+    } else {
+        domains[lend++] = gensub(/dns.server\.([0-9]+\.[0-9]+\.[0-9]+\.[0-9]+).(.+)/, "server=/\\2/\\1", "g")
+        dns = gensub(/dns.server\.([0-9]+\.[0-9]+\.[0-9]+\.[0-9]+).(.+)/, "\\1", "g")
+        servers_for_domains[dns] = 1
+    }
   } else if (length() > 0) {
     # sdp-driver sent a plain domain so all the known servers should search hosts there
     for (s in servers) {
-      domains[len++] = "server=/" $1 "/" servers[s]
+      domains[lend++] = "server=/" $1 "/" servers[s]
     }
   }
 }
 END {
   for (s in servers) {
-    print("server=" servers[s])
+    if (! servers_for_domains[servers[s]]) {
+        print("server=" servers[s])
+    }
   }
   for (d in domains) {
     print(domains[d])
