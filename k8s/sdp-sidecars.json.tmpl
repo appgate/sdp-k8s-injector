@@ -3,7 +3,7 @@
     {
         "imagePullPolicy": "Always",
         "name": "sdp-service",
-        "image": "ghcr.io/appgate/sdp-k8s-client/sdp-headless-service",
+        "image": "$DOCKER_REGISTRY/sdp-headless-service",
         "resources": {},
         "terminationMessagePath": "/dev/termination-log",
         "terminationMessagePolicy": "File",
@@ -21,7 +21,7 @@
     {
         "imagePullPolicy": "Always",
         "name": "sdp-driver",
-        "image": "ghcr.io/appgate/sdp-k8s-client/sdp-headless-driver",
+        "image": "$DOCKER_REGISTRY/sdp-headless-driver",
         "securityContext": {
             "capabilities": {
                 "add": [
@@ -44,7 +44,7 @@
         "command": [
             "/sdp-dnsmasq/sdp-dnsmasq"
         ],
-        "image": "ghcr.io/appgate/sdp-k8s-client/sdp-dnsmasq",
+        "image": "$DOCKER_REGISTRY/sdp-dnsmasq",
         "imagePullPolicy": "Always",
         "name": "sdp-dnsmasq",
         "volumeMounts": [

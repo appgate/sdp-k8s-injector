@@ -15,7 +15,7 @@ spec:
         app: sdp-injector
     spec:
       containers:
-      - image: ghcr.io/appgate/sdp-k8s-client/sdp-injector
+      - image: $DOCKER_REGISTRY/sdp-injector
         name: sdp-injector
         env:
           - name: RUST_LOG

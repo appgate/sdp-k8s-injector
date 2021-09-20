@@ -23,9 +23,9 @@ We can test the image we have just created locally using doker like this:
 
 #+begin_src shell
   docker run --dns 10.97.2.20 \
-	 -e DEMO_TIMEOUT=2.0 \
-	 -e DEMO_UPDATE_INTERVAL=5 \
-	 -e DEMO_URLS=http://grafana.devops:3000,http://apt.devops sdp-k8s-client-demo-worker
+         -e DEMO_TIMEOUT=2.0 \
+         -e DEMO_UPDATE_INTERVAL=5 \
+         -e DEMO_URLS=http://grafana.devops:3000,http://apt.devops sdp-k8s-client-demo-worker
 #+end_src
 
 ** Deploy sdp-injector
@@ -64,8 +64,10 @@ Delete possible old versions of the demo deployments.
 *** Preparations
 Now let's prepare the yaml files, first delete old versions:
 #+begin_src shell
-  for label in apt-access grafana-access full-access none-access; do
-      rm -f "demo/$label-demo-deployment.yaml"
+  for f in demo/*deployment.yaml; do
+      if [[ $f != "demo/internal-server-deployment.yaml" ]]; then
+          rm -f "$f"
+      fi
   done
 #+end_src
 
@@ -96,33 +98,24 @@ Now we need to create a secrets yaml with the client secrets and a config-map
 yaml file with the client configuration:
 
 #+begin_src shell
-  rm -f demo/client-secrets.yaml
-  CLIENT_USERNAME=$(pass show sdp-k8s-demo/username | base64 | tr -d '\n') \
-    NAME=sdp-injector-client-secrets \
-    CLIENT_PASSWORD=$(pass show sdp-k8s-demo/password | base64 | tr -d '\n') \
-    CONTROLLER_PROFILE_URL=$(pass show sdp-k8s-demo/controller-profile-url | base64 | tr -d '\n') \
-    SECRETS_NAME=sdp-injector-client-secrets \
-    envsubst < demo/client-secrets.tmpl > demo/client-secrets.yaml
-
-  rm -f demo/custom-secrets.yaml
-  CLIENT_USERNAME=$(pass show sdp-k8s-demo/username | base64 | tr -d '\n') \
-    NAME=custom-secrets \
-    CLIENT_PASSWORD=$(pass show sdp-k8s-demo/password | base64 | tr -d '\n') \
-    CONTROLLER_PROFILE_URL=$(pass show sdp-k8s-demo/controller-profile-url | base64 | tr -d '\n') \
-    SECRETS_NAME=custom-secrets \
-    envsubst < demo/client-secrets.tmpl > demo/custom-secrets.yaml
+  for i in sdp-injector-client-secrets custom-secrets; do
+      rm -f demo/$i.yaml
+      PASSWORD_STORE_DIR=/media/appgate/pass \
+                        CLIENT_USERNAME=$(pass show sdp-k8s-demo/username | base64 | tr -d '\n') \
+                        NAME=$i \
+                        CLIENT_PASSWORD=$(pass show sdp-k8s-demo/password | base64 | tr -d '\n') \
+                        CONTROLLER_PROFILE_URL=$(pass show sdp-k8s-demo/controller-profile-url | base64 | tr -d '\n') \
+                        SECRETS_NAME=$i \
+                        envsubst < demo/client-secrets.tmpl > demo/$i.yaml
+  done
 #+end_src
 
 Now we can deploy everything:
 
 #+begin_src shell
-  for f in client-secrets.yaml client-config.yaml custom-secrets.yaml custom-config.yaml; do
-      kubectl -n $NS delete -f demo/$f
-      kubectl -n $NS create -f demo/$f
-  done
-
-  for f in demo/*deployment.yaml; do
-      kubectl -n $NS create -f $f;
+  for f in demo/*-secrets.yaml demo/*-config.yaml demo/*-deployment.yaml; do
+      kubectl -n $NS delete -f $f
+      kubectl -n $NS create -f $f
   done
 #+end_src
 
