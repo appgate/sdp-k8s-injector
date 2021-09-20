@@ -77,15 +77,8 @@ mk_certs() {
             -out ${CERT_FILE}
 }
 
-## YAML files
-
-YAML_SECRETS_TMPL=$K8S_DIR/sdp-secrets.tmpl
-YAML_ADMISSION_TMPL=$K8S_DIR/sdp-admission.tmpl
+## files
 JSON_SIDECARS="$K8S_DIR/sdp-sidecars.json"
-YAML_SECRETS=$K8S_DIR/sdp-secrets.yaml
-YAML_ADMISSION=$K8S_DIR/sdp-admission.yaml
-YAML_FILES="$YAML_SECRETS $YAML_ADMISSION $K8S_DIR/sdp-injector.yaml"
-YAML_FILES_FROM_TMPL="$YAML_SECRETS $YAML_ADMISSION"
 
 check_yaml() {
     for f in $YAML_FILES; do
@@ -97,7 +90,7 @@ check_yaml() {
 }
 
 delete_yaml() {
-    for f in $YAML_FILES_FROM_TMPL; do
+    for f in $K8S_DIR/*.yaml $K8S_DIR/*.json; do
         rm -f "$f"
     done
 }
@@ -113,9 +106,19 @@ mk_yaml () {
     export CA_BUNDLE=$(cat ${CA_CERT_FILE} | base64 | tr -d '\n')
     export SDP_INJECTOR_KEY=$(cat ${KEY_FILE} | base64 | tr -d '\n')
     export SDP_INJECTOR_CERT=$(cat ${CERT_FILE} | base64 | tr -d '\n')
+    DOCKER_REGISTRY=${DOCKER_REGISTRY:-ghcr.io/appgate/sdp-k8s-client}
+    export DOCKER_REGISTRY
+    for f in $K8S_DIR/*.json.tmpl; do
+	envsubst < $f > ${f%.*}
+    done
+    [[ -f $JSON_SIDECARS ]] || {
+	echo "ERROR: sidecars.json was not generated."
+	exit 1
+    }
     export SDP_SIDECARS=$(cat ${JSON_SIDECARS} | base64 | tr -d '\n')
-    envsubst < $YAML_ADMISSION_TMPL > $YAML_ADMISSION
-    envsubst < $YAML_SECRETS_TMPL > $YAML_SECRETS
+    for f in $K8S_DIR/*.yaml.tmpl; do
+	envsubst < $f > ${f%.*}
+    done
 }
 
 ## SDP
@@ -123,7 +126,7 @@ mk_yaml () {
 uninstall_sdp() {
     echo "Trying to delete previous versions of spd-k8s"
     set +e
-    for f in $YAML_FILES; do
+    for f in $K8S_DIR/*.yaml; do
         $KNS delete -f $f
     done
     $K delete ns $NS
@@ -149,7 +152,7 @@ install_sdp() {
 
     uninstall_sdp
     $K create ns $NS
-    for f in $YAML_FILES; do
+    for f in $K8S_DIR/*.yaml; do
         $KNS create -f $f
     done
 }
