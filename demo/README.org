@@ -23,9 +23,9 @@ We can test the image we have just created locally using doker like this:
 
 #+begin_src shell
   docker run --dns 10.97.2.20 \
-	 -e DEMO_TIMEOUT=2.0 \
-	 -e DEMO_UPDATE_INTERVAL=5 \
-	 -e DEMO_URLS=http://grafana.devops:3000,http://apt.devops sdp-k8s-client-demo-worker
+         -e DEMO_TIMEOUT=2.0 \
+         -e DEMO_UPDATE_INTERVAL=5 \
+         -e DEMO_URLS=http://grafana.devops:3000,http://apt.devops sdp-k8s-client-demo-worker
 #+end_src
 
 ** Deploy sdp-injector
@@ -66,7 +66,7 @@ Now let's prepare the yaml files, first delete old versions:
 #+begin_src shell
   for f in demo/*deployment.yaml; do
       if [[ $f != "demo/internal-server-deployment.yaml" ]]; then
-	  rm -f "$f"
+          rm -f "$f"
       fi
   done
 #+end_src
@@ -101,12 +101,12 @@ yaml file with the client configuration:
   for i in sdp-injector-client-secrets custom-secrets; do
       rm -f demo/$i.yaml
       PASSWORD_STORE_DIR=/media/appgate/pass \
-			CLIENT_USERNAME=$(pass show sdp-k8s-demo/username | base64 | tr -d '\n') \
-			NAME=$i \
-			CLIENT_PASSWORD=$(pass show sdp-k8s-demo/password | base64 | tr -d '\n') \
-			CONTROLLER_PROFILE_URL=$(pass show sdp-k8s-demo/controller-profile-url | base64 | tr -d '\n') \
-			SECRETS_NAME=$i \
-			envsubst < demo/client-secrets.tmpl > demo/$i.yaml
+                        CLIENT_USERNAME=$(pass show sdp-k8s-demo/username | base64 | tr -d '\n') \
+                        NAME=$i \
+                        CLIENT_PASSWORD=$(pass show sdp-k8s-demo/password | base64 | tr -d '\n') \
+                        CONTROLLER_PROFILE_URL=$(pass show sdp-k8s-demo/controller-profile-url | base64 | tr -d '\n') \
+                        SECRETS_NAME=$i \
+                        envsubst < demo/client-secrets.tmpl > demo/$i.yaml
   done
 #+end_src
 

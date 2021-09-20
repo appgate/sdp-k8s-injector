@@ -17,12 +17,12 @@ check_tools() {
     set -e
     _errs=0
     if [ -z $_kubectl ]; then
-	echo "kubectl is missing, please install it before using this tool"
-	_errs=1
+        echo "kubectl is missing, please install it before using this tool"
+        _errs=1
     fi
     if [ -z $_envsubst ]; then
-	echo "envsubst is missing, please install it before using this tool"
-	_errs=1
+        echo "envsubst is missing, please install it before using this tool"
+        _errs=1
     fi
     return $_errs
 }
@@ -39,9 +39,9 @@ CERT_FILES="$CERT_FILE $CSR_FILE $KEY_FILE $CA_CERT_FILE $CA_KEY_FILE $CA_SRL_FI
 
 check_certs() {
     for f in $CERT_FILES; do
-	if [ ! -f $f ]; then
-	    return 1
-	fi
+        if [ ! -f $f ]; then
+            return 1
+        fi
     done
     return 0
 }
@@ -109,15 +109,15 @@ mk_yaml () {
     DOCKER_REGISTRY=${DOCKER_REGISTRY:-ghcr.io/appgate/sdp-k8s-client}
     export DOCKER_REGISTRY
     for f in $K8S_DIR/*.json.tmpl; do
-	envsubst < $f > ${f%.*}
+        envsubst < $f > ${f%.*}
     done
     [[ -f $JSON_SIDECARS ]] || {
-	echo "ERROR: sidecars.json was not generated."
-	exit 1
+        echo "ERROR: sidecars.json was not generated."
+        exit 1
     }
     export SDP_SIDECARS=$(cat ${JSON_SIDECARS} | base64 | tr -d '\n')
     for f in $K8S_DIR/*.yaml.tmpl; do
-	envsubst < $f > ${f%.*}
+        envsubst < $f > ${f%.*}
     done
 }
 
