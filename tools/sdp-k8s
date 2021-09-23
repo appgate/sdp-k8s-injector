@@ -4,7 +4,7 @@ set -e
 
 CERTS_DIR=certs
 K8S_DIR=k8s
-SDP_NS=sdp-k8s
+SDP_NS=sdp-system
 DEMO_NS=sdp-demo
 K=kubectl
 SDP_KNS="kubectl -n $SDP_NS"
