@@ -67,6 +67,7 @@ need these secrets stored using pass:
  - sdp-k8s-demo/password :: password used to login
  - sdp-k8s-demo/controller-profile-url :: url profile used to login
 #+begin_src shell
+  export PASSWORD_STORE_DIR=/media/appgate/pass
   export DOCKER_REGISTRY="mydocker-registry:5501"
   ./tools/sdp-k8s demo-deploy
 #+end_src

@@ -9,6 +9,7 @@ DEMO_NS=sdp-demo
 K=kubectl
 SDP_KNS="kubectl -n $SDP_NS"
 DEMO_KNS="kubectl -n $DEMO_NS"
+export PASSWORD_STORE_DIR=${PASSWORD_STORE_DIR:-/media/appgate/pass}
 
 # Misc
 
@@ -188,13 +189,12 @@ demo_create_yaml() {
                       envsubst < demo/demo-custom-deployment.tmpl > demo/yaml/40-$label-demo-deployment.yaml
     done
     for i in sdp-injector-client-secrets custom-secrets; do
-        PASSWORD_STORE_DIR=/media/appgate/pass \
-                          CLIENT_USERNAME=$(pass show sdp-k8s-demo/username | base64 | tr -d '\n') \
-                          NAME=$i \
-                          CLIENT_PASSWORD=$(pass show sdp-k8s-demo/password | base64 | tr -d '\n') \
-                          CONTROLLER_PROFILE_URL=$(pass show sdp-k8s-demo/controller-profile-url | base64 | tr -d '\n') \
-                          SECRETS_NAME=$i \
-                          envsubst < demo/client-secrets.tmpl > demo/yaml/10-$i.yaml
+        CLIENT_USERNAME=$(pass show sdp-k8s-demo/username | base64 | tr -d '\n') \
+                       NAME=$i \
+                       CLIENT_PASSWORD=$(pass show sdp-k8s-demo/password | base64 | tr -d '\n') \
+                       CONTROLLER_PROFILE_URL=$(pass show sdp-k8s-demo/controller-profile-url | base64 | tr -d '\n') \
+                       SECRETS_NAME=$i \
+                       envsubst < demo/client-secrets.tmpl > demo/yaml/10-$i.yaml
     done
 }
 
