@@ -2,7 +2,7 @@ apiVersion: admissionregistration.k8s.io/v1
 kind: MutatingWebhookConfiguration
 metadata:
   name: sdp-injector
-  namespace: sdp-k8s
+  namespace: sdp-system
   labels:
     app: sdp-injector
 webhooks:
@@ -10,7 +10,7 @@ webhooks:
     clientConfig:
       service:
         name: sdp-injector
-        namespace: sdp-k8s
+        namespace: sdp-system
         path: "/mutate"
       caBundle: $CA_BUNDLE
     namespaceSelector:

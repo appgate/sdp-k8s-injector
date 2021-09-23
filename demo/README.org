@@ -43,6 +43,7 @@ Delete possible old versions of the *sdp-injector*:
 We can now deploy it like this:
 
 #+begin_src shell
+  export DOCKER_REGISTRY="mydocker-registry:5501"
   ./tools/sdp-k8s delete-certs
   ./tools/sdp-k8s delete-yaml
   ./tools/sdp-k8s mk-certs
@@ -50,73 +51,25 @@ We can now deploy it like this:
   ./tools/sdp-k8s install-sdp
 #+end_src
 
-** Prepare the pods for the demo
+** Deploy the demo
 *** Cleanup
 Delete possible old versions of the demo deployments.
 
 #+begin_src shell
-  export NS=mydemo
-  kubectl -n $NS delete deployments --all
-  kubectl -n $NS delete service --all
-  kubectl delete ns $NS
+  ./tools/sdp-k8s demo-delete
 #+end_src
 
-*** Preparations
-Now let's prepare the yaml files, first delete old versions:
+*** Deploy
+Now let's deployt the demo, this will create the the yaml files and deploy them.
+Note that it uses pass to get the credentials to connect te clients, so you will
+need these secrets stored using pass:
+ - sdp-k8s-demo/username :: username used to login
+ - sdp-k8s-demo/password :: password used to login
+ - sdp-k8s-demo/controller-profile-url :: url profile used to login
 #+begin_src shell
-  for f in demo/*deployment.yaml; do
-      if [[ $f != "demo/internal-server-deployment.yaml" ]]; then
-          rm -f "$f"
-      fi
-  done
-#+end_src
-
-next, generate the new ones:
-
-#+begin_src shell
-  export DOCKER_REGISTRY=your-registry
-  for label in apt-access grafana-access full-access; do
-      POD_NAME=$label envsubst < demo/demo-deployment.tmpl > demo/$label-demo-deployment.yaml
-  done
-  for label in none-access; do
-      CLIENT_SECRETS=custom-secrets \
-      CLIENT_CONFIG=custom-config \
-      POD_NAME=$label \
-      envsubst < demo/demo-custom-deployment.tmpl > demo/$label-demo-deployment.yaml
-  done
-#+end_src
-
-*** Configure a namespace
-Create a namespace and tag it to use *sdp-injector*:
-
-#+begin_src shell
-  kubectl create ns $NS
-  kubectl label namespace $NS --overwrite sdp-injection=enabled
-#+end_src
-
-Now we need to create a secrets yaml with the client secrets and a config-map
-yaml file with the client configuration:
-
-#+begin_src shell
-  for i in sdp-injector-client-secrets custom-secrets; do
-      rm -f demo/$i.yaml
-      PASSWORD_STORE_DIR=/media/appgate/pass \
-                        CLIENT_USERNAME=$(pass show sdp-k8s-demo/username | base64 | tr -d '\n') \
-                        NAME=$i \
-                        CLIENT_PASSWORD=$(pass show sdp-k8s-demo/password | base64 | tr -d '\n') \
-                        CONTROLLER_PROFILE_URL=$(pass show sdp-k8s-demo/controller-profile-url | base64 | tr -d '\n') \
-                        SECRETS_NAME=$i \
-                        envsubst < demo/client-secrets.tmpl > demo/$i.yaml
-  done
-#+end_src
-
-Now we can deploy everything:
-
-#+begin_src shell
-  for f in demo/*-secrets.yaml demo/*-config.yaml demo/*-deployment.yaml; do
-      kubectl -n $NS delete -f $f
-      kubectl -n $NS create -f $f
-  done
+  export PASSWORD_STORE_DIR=/media/appgate/pass
+  export DOCKER_REGISTRY="mydocker-registry:5501"
+  ./tools/sdp-k8s demo-deploy
 #+end_src
 
 At this point everything should be running and if we had the proper entitlements

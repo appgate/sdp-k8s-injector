@@ -1,0 +1,13 @@
+#!/usr/bin/env sh
+
+NS=${NS:-sdp-demo}
+S=${1:-worker}
+
+kubectl -n $NS get pods | \
+    tail +2 | \
+    awk -vS=$S '/access/ {print($1 " || " $2 " || " $3 " || " S)}' | \
+    fzf --height 40%\
+        --prompt "Containers: " \
+        --header "k8s-client demo [workers]" \
+        --preview "kubectl -n $NS logs {1} {7} --tail 20" \
+        --preview-window="right:75%"
