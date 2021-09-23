@@ -81,21 +81,10 @@ mk_certs() {
 }
 
 ## files
-JSON_SIDECARS="$K8S_DIR/sdp-sidecars.json"
-
-check_yaml() {
-    for f in $YAML_FILES; do
-        if [ ! -f $f ]; then
-            return 1
-        fi
-    done
-    return 0
-}
+JSON_SIDECARS="$K8S_DIR/yaml/sdp-sidecars.json"
 
 delete_yaml() {
-    for f in $K8S_DIR/*.yaml $K8S_DIR/*.json; do
-        rm -f "$f"
-    done
+    rm -rf k8s/yaml
 }
 
 mk_yaml () {
@@ -110,9 +99,12 @@ mk_yaml () {
     export SDP_INJECTOR_KEY=$(cat ${KEY_FILE} | base64 | tr -d '\n')
     export SDP_INJECTOR_CERT=$(cat ${CERT_FILE} | base64 | tr -d '\n')
     DOCKER_REGISTRY=${DOCKER_REGISTRY:-ghcr.io/appgate/sdp-k8s-client}
+    mkdir -p k8s/yaml
     export DOCKER_REGISTRY
     for f in $K8S_DIR/*.json.tmpl; do
-        envsubst < $f > ${f%.*}
+        ff=${f%.*}
+        fff=${ff#*/}
+        envsubst < $f > "k8s/yaml/$fff"
     done
     [[ -f $JSON_SIDECARS ]] || {
         echo "ERROR: sidecars.json was not generated."
@@ -120,7 +112,9 @@ mk_yaml () {
     }
     export SDP_SIDECARS=$(cat ${JSON_SIDECARS} | base64 | tr -d '\n')
     for f in $K8S_DIR/*.yaml.tmpl; do
-        envsubst < $f > ${f%.*}
+        ff=${f%.*}
+        fff=${ff#*/}
+        envsubst < $f > "k8s/yaml/$fff"
     done
 }
 
@@ -129,10 +123,10 @@ mk_yaml () {
 uninstall_sdp() {
     echo "Trying to delete previous versions of spd-k8s"
     set +e
-    for f in $K8S_DIR/*.yaml; do
-        $SDP_KNS delete -f $f
+    for f in $K8S_DIR/yaml/*.yaml; do
+        $SDP_KNS delete -f $f 2> /dev/null
     done
-    $K delete ns $SDP_NS
+    kubectl delete ns $SDP_NS 2> /dev/null
     set -e
 }
 
@@ -145,7 +139,7 @@ install_sdp() {
         exit 1
     fi
 
-    if ! check_yaml; then
+    if [[ ! -d k8s/yaml ]]; then
         echo "Not found yaml files or broken ones, please create new ones."
         echo "To create new ones:"
         echo
@@ -154,8 +148,8 @@ install_sdp() {
     fi
 
     uninstall_sdp
-    $K create ns $SDP_NS
-    for f in $K8S_DIR/*.yaml; do
+    kubectl create ns $SDP_NS
+    for f in $K8S_DIR/yaml/*.yaml; do
         $SDP_KNS create -f $f
     done
 }
@@ -167,7 +161,7 @@ install() {
         mk_certs
         mk_yaml
     fi
-    if ! check_yaml; then
+    if [[ ! -d k8s/yaml ]] ; then
         echo "YAML files were not generated correctly, aborting"
         exit 1
     fi

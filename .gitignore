@@ -1,8 +1,7 @@
 certs/*
 !certs/ca_config.txt
 !certs/sdp-injector_config.txt
-k8s/*
-!k8s/*-tmpl.yml
-!k8s/sdp-sidecars.json
+k8s/yaml
+demo/yaml
 .idea/*
 target/*
