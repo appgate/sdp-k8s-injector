@@ -1,5 +1,4 @@
 FROM python:3.9-slim
-COPY worker.py /root/worker.py
-WORKDIR /root
-CMD ["python3", "worker.py"]
+COPY worker.py /bin/worker.py
+CMD ["python3", "/bin/worker.py"]
 

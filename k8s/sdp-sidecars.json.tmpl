@@ -1,89 +1,102 @@
 {
-    "containers": [
+  "containers": [
     {
-        "imagePullPolicy": "Always",
-        "name": "sdp-service",
-        "image": "$DOCKER_REGISTRY/sdp-headless-service",
-        "resources": {},
-        "terminationMessagePath": "/dev/termination-log",
-        "terminationMessagePolicy": "File",
-        "volumeMounts": [
-            {
-                "mountPath": "/var/run/appgate",
-                "name": "run-appgate"
-            },
-	    {
-                "mountPath": "/etc/pod-info",
-                "name": "pod-info"
-            }
-        ]
-    },
-    {
-        "imagePullPolicy": "Always",
-        "name": "sdp-driver",
-        "image": "$DOCKER_REGISTRY/sdp-headless-driver",
-        "securityContext": {
-            "capabilities": {
-                "add": [
-                    "NET_ADMIN"
-                ]
-            }
-        },
-        "volumeMounts": [
-            {
-                "mountPath": "/var/run/appgate",
-                "name": "run-appgate"
-            },
-            {
-                "mountPath": "/dev/net/tun",
-                "name": "tun-device"
-            }
-        ]
-    },
-    {
-        "command": [
-            "/sdp-dnsmasq/sdp-dnsmasq"
-        ],
-        "image": "$DOCKER_REGISTRY/sdp-dnsmasq",
-        "imagePullPolicy": "Always",
-        "name": "sdp-dnsmasq",
-        "volumeMounts": [
-            {
-                "mountPath": "/var/run/appgate",
-                "name": "run-appgate"
-            }
-        ]
-    }
-    ],
-    "volumes": [
+      "imagePullPolicy": "Always",
+      "name": "sdp-service",
+      "image": "$DOCKER_REGISTRY/sdp-headless-service",
+      "securityContext": {
+        "runAsGroup": 0,
+        "runAsNonRoot": false,
+        "runAsUser": 0
+      },
+      "resources": {},
+      "terminationMessagePath": "/dev/termination-log",
+      "terminationMessagePolicy": "File",
+      "volumeMounts": [
         {
-            "mountPath": "/var/run/appgate",
-            "name": "run-appgate"
+          "mountPath": "/var/run/appgate",
+          "name": "run-appgate"
         },
         {
-            "hostPath": {
-                "path": "/dev/net/tun"
-            },
-            "name": "tun-device"
-        },
-        {
-            "name": "pod-info",
-            "downwardAPI": {
-                "items": [
-                    {
-                        "path": "labels",
-                        "fieldRef": {
-                            "fieldPath": "metadata.labels"
-                        }
-                    },
-                    {
-                        "path": "annotations",
-                        "fieldRef": {
-                            "fieldPath": "metadata.annotations"
-                        }
-                    }
-                ]
-            }
+          "mountPath": "/etc/pod-info",
+          "name": "pod-info"
         }
-    ]
+      ]
+    },
+    {
+      "imagePullPolicy": "Always",
+      "name": "sdp-driver",
+      "image": "$DOCKER_REGISTRY/sdp-headless-driver",
+      "securityContext": {
+        "runAsGroup": 0,
+        "runAsNonRoot": false,
+        "runAsUser": 0,
+        "capabilities": {
+          "add": [
+            "NET_ADMIN"
+          ]
+        }
+      },
+      "volumeMounts": [
+        {
+          "mountPath": "/var/run/appgate",
+          "name": "run-appgate"
+        },
+        {
+          "mountPath": "/dev/net/tun",
+          "name": "tun-device"
+        }
+      ]
+    },
+    {
+      "command": [
+        "/sdp-dnsmasq/sdp-dnsmasq"
+      ],
+      "image": "$DOCKER_REGISTRY/sdp-dnsmasq",
+      "securityContext": {
+        "runAsGroup": 0,
+        "runAsNonRoot": false,
+        "runAsUser": 0
+      },
+      "imagePullPolicy": "Always",
+      "name": "sdp-dnsmasq",
+      "volumeMounts": [
+        {
+          "mountPath": "/var/run/appgate",
+          "name": "run-appgate"
+        }
+      ]
+    }
+  ],
+  "volumes": [
+    {
+      "mountPath": "/var/run/appgate",
+      "name": "run-appgate"
+    },
+    {
+      "hostPath": {
+        "path": "/dev/net/tun"
+      },
+      "name": "tun-device"
+    },
+    {
+      "name": "pod-info",
+      "downwardAPI": {
+        "items": [
+          {
+            "path": "labels",
+            "fieldRef": {
+              "fieldPath": "metadata.labels"
+            }
+          },
+          {
+            "path": "annotations",
+            "fieldRef": {
+              "fieldPath": "metadata.annotations"
+            }
+          }
+        ]
+      }
+    }
+  ]
 }
