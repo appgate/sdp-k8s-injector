@@ -4,9 +4,11 @@ set -e
 
 CERTS_DIR=certs
 K8S_DIR=k8s
-NS=sdp-k8s
+SDP_NS=sdp-k8s
+DEMO_NS=sdp-demo
 K=kubectl
-KNS="kubectl -n $NS"
+SDP_KNS="kubectl -n $SDP_NS"
+DEMO_KNS="kubectl -n $DEMO_NS"
 
 # Misc
 
@@ -67,7 +69,7 @@ mk_certs() {
             -config ${CERTS_DIR}/ca_config.txt
     openssl genrsa -out ${KEY_FILE} 2048
     openssl req -new -key ${KEY_FILE} \
-            -subj "/CN=sdp-injector.$NS.svc" \
+            -subj "/CN=sdp-injector.$SDP_NS.svc" \
             -out ${CSR_FILE} \
             -config ${CERTS_DIR}/sdp-injector_config.txt
     openssl x509 -req -in ${CSR_FILE} \
@@ -127,9 +129,9 @@ uninstall_sdp() {
     echo "Trying to delete previous versions of spd-k8s"
     set +e
     for f in $K8S_DIR/*.yaml; do
-        $KNS delete -f $f
+        $SDP_KNS delete -f $f
     done
-    $K delete ns $NS
+    $K delete ns $SDP_NS
     set -e
 }
 
@@ -151,9 +153,9 @@ install_sdp() {
     fi
 
     uninstall_sdp
-    $K create ns $NS
+    $K create ns $SDP_NS
     for f in $K8S_DIR/*.yaml; do
-        $KNS create -f $f
+        $SDP_KNS create -f $f
     done
 }
 
@@ -171,13 +173,65 @@ install() {
     install_sdp
 }
 
+## DEMO
+
+demo_create_yaml() {
+    mkdir -p demo/yaml
+    cp demo/*.yaml demo/yaml
+    for label in apt-access grafana-access full-access; do
+        POD_NAME=$label envsubst < demo/demo-deployment.tmpl > demo/yaml/30-$label-demo-deployment.yaml
+    done
+    for label in none-access; do
+        CLIENT_SECRETS=custom-secrets \
+                      CLIENT_CONFIG=custom-config \
+                      POD_NAME=$label \
+                      envsubst < demo/demo-custom-deployment.tmpl > demo/yaml/40-$label-demo-deployment.yaml
+    done
+    for i in sdp-injector-client-secrets custom-secrets; do
+        PASSWORD_STORE_DIR=/media/appgate/pass \
+                          CLIENT_USERNAME=$(pass show sdp-k8s-demo/username | base64 | tr -d '\n') \
+                          NAME=$i \
+                          CLIENT_PASSWORD=$(pass show sdp-k8s-demo/password | base64 | tr -d '\n') \
+                          CONTROLLER_PROFILE_URL=$(pass show sdp-k8s-demo/controller-profile-url | base64 | tr -d '\n') \
+                          SECRETS_NAME=$i \
+                          envsubst < demo/client-secrets.tmpl > demo/yaml/10-$i.yaml
+    done
+}
+
+demo_deploy() {
+    set +e
+    if kubectl get ns $DEMO_NS 2> /dev/null; then
+        set -e
+        demo_delete
+    fi
+    set -e
+    rm -f demo/yaml
+    demo_create_yaml
+    kubectl create ns $DEMO_NS
+    kubectl label namespace $DEMO_NS --overwrite sdp-injection=enabled
+    for f in demo/yaml/*; do
+        set +e
+        kubectl -n $DEMO_NS delete -f $f 2> /dev/null
+        set -e
+        kubectl -n $DEMO_NS create -f $f
+    done
+}
+
+demo_delete() {
+    $DEMO_KNS delete deployments --all 2> /dev/null
+    $DEMO_KNS delete service --all 2> /dev/null
+    kubectl delete ns $DEMO_NS 2> /dev/null
+    rm -rf demo/yaml
+}
+
 usage() {
     echo "sdp-k8s-install :: Installs sdp-k8s on kubertenes"
     echo ""
     echo "Usage:"
     echo "  $0 CMD"
     echo
-    echo -n "where CMD ::= [install-sdp unisntall-sdp mk-certs delete-certs mk-yaml delete-yaml]"
+    echo -n "where CMD ::= [install-sdp unisntall-sdp mk-certs delete-certs mk-yaml delete-yaml "
+    echo -n "demo-deploy demo-delete]"
     echo
 }
 
@@ -210,6 +264,14 @@ case $CMD in
     "delete-yaml")
         echo "Deleting YAML files"
         delete_yaml
+        ;;
+    "demo-deploy")
+        echo "Deploying demo"
+        demo_deploy
+        ;;
+    "demo-delete")
+        echo "Deleting demo"
+        demo_delete
         ;;
     *)
         usage
