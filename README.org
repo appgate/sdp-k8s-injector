@@ -177,7 +177,9 @@ need to create a secrets object and a config map object to store the credentials
 and the configuration for the clients injected in our PODs.
 
 The config map needs to have the following entries:
- - client-log-level :: Log level for the client
+ - client-log-level :: Log level for the client.
+ - client-device-id :: Specific devide-id to use for the client (uuid v4
+   format).
 
 Its name is by default *sdp-injector-client-config* and it must be located in the
 same namespace where the PODs will be deployed. Example:
@@ -199,6 +201,9 @@ be done adding an annotation like this:
   annotations:
     sdp-injector-client-config: "some-custom-config-map"
 #+end_example
+
+Note that if you don't specify any ~client-device-id~ a random one will used by
+the sdp-client.
 
 The secrets object needs to define 3 secrets:
  - client-username :: user name used to login
