@@ -74,6 +74,8 @@ fn get_env_vars(client_config: &str, client_secret: &str) -> Vec<EnvVar> {
         env_var!(
             configMap :: "CLIENT_LOG_LEVEL" => client_config),
         env_var!(
+            configMap :: "CLIENT_DEVICE_ID" => client_config),
+        env_var!(
             secrets :: "CLIENT_CONTROLLER_URL" => client_secret),
         env_var!(
             secrets :: "CLIENT_USERNAME" => client_secret),
