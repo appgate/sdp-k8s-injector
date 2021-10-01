@@ -178,7 +178,7 @@ and the configuration for the clients injected in our PODs.
 
 The config map needs to have the following entries:
  - client-log-level :: Log level for the client.
- - client-device-id :: Specific devide-id to use for the client (uuid v4
+ - client-device-id :: Specific device-id to use for the client (uuid v4
    format).
 
 Its name is by default *sdp-injector-client-config* and it must be located in the
