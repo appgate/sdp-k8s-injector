@@ -189,10 +189,8 @@ impl SDPPod<'_> {
         if self.needs_patching() {
             let n_containers = self.containers().map(|xs| xs.len()).unwrap_or(0);
             for c in self.sdp_sidecars.containers.clone().iter_mut() {
-                if c.name == SDP_SERVICE_CONTAINER_NAME {
-                    c.env = Some(get_env_vars(&c.name, &config_map, &secrets,
-                                              n_containers.to_string()));
-                }
+                c.env = Some(get_env_vars(&c.name, &config_map, &secrets,
+                                          n_containers.to_string()));
                 patches.push(Add(AddOperation {
                     path: "/spec/containers/-".to_string(),
                     value: serde_json::to_value(&c)?,
