@@ -32,6 +32,12 @@ const SDP_DEFAULT_CLIENT_CONFIG: &str = "sdp-injector-client-config";
 const SDP_DEFAULT_CLIENT_SECRETS: &str = "sdp-injector-client-secrets";
 
 macro_rules! env_var {
+    (value :: $env_name:expr => $value:expr) => {{
+        let mut env: EnvVar = Default::default();
+        env.name = $env_name.to_string();
+        env.value = Some($value);
+        env
+    }};
     (configMap :: $env_name:expr => $map_name:expr) => {{
         let mut env: EnvVar = Default::default();
         env.name = $env_name.to_string();
@@ -69,27 +75,35 @@ macro_rules! env_var {
     }};
 }
 
-fn get_env_vars(client_config: &str, client_secret: &str) -> Vec<EnvVar> {
-    vec![
-        env_var!(
-            configMap :: "CLIENT_LOG_LEVEL" => client_config),
-        env_var!(
-            configMap :: "CLIENT_DEVICE_ID" => client_config),
-        env_var!(
-            secrets :: "CLIENT_CONTROLLER_URL" => client_secret),
-        env_var!(
-            secrets :: "CLIENT_USERNAME" => client_secret),
-        env_var!(
-            secrets :: "CLIENT_PASSWORD" => client_secret),
-        env_var!(
-            fieldRef :: "POD_NODE" => "spec.nodeName"),
-        env_var!(
-            fieldRef :: "POD_NAME" => "metadata.name"),
-        env_var!(
-            fieldRef :: "POD_NAMESPACE" => "metadata.namespace"),
-        env_var!(
-            fieldRef :: "POD_SERVICE_ACCOUNT" => "spec.serviceAccountName")
-    ]
+fn get_env_vars(container_name: &str, client_config: &str, client_secret: &str,
+                n_containers: String) -> Vec<EnvVar> {
+    if container_name == SDP_SERVICE_CONTAINER_NAME {
+        vec![
+            env_var!(
+                configMap :: "CLIENT_LOG_LEVEL" => client_config),
+            env_var!(
+                secrets :: "CLIENT_CONTROLLER_URL" => client_secret),
+            env_var!(
+                secrets :: "CLIENT_USERNAME" => client_secret),
+            env_var!(
+                secrets :: "CLIENT_PASSWORD" => client_secret),
+            env_var!(
+                fieldRef :: "POD_NODE" => "spec.nodeName"),
+            env_var!(
+                fieldRef :: "POD_NAME" => "metadata.name"),
+            env_var!(
+                fieldRef :: "POD_NAMESPACE" => "metadata.namespace"),
+            env_var!(
+                fieldRef :: "POD_SERVICE_ACCOUNT" => "spec.serviceAccountName"),
+            env_var!(
+                value :: "POD_N_CONTAINERS" => n_containers),
+        ]
+    } else {
+        vec![
+            env_var!(
+                value :: "POD_N_CONTAINERS" => n_containers),
+        ]
+    }
 }
 
 fn reader_from_cwd(file_name: &str) -> Result<BufReader<File>, Box<dyn Error>> {
@@ -173,10 +187,10 @@ impl SDPPod<'_> {
             .unwrap_or(SDP_DEFAULT_CLIENT_SECRETS.to_string());
         let mut patches = vec![];
         if self.needs_patching() {
+            let n_containers = self.containers().map(|xs| xs.len()).unwrap_or(0);
             for c in self.sdp_sidecars.containers.clone().iter_mut() {
-                if c.name == SDP_SERVICE_CONTAINER_NAME {
-                    c.env = Some(get_env_vars(&config_map, &secrets));
-                }
+                c.env = Some(get_env_vars(&c.name, &config_map, &secrets,
+                                          n_containers.to_string()));
                 patches.push(Add(AddOperation {
                     path: "/spec/containers/-".to_string(),
                     value: serde_json::to_value(&c)?,
@@ -447,6 +461,7 @@ mod tests {
         needs_patching: bool,
         client_config_map: &'a str,
         client_secrets: &'a str,
+        envs: Vec<(String, Option<String>)>,
     }
 
     struct TestValidate {
@@ -464,12 +479,18 @@ mod tests {
                 needs_patching: false,
                 client_config_map: SDP_DEFAULT_CLIENT_CONFIG,
                 client_secrets: SDP_DEFAULT_CLIENT_SECRETS,
+                envs: vec![
+                    ("POD_N_CONTAINERS".to_string(), Some("0".to_string()))
+                ]
             },
             TestPatch {
                 pod: test_pod!(containers => vec!["random-service"]),
                 needs_patching: true,
                 client_config_map: SDP_DEFAULT_CLIENT_CONFIG,
                 client_secrets: SDP_DEFAULT_CLIENT_SECRETS,
+                envs: vec![
+                    ("POD_N_CONTAINERS".to_string(), Some("1".to_string()))
+                ]
             },
             TestPatch {
                 pod: test_pod!(containers => vec!["random-service"],
@@ -477,6 +498,9 @@ mod tests {
                 needs_patching: false,
                 client_config_map: SDP_DEFAULT_CLIENT_CONFIG,
                 client_secrets: SDP_DEFAULT_CLIENT_SECRETS,
+                envs: vec![
+                    ("POD_N_CONTAINERS".to_string(), Some("1".to_string()))
+                ]
             },
             TestPatch {
                 pod: test_pod!(containers => vec!["random-service"],
@@ -486,6 +510,9 @@ mod tests {
                 needs_patching: true,
                 client_config_map: "some-config-map",
                 client_secrets: "some-secrets",
+                envs: vec![
+                    ("POD_N_CONTAINERS".to_string(), Some("1".to_string()))
+                ]
             },
             TestPatch {
                 pod: test_pod!(containers => vec!["random-service"],
@@ -494,6 +521,9 @@ mod tests {
                 needs_patching: true,
                 client_config_map: SDP_DEFAULT_CLIENT_CONFIG,
                 client_secrets: "some-secrets",
+                envs: vec![
+                    ("POD_N_CONTAINERS".to_string(), Some("1".to_string()))
+                ]
             },
             TestPatch {
                 pod: test_pod!(containers => vec!["some-random-service-1",
@@ -502,6 +532,9 @@ mod tests {
                 needs_patching: true,
                 client_config_map: "some-config-map",
                 client_secrets: SDP_DEFAULT_CLIENT_SECRETS,
+                envs: vec![
+                    ("POD_N_CONTAINERS".to_string(), Some("2".to_string()))
+                ]
             },
             TestPatch {
                 pod: test_pod!(containers => vec![sdp_sidecar_names[0].clone(),
@@ -510,6 +543,9 @@ mod tests {
                 needs_patching: false,
                 client_config_map: SDP_DEFAULT_CLIENT_CONFIG,
                 client_secrets: SDP_DEFAULT_CLIENT_SECRETS,
+                envs: vec![
+                    ("POD_N_CONTAINERS".to_string(), Some("3".to_string()))
+                ]
             },
             TestPatch {
                 pod: test_pod!(containers => vec![sdp_sidecar_names[0].clone(),
@@ -519,6 +555,9 @@ mod tests {
                 needs_patching: false,
                 client_config_map: SDP_DEFAULT_CLIENT_CONFIG,
                 client_secrets: SDP_DEFAULT_CLIENT_SECRETS,
+                envs: vec![
+                    ("POD_N_CONTAINERS".to_string(), Some("3".to_string()))
+                ]
             },
             TestPatch {
                 pod: test_pod!(containers => vec![sdp_sidecar_names[1].clone(),
@@ -526,6 +565,9 @@ mod tests {
                 needs_patching: false,
                 client_config_map: SDP_DEFAULT_CLIENT_CONFIG,
                 client_secrets: SDP_DEFAULT_CLIENT_SECRETS,
+                envs: vec![
+                    ("POD_N_CONTAINERS".to_string(), Some("2".to_string()))
+                ]
             },
             TestPatch {
                 pod: test_pod!(containers => vec![sdp_sidecar_names[1].clone(),
@@ -534,6 +576,9 @@ mod tests {
                 needs_patching: false,
                 client_config_map: SDP_DEFAULT_CLIENT_CONFIG,
                 client_secrets: SDP_DEFAULT_CLIENT_SECRETS,
+                envs: vec![
+                    ("POD_N_CONTAINERS".to_string(), Some("2".to_string()))
+                ]
             },
         ]
     }
@@ -674,7 +719,10 @@ POD is missing needed volumes: pod-info, run-appgate, tun-device"#.to_string()),
                         }
                     }
                 } else {
-                    env_errors.insert(0, format!("EnvVar {} does not have any source!", env_var.name));
+                    if ! test_patch.envs.contains(&(env_var.name.to_string(), Some(env_var.value.as_ref().unwrap().to_string()))) {
+                        env_errors.insert(0, format!("EnvVar {} with value {:?} not expected", env_var.name, env_var.value));
+
+                    }
                 }
             };
             if env_errors.len() > 0 {
