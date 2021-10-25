@@ -111,6 +111,14 @@ done
 
 echo "Applying new DNS configuration"
 # dnsmasq can not reload files on SIHGUP so we need to restart it
-kill -9 $(cat /sdp-dnsmasq/dnsmasq.pid)
-/usr/sbin/dnsmasq --no-daemon --log-queries --clear-on-reload &
-echo $! > /sdp-dnsmasq/dnsmasq.pid
+pid=$(pgrep dnsmasq)
+if [[ ! -z $pid ]]; then
+    kill -9 $pid
+fi
+res=1
+while [[ $res != 0 ]]; do
+    /usr/sbin/dnsmasq --pid-file=/sdp-dnsmasq/dnsmasq.pid --port=53 --local-service \
+		      --listen-address=127.0.0.1 --log-queries -8 /dev/1/fd/1
+    res=$?
+done
+
