@@ -116,7 +116,7 @@ fi
 res=1
 while [[ $res != 0 ]]; do
     /usr/sbin/dnsmasq --pid-file=/sdp-dnsmasq/dnsmasq.pid --port=53 --local-service \
-		      --listen-address=127.0.0.1 --log-queries -8 /dev/1/fd/1
+		      --listen-address=127.0.0.1 --log-queries
     res=$?
 done
 
