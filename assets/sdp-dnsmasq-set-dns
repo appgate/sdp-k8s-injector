@@ -5,8 +5,6 @@
 # configure dnsmasq to use the new settings requested by sdp-driver
 
 # NOTE: stdin reads from the socat socket.
-
-DNSMASQ_PID=/var/run/dnsmasq.pid
 DNSMASQ_APPGATE=/etc/dnsmasq.d/appgate.conf
 USE_SERVER_ENTRIES=0
 
