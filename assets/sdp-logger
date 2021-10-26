@@ -1,0 +1,5 @@
+#!/usr/bin/env sh
+
+while read l ; do
+    echo "$(date): ${l}" > /proc/1/fd/1
+done < $1

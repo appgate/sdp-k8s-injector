@@ -1,6 +1,7 @@
 #!/usr/bin/env sh
 
 SETDNS_SOCKET=/var/run/appgate/dns-set.sock
+SDP_LOGS_PIPE=/sdp-logs-pipe
 
 mk_dnsmasq_conf () {
     KUBE_DNS_SERVICE=$(cat /etc/resolv.conf  | awk 'BEGIN{c=0}
@@ -22,8 +23,10 @@ EOF
 mk_dnsmasq_conf
 
 # Start dnsmasq now so it has not pid 1
+rm -f $SDP_LOGS_PIPE ; mkfifo $SDP_LOGS_PIPE
+/sdp-dnsmasq/sdp-logger $SDP_LOGS_PIPE &
 /usr/sbin/dnsmasq --pid-file=/sdp-dnsmasq/dnsmasq.pid --port=53 --local-service \
-		  --listen-address=127.0.0.1 --log-queries
+		  --listen-address=127.0.0.1 --log-queries -8 $SDP_LOGS_PIPE
 
 # Start listening for events from sdp-driver
 # socat will fork sdp-dnsmasq-set-dns and it will send data receive in the socket to the
