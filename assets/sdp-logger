@@ -1,5 +1,5 @@
 #!/usr/bin/env sh
 
 while read l ; do
-    echo "sdp-logger working! $(date): ${l}" > /proc/1/fd/1
+    echo "$(date): ${l}" > /proc/1/fd/1
 done < $1
