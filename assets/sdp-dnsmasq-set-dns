@@ -7,6 +7,7 @@
 # NOTE: stdin reads from the socat socket.
 DNSMASQ_APPGATE=/etc/dnsmasq.d/appgate.conf
 USE_SERVER_ENTRIES=0
+SDP_LOGS_PIPE=/sdp-logs-pipe
 
 # This reuses later the first entry in the file since that entry
 # points to the kube_dns service
@@ -67,7 +68,7 @@ END {
 }
 
 read cli
-echo "Got new DNS configuration from sdp-driver: $cli"
+echo "Got new DNS configuration from sdp-driver: $cli" > $SDP_LOGS_PIPE
 opt=${cli%% *}
 reset=0
 while [ ! -z $opt ]; do
@@ -96,27 +97,27 @@ done
 
 if [[ -z "$servers" && -z $domains ]]; then
     if [[ $reset == 0 ]]; then
-        echo "--servers not provided, doing nothing"
+        echo "--servers not provided, doing nothing" > $SDP_LOGS_PIPE
         exit 0
     fi
 fi
 
-echo "Setting new DNS configuration"
+echo "Setting new DNS configuration" > $SDP_LOGS_PIPE
 echo $KUBE_DNS > $DNSMASQ_APPGATE
 for i in $(match_domains "$servers" "$domains"); do
    echo $i >> $DNSMASQ_APPGATE
 done
 
-echo "Applying new DNS configuration"
+echo "Applying new DNS configuration" > $SDP_LOGS_PIPE
 # dnsmasq can not reload files on SIHGUP so we need to restart it
 pid=$(pgrep dnsmasq)
 if [[ ! -z $pid ]]; then
     kill -9 $pid
 fi
+/sdp-dnsmasq/sdp-logger $SDP_LOGS_PIPE &
 res=1
 while [[ $res != 0 ]]; do
     /usr/sbin/dnsmasq --pid-file=/sdp-dnsmasq/dnsmasq.pid --port=53 --local-service \
-		      --listen-address=127.0.0.1 --log-queries
+		      --listen-address=127.0.0.1 --log-queries -8 $SDP_LOGS_PIPE
     res=$?
 done
-

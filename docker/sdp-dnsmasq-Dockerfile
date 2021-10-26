@@ -9,5 +9,7 @@ RUN apk upgrade --no-cache && \
 WORKDIR /sdp-dnsmasq
 COPY assets/sdp-dnsmasq /sdp-dnsmasq/sdp-dnsmasq
 COPY assets/sdp-dnsmasq-set-dns /sdp-dnsmasq/sdp-dnsmasq-set-dns
+COPY assets/sdp-logger /sdp-dnsmasq/sdp-logger
 RUN chmod +x /sdp-dnsmasq/sdp-dnsmasq
+RUN chmod +x /sdp-dnsmasq/sdp-logger
 CMD ["/sdp-dnsmasq/sdp-dnsmasq"]
