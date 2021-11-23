@@ -1,8 +1,8 @@
 #!/usr/bin/env sh
 
-if [ ! -z $CLIENT_DEVICE_ID ]; then
+if [ -n "$CLIENT_DEVICE_ID" ]; then
     echo "Using custom device-id: $CLIENT_DEVICE_ID"
-    echo $CLIENT_DEVICE_ID | sed 's|-||g' > /etc/machine-id
+    echo "$CLIENT_DEVICE_ID" | sed 's|-||g' > /etc/machine-id
 fi
 
 cat > /etc/appgate.conf <<EOF

@@ -1,4 +1,4 @@
-#!/usr/bin/env sh
+#!/usr/bin/env bash
 
 # This script is executed by socat.
 # It will get events from sdp-driver about DNS changes and it will
@@ -71,7 +71,7 @@ read cli
 echo "Got new DNS configuration from sdp-driver: $cli" > $SDP_LOGS_PIPE
 opt=${cli%% *}
 reset=0
-while [ ! -z $opt ]; do
+while [ -n "$opt" ]; do
     case ${opt%%=*} in
         --reset)
             reset=1
@@ -111,8 +111,8 @@ done
 echo "Applying new DNS configuration" > $SDP_LOGS_PIPE
 # dnsmasq can not reload files on SIHGUP so we need to restart it
 pid=$(pgrep dnsmasq)
-if [[ ! -z $pid ]]; then
-    kill -9 $pid
+if [[ -n "$pid" ]]; then
+    kill -9 "$pid"
 fi
 /sdp-dnsmasq/sdp-logger $SDP_LOGS_PIPE &
 res=1
