@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/usr/bin/env sh
 
 # This script is executed by socat.
 # It will get events from sdp-driver about DNS changes and it will
