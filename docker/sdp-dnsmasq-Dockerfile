@@ -4,7 +4,7 @@ LABEL project=sdp-injector
 RUN apk upgrade --no-cache && \
     apk add --no-cache --virtual=run-deps dnsmasq socat && \
     rm -rf /tmp/* \
-           /var/cache/apk/*  \
+           /var/cache/apk/* \
            /var/tmp/*
 WORKDIR /sdp-dnsmasq
 COPY assets/sdp-dnsmasq /sdp-dnsmasq/sdp-dnsmasq
