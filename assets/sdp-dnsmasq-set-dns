@@ -1,5 +1,7 @@
 #!/usr/bin/env sh
 
+[ "${FLOCKER}" != "$0" ] && exec env FLOCKER="$0" flock -x "$0" "$0" "$@" || :
+
 # This script is executed by socat.
 # It will get events from sdp-driver about DNS changes and it will
 # configure dnsmasq to use the new settings requested by sdp-driver
