@@ -23,7 +23,7 @@ mk_dnsmasq_conf
 
 # Start dnsmasq now so it has not pid 1
 /usr/sbin/dnsmasq --pid-file=/sdp-dnsmasq/dnsmasq.pid --port=53 --local-service \
-          --listen-address=127.0.0.1 --log-queries -8 /proc/1/fd/1
+                  --listen-address=127.0.0.1 --log-queries -8 /proc/1/fd/1
 
 # Start listening for events from sdp-driver
 # socat will fork sdp-dnsmasq-set-dns and it will send data receive in the socket to the

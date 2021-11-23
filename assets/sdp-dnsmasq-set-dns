@@ -123,7 +123,7 @@ res=1
 while [[ $res != 0 ]]; do
     decho "Restarting dnsmasq ..."
     /usr/sbin/dnsmasq --pid-file=/sdp-dnsmasq/dnsmasq.pid --port=53 --local-service \
-              --listen-address=127.0.0.1 --log-queries -8 /proc/1/fd/1
+                      --listen-address=127.0.0.1 --log-queries -8 /proc/1/fd/1
     res=$?
     if [[ $res != 0 ]]; then
         # Wait a bit so we dont try like crazy to restart it
