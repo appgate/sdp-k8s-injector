@@ -1,5 +1,7 @@
 #!/usr/bin/env sh
 
+# flock on the script itself, this way we ensure that we "queue" the executions
+# when sdp-driver calls the script.
 [ "${FLOCKER}" != "$0" ] && exec env FLOCKER="$0" flock -x "$0" "$0" "$@" || :
 
 # This script is executed by socat.
