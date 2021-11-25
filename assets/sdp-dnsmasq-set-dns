@@ -78,7 +78,7 @@ read cli
 decho "Got new DNS configuration from sdp-driver: $cli"
 opt=${cli%% *}
 reset=0
-while [ ! -z $opt ]; do
+while [ -n "$opt" ]; do
     case ${opt%%=*} in
         --reset)
             reset=1
@@ -118,8 +118,8 @@ done
 decho "Applying new DNS configuration"
 # dnsmasq can not reload files on SIHGUP so we need to restart it
 pid=$(pgrep dnsmasq)
-if [[ ! -z $pid ]]; then
-    kill -9 $pid
+if [[ -n "$pid" ]]; then
+    kill -9 "$pid"
 fi
 res=1
 while [[ $res != 0 ]]; do
