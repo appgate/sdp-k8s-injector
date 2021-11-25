@@ -1,13 +1,20 @@
 #!/usr/bin/env sh
 
+# flock on the script itself, this way we ensure that we "queue" the executions
+# when sdp-driver calls the script.
+[ "${FLOCKER}" != "$0" ] && exec env FLOCKER="$0" flock -x "$0" "$0" "$@" || :
+
 # This script is executed by socat.
 # It will get events from sdp-driver about DNS changes and it will
 # configure dnsmasq to use the new settings requested by sdp-driver
 
+function decho () {
+    echo $(date +"%b %d %X") $@
+}
+
 # NOTE: stdin reads from the socat socket.
 DNSMASQ_APPGATE=/etc/dnsmasq.d/appgate.conf
 USE_SERVER_ENTRIES=0
-SDP_LOGS_PIPE=/sdp-logs-pipe
 
 # This reuses later the first entry in the file since that entry
 # points to the kube_dns service
@@ -68,7 +75,7 @@ END {
 }
 
 read cli
-echo "Got new DNS configuration from sdp-driver: $cli" > $SDP_LOGS_PIPE
+decho "Got new DNS configuration from sdp-driver: $cli"
 opt=${cli%% *}
 reset=0
 while [ ! -z $opt ]; do
@@ -97,27 +104,32 @@ done
 
 if [[ -z "$servers" && -z $domains ]]; then
     if [[ $reset == 0 ]]; then
-        echo "--servers not provided, doing nothing" > $SDP_LOGS_PIPE
+        decho "--servers not provided, doing nothing"
         exit 0
     fi
 fi
 
-echo "Setting new DNS configuration" > $SDP_LOGS_PIPE
+decho "Setting new DNS configuration"
 echo $KUBE_DNS > $DNSMASQ_APPGATE
 for i in $(match_domains "$servers" "$domains"); do
    echo $i >> $DNSMASQ_APPGATE
 done
 
-echo "Applying new DNS configuration" > $SDP_LOGS_PIPE
+decho "Applying new DNS configuration"
 # dnsmasq can not reload files on SIHGUP so we need to restart it
 pid=$(pgrep dnsmasq)
 if [[ ! -z $pid ]]; then
     kill -9 $pid
 fi
-/sdp-dnsmasq/sdp-logger $SDP_LOGS_PIPE &
 res=1
 while [[ $res != 0 ]]; do
+    decho "Restarting dnsmasq ..."
     /usr/sbin/dnsmasq --pid-file=/sdp-dnsmasq/dnsmasq.pid --port=53 --local-service \
-		      --listen-address=127.0.0.1 --log-queries -8 $SDP_LOGS_PIPE
+                      --listen-address=127.0.0.1 --log-queries -8 /proc/1/fd/1
     res=$?
+    if [[ $res != 0 ]]; then
+        # Wait a bit so we dont try like crazy to restart it
+        decho "Trying to restart dnsmasq again ...."
+        sleep 5
+    fi
 done
