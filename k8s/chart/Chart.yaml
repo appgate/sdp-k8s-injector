@@ -1,6 +1,8 @@
 apiVersion: v2
 name: sdp-k8s-client
-description: A Helm chart for Kubernetes
+description: |
+  A Helm chart for deploying the Appgate SDP client for use in a cluster environment.
+  For more information, please read the documentation here: https://github.com/appgate/sdp-k8s-client/README.org
 
 # A chart can be either an 'application' or a 'library' chart.
 #
