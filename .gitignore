@@ -5,3 +5,4 @@ k8s/yaml
 demo/yaml
 .idea/*
 target/*
+**/secret*.y*ml
