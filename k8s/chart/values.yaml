@@ -4,34 +4,41 @@
 
 replicaCount: 1
 
-image:
-  repository: ghcr.io/appgate/sdp-k8s-client/sdp-injector
-  pullPolicy: Always
-  # Overrides the image tag whose default is the chart appVersion.
-  # tag: "latest"
-
 imagePullSecrets: []
 nameOverride: ""
 fullnameOverride: ""
 
 sdp:
-  clientSecretName: sdp-injector-secrets
-  logLevel: info
+  injector:
+    image:
+      repository: ghcr.io/appgate/sdp-k8s-client/sdp-injector
+      tag: latest
+      logLevel: info
 
-podAnnotations: {}
+  headlessService:
+    image:
+      repository: ghcr.io/appgate/sdp-k9s-client/sdp-headless-service
+      tag: latest
+      pullPolicy: Always
 
-podSecurityContext: {}
+  headlessDriver:
+    image:
+      repository: ghcr.io/appgate/sdp-k8s-client/sdp-headless-driver
+      tag: bf29001f31e85fe20b78ecb7ff34ecd4c67c4bbd
+      pullPolicy: Always
 
-securityContext: {}
+  dnsmasq:
+    image:
+      repository: ghcr.io/appgate/sdp-k8s-client/sdp-dnsmasq
+      tag: latest
+      pullPolicy: Always
+
+serviceAccount:
+  create: true
+
+rbac:
+  create: true
 
 service:
   type: ClusterIP
   port: 443
-
-resources: {}
-
-nodeSelector: {}
-
-tolerations: []
-
-affinity: {}

@@ -1,0 +1,39 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: sdp-injector-config-{{ .Release.Name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+  {{- include "sdp-k8s-client.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": pre-install
+    "helm.sh/hook-weight": "1"
+data:
+  sdp-injector_config.txt: |
+    [req]
+    req_extensions = v3_req
+    distinguished_name = req_distinguished_name
+    prompt = no
+
+    [ req_distinguished_name ]
+    countryName            = "SE"
+    stateOrProvinceName    = "Goteborg"
+    localityName           = "Goteborg"
+    postalCode             = ""
+    streetAddress          = "Majorna"
+    organizationName       = "appgate"
+    organizationalUnitName = "devops"
+    commonName             = "sdp-injector.sdp-system.svc"
+    emailAddress           = "no-reply@appgate.com"
+
+    [ v3_req ]
+    basicConstraints=CA:FALSE
+    subjectAltName=@alt_names
+    keyUsage = nonRepudiation, digitalSignature, keyEncipherment
+    extendedKeyUsage = serverAuth
+
+    [ alt_names ]
+    DNS.1 = sdp-injector
+    DNS.2 = sdp-injector.sdp-system
+    DNS.3 = sdp-injector.sdp-system.svc
+    DNS.4 = sdp-injector.sdp-system.svc.cluster.local

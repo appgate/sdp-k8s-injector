@@ -1,0 +1,99 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "sdp-k8s-client.fullname" . }}-prehook
+  labels:
+  {{- include "sdp-k8s-client.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": pre-install
+    "helm.sh/hook-weight": "2"
+    "helm.sh/hook-deletion-policy": hook-succeeded
+spec:
+  template:
+    metadata:
+      name: "{{ .Release.Name }}"
+      labels:
+        app.kubernetes.io/managed-by: {{ .Release.Service | quote }}
+        app.kubernetes.io/instance: {{ .Release.Name | quote }}
+        helm.sh/chart: "{{ .Chart.Name }}-{{ .Chart.Version }}"
+    spec:
+      serviceAccountName: {{ include "sdp-k8s-client.serviceAccountName" . }}
+      restartPolicy: Never
+      volumes:
+        - name: ca-config
+          configMap:
+            name: sdp-ca-config-{{ .Release.Name }}
+        - name: sdp-injector-config
+          configMap:
+            name: sdp-injector-config-{{ .Release.Name }}
+        - name: tmp
+          emptyDir: {}
+      securityContext:
+        runAsUser: 1000
+      initContainers:
+        - name: create-sdp-ca-key
+          image: "alpine/openssl"
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+          command: ["openssl"]
+          args: [ "genrsa", "-out", "/tmp/sdp-ca-key.pem", "2048" ]
+        - name: create-sdp-ca-crt
+          image: "alpine/openssl"
+          volumeMounts:
+            - name: ca-config
+              mountPath: /tmp/config
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+          command: ["openssl"]
+          args: [  "req", "-new", "-x509", "-key", "/tmp/sdp-ca-key.pem", "-out", "/tmp/sdp-ca.crt", "-config", "/tmp/config/ca_config.txt" ]
+        - name: create-sdp-injector-key
+          image: "alpine/openssl"
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+          command: ["openssl"]
+          args: [ "genrsa", "-out", "/tmp/sdp-injector-key.pem", "2048" ]
+        - name: create-sdp-injector-csr
+          image: "alpine/openssl"
+          volumeMounts:
+            - name: sdp-injector-config
+              mountPath: /tmp/config
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+          command: ["openssl"]
+          args: [ "req", "-new", "-key", "/tmp/sdp-injector-key.pem", "-out", "/tmp/sdp-injector.csr", "-config", "/tmp/config/sdp-injector_config.txt" ]
+        - name: create-sdp-injector-crt
+          image: "alpine/openssl"
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+          command: ["openssl"]
+          args: ["x509", "-req", "-in", "/tmp/sdp-injector.csr", "-CA", "/tmp/sdp-ca.crt", "-CAkey",  "/tmp/sdp-ca-key.pem", "-CAcreateserial", "-out", "/tmp/sdp-injector-crt.pem"]
+      containers:
+        - name: delete-secret
+          image: "bitnami/kubectl"
+          command: ["kubectl"]
+          args: [ "delete", "secret", "{{ include "sdp-k8s-client.injector-secret" . }}", "--namespace", "{{ .Release.Namespace }}"]
+        - name: create-secret
+          image: "bitnami/kubectl"
+          command: ["kubectl"]
+          args: [ "create", "secret", "generic", "{{ include "sdp-k8s-client.injector-secret" . }}", "--from-file=sdp-injector-key.pem=/tmp/sdp-injector-key.pem", "--from-file=sdp-injector-crt.pem=/tmp/sdp-injector-crt.pem", "--namespace", "{{ .Release.Namespace }}"]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+              readOnly: true
+        - name: annotate-secrets-for-helm1
+          image: "bitnami/kubectl"
+          command: ["kubectl"]
+          args: [ "annotate", "secret", "{{ include "sdp-k8s-client.injector-secret" . }}", "meta.helm.sh/release-name={{ .Release.Name }}"]
+        - name: annotate-secrets-for-helm2
+          image: "bitnami/kubectl"
+          command: ["kubectl"]
+          args: [ "annotate", "secret", "{{ include "sdp-k8s-client.injector-secret" . }}", "meta.helm.sh/release-namespace={{ .Release.Namespace }}"]
+        - name: label-secrets-for-helm2
+          image: "bitnami/kubectl"
+          command: ["kubectl"]
+          args: [ "label", "secret", "{{ include "sdp-k8s-client.injector-secret" . }}", "app.kubernetes.io/managed-by=Helm"]

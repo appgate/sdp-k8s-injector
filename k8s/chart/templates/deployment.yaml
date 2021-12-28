@@ -3,7 +3,7 @@ kind: Deployment
 metadata:
   name: {{ include "sdp-k8s-client.fullname" . }}
   labels:
-    {{- include "sdp-k8s-client.labels" . | nindent 4 }}
+  {{- include "sdp-k8s-client.labels" . | nindent 4 }}
 spec:
   replicas: {{ .Values.replicaCount }}
   selector:
@@ -24,23 +24,35 @@ spec:
       {{- end }}
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      serviceAccountName: {{ include "sdp-k8s-client.serviceAccountName" .}}
       volumes:
-        - name: sdp-injector-secrets
-          secret:
-            defaultMode: 420
-            secretName: {{ .Values.sdp.clientSecretName }}
+        - name: sdp-injector-secrets-and-config
+          projected:
+            sources:
+              - secret:
+                  name: {{ include "sdp-k8s-client.injector-secret" . }}
+                  items:
+                    - key: sdp-injector-crt.pem
+                      path: sdp-injector-crt.pem
+                    - key: sdp-injector-key.pem
+                      path: sdp-injector-key.pem
+              - configMap:
+                  name: {{ include "sdp-k8s-client.sidecar-config" . }}
+                  items:
+                    - key: sdp-sidecars.json
+                      path: sdp-sidecars.json
       containers:
         - name: {{ .Chart.Name }}
           env:
             - name: RUST_LOG
-              value: {{ .Values.sdp.logLevel | default "info" }}
+              value: {{ .Values.sdp.injector.image.logLevel | default "info" }}
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
-          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
-          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          image: {{ .Values.sdp.injector.image.repository }}
+          imagePullPolicy: {{ .Values.sdp.injector.image.pullPolicy }}
           volumeMounts:
-            - mountPath: /opt/sdp-injector/k8s
-              name: sdp-injector-secrets
+            - name: sdp-injector-secrets-and-config
+              mountPath: /opt/sdp-injector/k8s
               readOnly: true
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
