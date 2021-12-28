@@ -6,3 +6,4 @@ demo/yaml
 .idea/*
 target/*
 **/secret*.y*ml
+k8s/chart/.idea/*
