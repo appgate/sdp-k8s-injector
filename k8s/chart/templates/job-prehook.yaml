@@ -26,6 +26,9 @@ spec:
         - name: sdp-injector-config
           configMap:
             name: sdp-injector-config-{{ .Release.Name }}
+        - name: sdp-admission-webhook
+          configMap:
+            name: sdp-admission-webhook-{{ .Release.Name }}
         - name: tmp
           emptyDir: {}
       securityContext:
@@ -80,20 +83,34 @@ spec:
         - name: create-secret
           image: "bitnami/kubectl"
           command: ["kubectl"]
-          args: [ "create", "secret", "generic", "{{ include "sdp-k8s-client.injector-secret" . }}", "--from-file=sdp-injector-key.pem=/tmp/sdp-injector-key.pem", "--from-file=sdp-injector-crt.pem=/tmp/sdp-injector-crt.pem", "--namespace", "{{ .Release.Namespace }}"]
+          args: [ "create", "secret", "generic", "{{ include "sdp-k8s-client.injector-secret" . }}", "--from-file=sdp-ca.crt=/tmp/sdp-ca.crt", "--from-file=sdp-injector-key.pem=/tmp/sdp-injector-key.pem", "--from-file=sdp-injector-crt.pem=/tmp/sdp-injector-crt.pem", "--namespace", "{{ .Release.Namespace }}"]
           volumeMounts:
             - name: tmp
               mountPath: /tmp
               readOnly: true
-        - name: annotate-secrets-for-helm1
-          image: "bitnami/kubectl"
-          command: ["kubectl"]
-          args: [ "annotate", "secret", "{{ include "sdp-k8s-client.injector-secret" . }}", "meta.helm.sh/release-name={{ .Release.Name }}"]
-        - name: annotate-secrets-for-helm2
-          image: "bitnami/kubectl"
-          command: ["kubectl"]
-          args: [ "annotate", "secret", "{{ include "sdp-k8s-client.injector-secret" . }}", "meta.helm.sh/release-namespace={{ .Release.Namespace }}"]
-        - name: label-secrets-for-helm2
-          image: "bitnami/kubectl"
-          command: ["kubectl"]
-          args: [ "label", "secret", "{{ include "sdp-k8s-client.injector-secret" . }}", "app.kubernetes.io/managed-by=Helm"]
+        - name: admission-webhook
+          image: "alpine:3"
+          securityContext:
+            runAsUser: 0
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+              readOnly: true
+            - name: sdp-admission-webhook
+              mountPath: /tmp/config
+              readOnly: true
+          command: ["bin/sh", "-c"]
+          args:
+            - apk add openssl;
+              apk add curl;
+              apk add gettext;
+              curl -sLO https://storage.googleapis.com/kubernetes-release/release/v1.20.7/bin/linux/amd64/kubectl;
+              mv kubectl /usr/local/bin/kubectl;
+              chmod +x /usr/local/bin/kubectl;
+              export CA_BUNDLE="$(kubectl get secret sdp-client-secret-foo -o jsonpath="{.data.sdp-ca\.crt}" --namespace {{ .Release.Namespace }})";
+              envsubst < /tmp/config/sdp-admission-webhook.yaml > sdp-admission-webhook.yaml;
+              cat sdp-admission-webhook.yaml;
+              kubectl apply --filename sdp-admission-webhook.yaml --namespace {{ .Release.Namespace }};
+{{/*#
+TODO: Use cert-manager to inject caBundle: https://cert-manager.io/docs/concepts/ca-injector/#injecting-ca-data-from-a-certificate-resource
+*/}}
