@@ -13,8 +13,7 @@ data:
     apiVersion: admissionregistration.k8s.io/v1
     kind: MutatingWebhookConfiguration
     metadata:
-      name: sdp-injector
-      namespace: sdp-system
+      name: sdp-admission-webhook-{{ .Release.Name }}
       labels:
         app: sdp-injector
     webhooks:

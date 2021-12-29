@@ -1,13 +1,13 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: {{ include "sdp-k8s-client.fullname" . }}-prehook
+  name: {{ include "sdp-k8s-client.fullname" . }}-preinstall
   labels:
   {{- include "sdp-k8s-client.labels" . | nindent 4 }}
   annotations:
     "helm.sh/hook": pre-install
     "helm.sh/hook-weight": "2"
-    "helm.sh/hook-deletion-policy": hook-succeeded
+    "helm.sh/hook-delete-policy": hook-succeeded
 spec:
   template:
     metadata:
@@ -88,7 +88,11 @@ spec:
             - name: tmp
               mountPath: /tmp
               readOnly: true
-        - name: admission-webhook
+        - name: delete-admission-webhook
+          image: "bitnami/kubectl"
+          command: ["kubectl"]
+          args: [ "delete", "mutatingwebhookconfigurations", "sdp-admission-webhook-{{ .Release.Name }}"]
+        - name: create-admission-webhook
           image: "alpine:3"
           securityContext:
             runAsUser: 0
