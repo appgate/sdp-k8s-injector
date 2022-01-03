@@ -95,7 +95,7 @@ spec:
         - name: delete-secret
           image: "bitnami/kubectl"
           command: ["kubectl"]
-          args: [ "delete", "secret", "{{ include "sdp-k8s-client.injector-secret" . }}", "--namespace", "{{ .Release.Namespace }}"]
+          args: [ "delete", "secret", "{{ include "sdp-k8s-client.injector-secret" . }}", "--namespace", "{{ .Release.Namespace }}", "--ignore-not-found", "true"]
         - name: create-secret
           image: "bitnami/kubectl"
           command: ["kubectl"]
@@ -107,7 +107,7 @@ spec:
         - name: delete-admission-webhook
           image: "bitnami/kubectl"
           command: ["kubectl"]
-          args: [ "delete", "mutatingwebhookconfigurations", "sdp-admission-webhook-{{ .Release.Name }}"]
+          args: [ "delete", "mutatingwebhookconfigurations", "sdp-admission-webhook-{{ .Release.Name }}", "--ignore-not-found", "true"]
         - name: create-admission-webhook
           image: "alpine:3"
           securityContext:
