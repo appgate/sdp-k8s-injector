@@ -7,7 +7,6 @@ metadata:
   annotations:
     "helm.sh/hook": pre-install
     "helm.sh/hook-weight": "2"
-    "helm.sh/hook-delete-policy": hook-succeeded
 spec:
   template:
     metadata:
@@ -20,7 +19,7 @@ spec:
       serviceAccountName: {{ include "sdp-k8s-client.serviceAccountName" . }}
       restartPolicy: Never
       volumes:
-        - name: ca-config
+        - name: sdp-ca-config
           configMap:
             name: sdp-ca-config-{{ .Release.Name }}
         - name: sdp-injector-config
@@ -44,13 +43,13 @@ spec:
         - name: create-sdp-ca-crt
           image: "alpine/openssl"
           volumeMounts:
-            - name: ca-config
+            - name: sdp-ca-config
               mountPath: /tmp/config
               readOnly: true
             - name: tmp
               mountPath: /tmp
           command: ["openssl"]
-          args: [  "req", "-new", "-x509", "-key", "/tmp/sdp-ca-key.pem", "-out", "/tmp/sdp-ca.crt", "-config", "/tmp/config/ca_config.txt" ]
+          args: [  "req", "-new", "-x509", "-key", "/tmp/sdp-ca-key.pem", "-out", "/tmp/sdp-ca.crt", "-config", "/tmp/config/sdp-ca.conf" ]
         - name: create-sdp-injector-key
           image: "alpine/openssl"
           volumeMounts:
@@ -67,14 +66,31 @@ spec:
             - name: tmp
               mountPath: /tmp
           command: ["openssl"]
-          args: [ "req", "-new", "-key", "/tmp/sdp-injector-key.pem", "-out", "/tmp/sdp-injector.csr", "-config", "/tmp/config/sdp-injector_config.txt" ]
+          args: [ "req", "-new", "-key", "/tmp/sdp-injector-key.pem", "-out", "/tmp/sdp-injector.csr", "-config", "/tmp/config/sdp-injector.conf" ]
         - name: create-sdp-injector-crt
+          image: "alpine/openssl"
+          volumeMounts:
+            - name: sdp-injector-config
+              mountPath: /tmp/config
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+          command: ["openssl"]
+          args: ["x509", "-req", "-in", "/tmp/sdp-injector.csr", "-extfile", "/tmp/config/sdp-x509-ext.conf", "-extensions", "v3_ca", "-CA", "/tmp/sdp-ca.crt", "-CAkey",  "/tmp/sdp-ca-key.pem", "-CAcreateserial", "-out", "/tmp/sdp-injector-crt.pem"]
+        - name: print-csr
           image: "alpine/openssl"
           volumeMounts:
             - name: tmp
               mountPath: /tmp
           command: ["openssl"]
-          args: ["x509", "-req", "-in", "/tmp/sdp-injector.csr", "-CA", "/tmp/sdp-ca.crt", "-CAkey",  "/tmp/sdp-ca-key.pem", "-CAcreateserial", "-out", "/tmp/sdp-injector-crt.pem"]
+          args: ["req", "-text", "-noout", "-verify", "-in", "/tmp/sdp-injector.csr"]
+        - name: print-ca
+          image: "alpine/openssl"
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+          command: ["openssl"]
+          args: ["x509", "-text", "-in", "/tmp/sdp-injector-crt.pem"]
       containers:
         - name: delete-secret
           image: "bitnami/kubectl"

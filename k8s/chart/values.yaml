@@ -1,44 +1,79 @@
-# Default values for sdp-k8s-client.
-# This is a YAML-formatted file.
-# Declare variables to be passed into your templates.
+## @section SDP parameters
 
-replicaCount: 1
-
-imagePullSecrets: []
-nameOverride: ""
-fullnameOverride: ""
-
+## SDP
+## ref: https://github.com/appgate/sdp-k8s-client
+##
 sdp:
-  injector:
-    image:
-      repository: ghcr.io/appgate/sdp-k8s-client/sdp-injector
-      tag: latest
-      logLevel: info
+  ## @param sdp.image.repository SDP injector, SDP Headless Driver, SDP Headless Service, and SDP Dnsmasq image registry
+  ## @param sdp.image.pullSecrets SDP injector, SDP Headless Driver, SDP Headless Service, and SDP Dnsmasq pull secret
+  image:
+    repository: ghcr.io/appgate/sdp-k8s-client
+    ## Optionally specify an array of imagePullSecrets.
+    ## Secrets must be manually created in the namespace.
+    ## ref: https://kubernetes.io/docs/tasks/configure-pod-container/pull-image-private-registry/
+    ## Example:
+    ## pullSecrets:
+    ##   - myRegistryKeySecretName
+    pullSecrets: []
 
+  ## @param sdp.injector.logLevel SDP Injector log level
+  ## @param sdp.injector.image.tag SDP Injector image tag
+  ## @param sdp.injector.image.pullPolicy SDP Injector pull policy
+  injector:
+    logLevel: info
+    image:
+      tag: bf29001f31e85fe20b78ecb7ff34ecd4c67c4bbd
+      ## Specify a imagePullPolicy
+      ## Defaults to 'Always' if image tag is 'latest', else set to 'IfNotPresent'
+      ## ref: http://kubernetes.io/docs/user-guide/images/#pre-pulling-images
+      ##
+      pullPolicy: IfNotPresent
+
+  ## @param sdp.headlessService.image.tag SDP Headless Service image tag
+  ## @param sdp.headlessService.image.pullPolicy SDP Headless Service image pull policy
   headlessService:
     image:
-      repository: ghcr.io/appgate/sdp-k9s-client/sdp-headless-service
       tag: latest
       pullPolicy: Always
 
+  ## @param sdp.headlessDriver.image.tag SDP Headless Driver image tag
+  ## @param sdp.headlessDriver.image.pullPolicy SDP Headless Driver image pull policy
   headlessDriver:
     image:
-      repository: ghcr.io/appgate/sdp-k8s-client/sdp-headless-driver
-      tag: bf29001f31e85fe20b78ecb7ff34ecd4c67c4bbd
-      pullPolicy: Always
-
-  dnsmasq:
-    image:
-      repository: ghcr.io/appgate/sdp-k8s-client/sdp-dnsmasq
       tag: latest
       pullPolicy: Always
 
+  ## @param sdp.dnsmasq.image.tag SDP Dnsmasq image tag
+  ## @param sdp.dnsmasq.image.pullPolicy SDP Dnsmasq image pull policy
+  dnsmasq:
+    image:
+      tag: bf29001f31e85fe20b78ecb7ff34ecd4c67c4bbd
+      pullPolicy: IfNotPresent
+
+## @section Kubernetes parameters
+
+## Specifies whether a ServiceAccount should be created
+##
+## @param serviceAccount.create Enable the creation of a ServiceAccount for SDP pods
 serviceAccount:
   create: true
 
+## Specifies whether RBAC resources should be created
+##
+## @param rbac.create Whether to create & use RBAC resources or not
+##
 rbac:
   create: true
 
+## Specifies the service configuration
+##
+## @param service.type Type of the service
+## @param service.port Port of the service
+##
 service:
   type: ClusterIP
   port: 443
+
+## Number of Kubewatch replicas to deploy
+## @param replicaCount Number of Kubewatch replicas to deploy
+replicaCount: 1

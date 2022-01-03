@@ -18,7 +18,7 @@ spec:
       labels:
         {{- include "sdp-k8s-client.selectorLabels" . | nindent 8 }}
     spec:
-      {{- with .Values.imagePullSecrets }}
+      {{- with .Values.sdp.injector.image.pullSecrets }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
@@ -45,10 +45,10 @@ spec:
         - name: {{ .Chart.Name }}
           env:
             - name: RUST_LOG
-              value: {{ .Values.sdp.injector.image.logLevel | default "info" }}
+              value: {{ .Values.sdp.injector.logLevel | default "info" }}
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
-          image: {{ .Values.sdp.injector.image.repository }}
+          image: "{{ .Values.sdp.image.repository }}/sdp-injector:{{ .Values.sdp.headlessDriver.image.tag | default .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.sdp.injector.image.pullPolicy }}
           volumeMounts:
             - name: sdp-injector-secrets-and-config

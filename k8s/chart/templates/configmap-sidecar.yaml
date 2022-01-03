@@ -14,7 +14,7 @@ data:
       "containers": [
         {
           "name": "sdp-service",
-          "image": "{{.Values.sdp.headlessService.image.repository}}:{{ .Values.sdp.headlessService.image.tag | default .Chart.AppVersion }}",
+          "image": "{{ .Values.sdp.image.repository }}/sdp-headless-service:{{ .Values.sdp.headlessService.image.tag | default .Chart.AppVersion }}",
           "imagePullPolicy": "{{.Values.sdp.headlessService.image.pullPolicy}}",
           "securityContext": {
             "runAsGroup": 0,
@@ -37,8 +37,7 @@ data:
         },
         {
           "name": "sdp-driver",
-          "image": "{{.Values.sdp.headlessDriver.image.repository}}:{{ .Values.sdp.headlessDriver.image.tag | default .Chart.AppVersion }}",
-          "imagePullPolicy": "{{.Values.sdp.headlessDriver.image.pullPolicy}}",
+          "image": "{{ .Values.sdp.image.repository }}/sdp-headless-driver:{{ .Values.sdp.headlessDriver.image.tag | default .Chart.AppVersion }}",
           "securityContext": {
             "runAsGroup": 0,
             "runAsNonRoot": false,
@@ -62,7 +61,7 @@ data:
         },
         {
           "name": "sdp-dnsmasq",
-          "image": "{{.Values.sdp.dnsmasq.image.repository}}:{{ .Values.sdp.dnsmasq.image.tag | default .Chart.AppVersion }}",
+          "image": "{{ .Values.sdp.image.repository }}/sdp-dnsmasq:{{ .Values.sdp.dnsmasq.image.tag | default .Chart.AppVersion }}",
           "imagePullPolicy": "{{.Values.sdp.dnsmasq.image.pullPolicy}}",
           "securityContext": {
             "runAsGroup": 0,

@@ -9,16 +9,14 @@ metadata:
     "helm.sh/hook": pre-install
     "helm.sh/hook-weight": "1"
 data:
-  ca_config.txt: |-
+  sdp-ca.conf: |-
     [ req ]
     default_bits       = 2048
     default_md         = sha512
     default_keyfile    = ca.key
     prompt             = no
     encrypt_key        = yes
-
     distinguished_name = req_distinguished_name
-
     req_extensions     = v3_req
 
     [ req_distinguished_name ]
@@ -34,5 +32,6 @@ data:
 
     [ v3_req ]
     subjectAltName  = DNS:appgate.com
+
     [ ext ]
     basicConstraints=CA:TRUE,pathlen:0

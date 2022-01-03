@@ -15,13 +15,13 @@ data:
     metadata:
       name: sdp-admission-webhook-{{ .Release.Name }}
       labels:
-        app: sdp-injector
+        app: {{ include "sdp-k8s-client.fullname" . }}
     webhooks:
       - name: sdp-injector.appgate.com
         clientConfig:
           service:
-            name: sdp-injector
-            namespace: sdp-system
+            name: {{ include "sdp-k8s-client.fullname" . }}
+            namespace: {{ .Release.Namespace  }}
             path: "/mutate"
           caBundle: $CA_BUNDLE
         namespaceSelector:

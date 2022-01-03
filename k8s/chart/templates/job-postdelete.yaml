@@ -7,7 +7,7 @@ metadata:
   annotations:
     "helm.sh/hook": post-delete
     "helm.sh/hook-weight": "2"
-    "helm.sh/hook-delete-policy": hook-succeeded
+    "helm.sh/hook-delete-policy": hook-succeeded, hook-failed
 spec:
   template:
     metadata:
@@ -41,4 +41,4 @@ spec:
         - name: delete-admission-webhook
           image: "bitnami/kubectl"
           command: ["kubectl"]
-          args: [ "delete", "mutatingwebhookconfigurations", "sdp-admission-webhook-{{ .Release.Name }}"]
+          args: [ "delete", "mutatingwebhookconfigurations", "sdp-admission-webhook-{{ .Release.Name }}", "--ignore-not-found", "true"]

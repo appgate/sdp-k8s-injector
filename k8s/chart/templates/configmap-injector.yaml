@@ -9,7 +9,7 @@ metadata:
     "helm.sh/hook": pre-install
     "helm.sh/hook-weight": "1"
 data:
-  sdp-injector_config.txt: |
+  sdp-injector.conf: |
     [req]
     req_extensions = v3_req
     distinguished_name = req_distinguished_name
@@ -23,7 +23,7 @@ data:
     streetAddress          = "Majorna"
     organizationName       = "appgate"
     organizationalUnitName = "devops"
-    commonName             = "sdp-injector.sdp-system.svc"
+    commonName             = "{{ include "sdp-k8s-client.fullname" . }}.{{ .Release.Namespace }}.svc"
     emailAddress           = "no-reply@appgate.com"
 
     [ v3_req ]
@@ -33,7 +33,20 @@ data:
     extendedKeyUsage = serverAuth
 
     [ alt_names ]
-    DNS.1 = sdp-injector
-    DNS.2 = sdp-injector.sdp-system
-    DNS.3 = sdp-injector.sdp-system.svc
-    DNS.4 = sdp-injector.sdp-system.svc.cluster.local
+    DNS.1 = {{ include "sdp-k8s-client.fullname" . }}
+    DNS.2 = {{ include "sdp-k8s-client.fullname" . }}.{{ .Release.Namespace }}
+    DNS.3 = {{ include "sdp-k8s-client.fullname" . }}.{{ .Release.Namespace }}.svc
+    DNS.4 = {{ include "sdp-k8s-client.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local
+
+  sdp-x509-ext.conf: |
+    [ v3_ca ]
+    basicConstraints=CA:FALSE
+    subjectAltName=@alt_names
+    keyUsage = nonRepudiation, digitalSignature, keyEncipherment
+    extendedKeyUsage = serverAuth
+
+    [ alt_names ]
+    DNS.1 = {{ include "sdp-k8s-client.fullname" . }}
+    DNS.2 = {{ include "sdp-k8s-client.fullname" . }}.{{ .Release.Namespace }}
+    DNS.3 = {{ include "sdp-k8s-client.fullname" . }}.{{ .Release.Namespace }}.svc
+    DNS.4 = {{ include "sdp-k8s-client.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local
