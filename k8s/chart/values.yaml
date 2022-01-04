@@ -74,6 +74,6 @@ service:
   type: ClusterIP
   port: 443
 
-## Number of Kubewatch replicas to deploy
-## @param replicaCount Number of Kubewatch replicas to deploy
+## Number of SDP client replicas to deploy
+## @param replicaCount Number of SDP client replicas to deploy
 replicaCount: 1
