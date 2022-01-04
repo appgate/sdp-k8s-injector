@@ -28,7 +28,7 @@ data:
     organizationName       = "appgate"
     organizationalUnitName = "devops"
     commonName             = "devops.appgate.com"
-    emailAddress           = "no-reply@apgate.com"
+    emailAddress           = "no-reply@appgate.com"
 
     [ v3_req ]
     subjectAltName  = DNS:appgate.com

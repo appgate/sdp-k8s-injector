@@ -33,4 +33,3 @@ This table below was generated using [readme-generator-for-helm](https://github.
 | `service.type`          | Type of the service                                  | `ClusterIP` |
 | `service.port`          | Port of the service                                  | `443`       |
 | `replicaCount`          | Number of Kubewatch replicas to deploy               | `1`         |
-

@@ -35,4 +35,3 @@ data:
             scope: "Namespaced"
         sideEffects: None
         admissionReviewVersions: ["v1", "v1beta1"]
-
