@@ -51,7 +51,7 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 
 {{/*
-Create the name of the service account to use
+ServiceAccount
 */}}
 {{- define "sdp-k8s-client.serviceAccountName" -}}
 {{- if .Values.serviceAccount.create }}
@@ -59,4 +59,18 @@ Create the name of the service account to use
 {{- else }}
 {{- default "default" .Values.serviceAccount.name }}
 {{- end }}
+{{- end }}
+
+{{/*
+Secret
+*/}}
+{{- define "sdp-k8s-client.injector-secret" -}}
+{{- printf "sdp-client-secret-%s" .Release.Name }}
+{{- end }}
+
+{{/*
+Sidecar Config
+*/}}
+{{- define "sdp-k8s-client.sidecar-config" -}}
+{{- printf "sdp-sidecar-config-%s" .Release.Name }}
 {{- end }}

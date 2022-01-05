@@ -1,0 +1,52 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: sdp-injector-config-{{ .Release.Name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+  {{- include "sdp-k8s-client.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": pre-install
+    "helm.sh/hook-weight": "1"
+data:
+  sdp-injector.conf: |
+    [req]
+    req_extensions = v3_req
+    distinguished_name = req_distinguished_name
+    prompt = no
+
+    [ req_distinguished_name ]
+    countryName            = "SE"
+    stateOrProvinceName    = "Goteborg"
+    localityName           = "Goteborg"
+    postalCode             = ""
+    streetAddress          = "Majorna"
+    organizationName       = "appgate"
+    organizationalUnitName = "devops"
+    commonName             = "{{ include "sdp-k8s-client.fullname" . }}.{{ .Release.Namespace }}.svc"
+    emailAddress           = "no-reply@appgate.com"
+
+    [ v3_req ]
+    basicConstraints=CA:FALSE
+    subjectAltName=@alt_names
+    keyUsage = nonRepudiation, digitalSignature, keyEncipherment
+    extendedKeyUsage = serverAuth
+
+    [ alt_names ]
+    DNS.1 = {{ include "sdp-k8s-client.fullname" . }}
+    DNS.2 = {{ include "sdp-k8s-client.fullname" . }}.{{ .Release.Namespace }}
+    DNS.3 = {{ include "sdp-k8s-client.fullname" . }}.{{ .Release.Namespace }}.svc
+    DNS.4 = {{ include "sdp-k8s-client.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local
+
+  sdp-x509-ext.conf: |
+    [ v3_ca ]
+    basicConstraints=CA:FALSE
+    subjectAltName=@alt_names
+    keyUsage = nonRepudiation, digitalSignature, keyEncipherment
+    extendedKeyUsage = serverAuth
+
+    [ alt_names ]
+    DNS.1 = {{ include "sdp-k8s-client.fullname" . }}
+    DNS.2 = {{ include "sdp-k8s-client.fullname" . }}.{{ .Release.Namespace }}
+    DNS.3 = {{ include "sdp-k8s-client.fullname" . }}.{{ .Release.Namespace }}.svc
+    DNS.4 = {{ include "sdp-k8s-client.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local
