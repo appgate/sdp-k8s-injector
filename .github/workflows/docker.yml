@@ -5,6 +5,9 @@ on:
     branches:
       - main
 
+env:
+  CLIENT_VERSION: 5.5.1
+
 jobs:
   sdp-injector:
     runs-on: ubuntu-latest
@@ -34,7 +37,7 @@ jobs:
           push: ${{ github.ref == 'refs/heads/main' }}
           tags: |
             ghcr.io/${{ github.repository }}/sdp-injector:latest
-            ghcr.io/${{ github.repository }}/sdp-injector:${{ github.sha }}
+            ghcr.io/${{ github.repository }}/sdp-injector:${{ env.CLIENT_VERSION }}
 
   sdp-dnsmasq:
     runs-on: ubuntu-latest
@@ -54,7 +57,7 @@ jobs:
           push: ${{ github.ref == 'refs/heads/main' }}
           tags: |
             ghcr.io/${{ github.repository }}/sdp-dnsmasq:latest
-            ghcr.io/${{ github.repository }}/sdp-dnsmasq:${{ github.sha }}
+            ghcr.io/${{ github.repository }}/sdp-dnsmasq:${{ env.CLIENT_VERSION }}
 
   sdp-headless-driver:
     runs-on: ubuntu-latest
@@ -74,7 +77,7 @@ jobs:
           push: ${{ github.ref == 'refs/heads/main' }}
           tags: |
             ghcr.io/${{ github.repository }}/sdp-headless-driver:latest
-            ghcr.io/${{ github.repository }}/sdp-headless-driver:${{ github.sha }}
+            ghcr.io/${{ github.repository }}/sdp-headless-driver:${{ env.CLIENT_VERSION }}
 
   sdp-headless-service:
     runs-on: ubuntu-latest
@@ -94,7 +97,7 @@ jobs:
           push: ${{ github.ref == 'refs/heads/main' }}
           tags: |
             ghcr.io/${{ github.repository }}/sdp-headless-service:latest
-            ghcr.io/${{ github.repository }}/sdp-headless-service:${{ github.sha }}
+            ghcr.io/${{ github.repository }}/sdp-headless-service:${{ env.CLIENT_VERSION }}
 
   helm:
     runs-on: ubuntu-latest
@@ -112,6 +115,6 @@ jobs:
       - name: Lint chart
         run: helm lint k8s/chart
       - name: Package chart
-        run: helm package k8s/chart --app-version ${{ github.sha }}
+        run: helm package k8s/chart
       - name: Push chart
         run: helm push sdp-k8s-client-${{ env.chart_version }}.tgz oci://ghcr.io/appgate/charts/sdp-k8s-client
