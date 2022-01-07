@@ -22,7 +22,7 @@ sdp:
   injector:
     logLevel: info
     image:
-      tag: bf29001f31e85fe20b78ecb7ff34ecd4c67c4bbd
+      tag: latest
       ## Specify a imagePullPolicy
       ## Defaults to 'Always' if image tag is 'latest', else set to 'IfNotPresent'
       ## ref: http://kubernetes.io/docs/user-guide/images/#pre-pulling-images
@@ -34,20 +34,20 @@ sdp:
   headlessService:
     image:
       tag: latest
-      pullPolicy: Always
+      pullPolicy: IfNotPresent
 
   ## @param sdp.headlessDriver.image.tag SDP Headless Driver image tag
   ## @param sdp.headlessDriver.image.pullPolicy SDP Headless Driver image pull policy
   headlessDriver:
     image:
       tag: latest
-      pullPolicy: Always
+      pullPolicy: IfNotPresent
 
   ## @param sdp.dnsmasq.image.tag SDP Dnsmasq image tag
   ## @param sdp.dnsmasq.image.pullPolicy SDP Dnsmasq image pull policy
   dnsmasq:
     image:
-      tag: bf29001f31e85fe20b78ecb7ff34ecd4c67c4bbd
+      tag: latest
       pullPolicy: IfNotPresent
 
 ## @section Kubernetes parameters

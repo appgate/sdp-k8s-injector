@@ -56,6 +56,46 @@ jobs:
             ghcr.io/${{ github.repository }}/sdp-dnsmasq:latest
             ghcr.io/${{ github.repository }}/sdp-dnsmasq:${{ github.sha }}
 
+  sdp-headless-driver:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v1
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Push image
+        uses: docker/build-push-action@v2
+        with:
+          context: .
+          file: docker/sdp-headless-driver-Dockerfile
+          push: ${{ github.ref == 'refs/heads/main' }}
+          tags: |
+            ghcr.io/${{ github.repository }}/sdp-headless-driver:latest
+            ghcr.io/${{ github.repository }}/sdp-headless-driver:${{ github.sha }}
+
+  sdp-headless-service:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v1
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Push image
+        uses: docker/build-push-action@v2
+        with:
+          context: .
+          file: docker/sdp-headless-service-Dockerfile
+          push: ${{ github.ref == 'refs/heads/main' }}
+          tags: |
+            ghcr.io/${{ github.repository }}/sdp-headless-service:latest
+            ghcr.io/${{ github.repository }}/sdp-headless-service:${{ github.sha }}
+
   helm:
     runs-on: ubuntu-latest
     env:

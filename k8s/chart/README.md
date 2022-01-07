@@ -2,7 +2,7 @@
 
 ## Quickstart
 ```
-helm install sdp-k8s-client ghcr.io/appgate/sdp-k8s-client:latest
+helm install sdp-k8s-client ghcr.io/appgate/sdp-k8s-client:<version> 
 ```
 
 ## Parameters
