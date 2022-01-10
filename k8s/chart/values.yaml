@@ -3,11 +3,16 @@
 ## SDP
 ## ref: https://github.com/appgate/sdp-k8s-client
 ##
-sdp:
-  ## @param sdp.image.repository SDP injector, SDP Headless Driver, SDP Headless Service, and SDP Dnsmasq image registry
-  ## @param sdp.image.pullSecrets SDP injector, SDP Headless Driver, SDP Headless Service, and SDP Dnsmasq pull secret
+
+global:
+  ## @param global.image.repository Image registry to use for all SDP images.
+  ## @param global.image.tag Image tag to use for all SDP images. If not set, it defaults to `.Chart.appVersion`.
+  ## @param global.image.pullPolicy Image pull policy to use for all SDP images.
+  ## @param global.image.pullSecrets Image pull secret to use for all SDP images.
   image:
     repository: ghcr.io/appgate/sdp-k8s-client
+    tag: ""
+    pullPolicy: IfNotPresent
     ## Optionally specify an array of imagePullSecrets.
     ## Secrets must be manually created in the namespace.
     ## ref: https://kubernetes.io/docs/tasks/configure-pod-container/pull-image-private-registry/
@@ -16,39 +21,48 @@ sdp:
     ##   - myRegistryKeySecretName
     pullSecrets: []
 
-  ## @param sdp.injector.logLevel SDP Injector log level
-  ## @param sdp.injector.image.tag SDP Injector image tag
-  ## @param sdp.injector.image.pullPolicy SDP Injector pull policy
+sdp:
+  ## @param sdp.injector.logLevel SDP Injector log level.
+  ## @param sdp.injector.image.repository SDP Injector image repository. If set, it overrides `.global.image.repository`.
+  ## @param sdp.injector.image.tag SDP Injector image tag. If set, it overrides `.global.image.tag`.
+  ## @param sdp.injector.image.pullPolicy SDP Injector pull policy. If set, it overrides `.global.image.pullPolicy`.
   injector:
     logLevel: info
     image:
-      tag: bf29001f31e85fe20b78ecb7ff34ecd4c67c4bbd
+      repository: ""
+      tag: ""
       ## Specify a imagePullPolicy
       ## Defaults to 'Always' if image tag is 'latest', else set to 'IfNotPresent'
       ## ref: http://kubernetes.io/docs/user-guide/images/#pre-pulling-images
       ##
-      pullPolicy: IfNotPresent
+      pullPolicy: ""
 
-  ## @param sdp.headlessService.image.tag SDP Headless Service image tag
-  ## @param sdp.headlessService.image.pullPolicy SDP Headless Service image pull policy
+  ## @param sdp.headlessService.image.tag SDP Headless Service image repository. If set, it overrides `.global.image.repository`.
+  ## @param sdp.headlessService.image.repository SDP Headless Service image tag. If set, it overrides `.global.image.tag`.
+  ## @param sdp.headlessService.image.pullPolicy SDP Headless Service image pull policy. If set, it overrides `.global.image.pullPolicy`.
   headlessService:
     image:
-      tag: latest
-      pullPolicy: Always
+      repository: ""
+      tag: ""
+      pullPolicy: ""
 
-  ## @param sdp.headlessDriver.image.tag SDP Headless Driver image tag
-  ## @param sdp.headlessDriver.image.pullPolicy SDP Headless Driver image pull policy
+  ## @param sdp.headlessDriver.image.repository SDP Headless Driver image repository. If set, it overrides `.global.image.repository`.
+  ## @param sdp.headlessDriver.image.tag SDP Headless Driver image tag. If set, it overrides `.global.image.tag`.
+  ## @param sdp.headlessDriver.image.pullPolicy SDP Headless Service image pull policy. If set, it overrides `.global.image.pullPolicy`.
   headlessDriver:
     image:
-      tag: latest
-      pullPolicy: Always
+      repository: ""
+      tag: ""
+      pullPolicy: ""
 
-  ## @param sdp.dnsmasq.image.tag SDP Dnsmasq image tag
-  ## @param sdp.dnsmasq.image.pullPolicy SDP Dnsmasq image pull policy
+  ## @param sdp.dnsmasq.image.repository SDP Dnsmasq image repository. If set, it overrides `.global.image.repository`.
+  ## @param sdp.dnsmasq.image.tag SDP Dnsmasq image tag. If set, it overrides `.global.image.tag`.
+  ## @param sdp.dnsmasq.image.pullPolicy SDP Dnsmasq image pull policy. If set, it overrides `.global.image.pullPolicy`.
   dnsmasq:
     image:
-      tag: bf29001f31e85fe20b78ecb7ff34ecd4c67c4bbd
-      pullPolicy: IfNotPresent
+      repository: ""
+      tag: ""
+      pullPolicy: ""
 
 ## @section Kubernetes parameters
 
