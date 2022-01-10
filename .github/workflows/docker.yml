@@ -72,6 +72,7 @@ jobs:
       - name: Push image
         uses: docker/build-push-action@v2
         with:
+          buildkitd-flags: --debug
           context: .
           file: docker/sdp-headless-driver-Dockerfile
           push: ${{ github.ref == 'refs/heads/main' }}
