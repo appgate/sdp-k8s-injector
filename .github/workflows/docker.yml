@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - main
+  pull_request:
+    branches:
+      - main
 
 env:
   CLIENT_VERSION: 5.5.1
@@ -117,4 +120,5 @@ jobs:
       - name: Package chart
         run: helm package k8s/chart
       - name: Push chart
+        if: ${{ github.ref == 'refs/heads/main' }}
         run: helm push sdp-k8s-client-${{ env.chart_version }}.tgz oci://ghcr.io/appgate/charts/sdp-k8s-client
