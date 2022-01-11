@@ -127,7 +127,7 @@ spec:
               curl -sLO https://storage.googleapis.com/kubernetes-release/release/v1.20.7/bin/linux/amd64/kubectl;
               mv kubectl /usr/local/bin/kubectl;
               chmod +x /usr/local/bin/kubectl;
-              export CA_BUNDLE="$(kubectl get secret sdp-client-secret-foo -o jsonpath="{.data.sdp-ca\.crt}" --namespace {{ .Release.Namespace }})";
+              export CA_BUNDLE="$(kubectl get secret {{ include "sdp-k8s-client.injector-secret" . }} -o jsonpath="{.data.sdp-ca\.crt}" --namespace {{ .Release.Namespace }})";
               envsubst < /tmp/config/sdp-admission-webhook.yaml > sdp-admission-webhook.yaml;
               cat sdp-admission-webhook.yaml;
               kubectl apply --filename sdp-admission-webhook.yaml --namespace {{ .Release.Namespace }};
