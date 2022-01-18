@@ -2,6 +2,7 @@ apiVersion: batch/v1
 kind: Job
 metadata:
   name: {{ include "sdp-k8s-client.fullname" . }}-postdelete
+  namespace: {{ include "sdp-k8s-client.namespace" . }}
   labels:
   {{- include "sdp-k8s-client.labels" . | nindent 4 }}
   annotations:
@@ -37,7 +38,7 @@ spec:
         - name: delete-secret
           image: "bitnami/kubectl"
           command: ["kubectl"]
-          args: [ "delete", "secret", "{{ include "sdp-k8s-client.injector-secret" . }}", "--namespace", "{{ .Release.Namespace }}"]
+          args: [ "delete", "secret", "{{ include "sdp-k8s-client.injector-secret" . }}", "--namespace", "{{ include "sdp-k8s-client.namespace" . }}"]
         - name: delete-admission-webhook
           image: "bitnami/kubectl"
           command: ["kubectl"]

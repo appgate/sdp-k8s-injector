@@ -2,7 +2,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: sdp-admission-webhook-{{ .Release.Name }}
-  namespace: {{ .Release.Namespace }}
+  namespace: {{ include "sdp-k8s-client.namespace" . }}
   labels:
   {{- include "sdp-k8s-client.labels" . | nindent 4 }}
   annotations:
@@ -21,7 +21,7 @@ data:
         clientConfig:
           service:
             name: {{ include "sdp-k8s-client.fullname" . }}
-            namespace: {{ .Release.Namespace  }}
+            namespace: {{ include "sdp-k8s-client.namespace" . }}
             path: "/mutate"
           caBundle: $CA_BUNDLE
         namespaceSelector:

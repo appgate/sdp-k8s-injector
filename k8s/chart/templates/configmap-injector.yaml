@@ -2,7 +2,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: sdp-injector-config-{{ .Release.Name }}
-  namespace: {{ .Release.Namespace }}
+  namespace: {{ include "sdp-k8s-client.namespace" . }}
   labels:
   {{- include "sdp-k8s-client.labels" . | nindent 4 }}
   annotations:
@@ -23,7 +23,7 @@ data:
     streetAddress          = "Majorna"
     organizationName       = "appgate"
     organizationalUnitName = "devops"
-    commonName             = "{{ include "sdp-k8s-client.fullname" . }}.{{ .Release.Namespace }}.svc"
+    commonName             = "{{ include "sdp-k8s-client.fullname" . }}.{{ include "sdp-k8s-client.namespace" . }}.svc"
     emailAddress           = "no-reply@appgate.com"
 
     [ v3_req ]
@@ -34,9 +34,9 @@ data:
 
     [ alt_names ]
     DNS.1 = {{ include "sdp-k8s-client.fullname" . }}
-    DNS.2 = {{ include "sdp-k8s-client.fullname" . }}.{{ .Release.Namespace }}
-    DNS.3 = {{ include "sdp-k8s-client.fullname" . }}.{{ .Release.Namespace }}.svc
-    DNS.4 = {{ include "sdp-k8s-client.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local
+    DNS.2 = {{ include "sdp-k8s-client.fullname" . }}.{{ include "sdp-k8s-client.namespace" . }}
+    DNS.3 = {{ include "sdp-k8s-client.fullname" . }}.{{ include "sdp-k8s-client.namespace" . }}.svc
+    DNS.4 = {{ include "sdp-k8s-client.fullname" . }}.{{ include "sdp-k8s-client.namespace" . }}.svc.cluster.local
 
   sdp-x509-ext.conf: |
     [ v3_ca ]
@@ -47,6 +47,6 @@ data:
 
     [ alt_names ]
     DNS.1 = {{ include "sdp-k8s-client.fullname" . }}
-    DNS.2 = {{ include "sdp-k8s-client.fullname" . }}.{{ .Release.Namespace }}
-    DNS.3 = {{ include "sdp-k8s-client.fullname" . }}.{{ .Release.Namespace }}.svc
-    DNS.4 = {{ include "sdp-k8s-client.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local
+    DNS.2 = {{ include "sdp-k8s-client.fullname" . }}.{{ include "sdp-k8s-client.namespace" . }}
+    DNS.3 = {{ include "sdp-k8s-client.fullname" . }}.{{ include "sdp-k8s-client.namespace" . }}.svc
+    DNS.4 = {{ include "sdp-k8s-client.fullname" . }}.{{ include "sdp-k8s-client.namespace" . }}.svc.cluster.local
