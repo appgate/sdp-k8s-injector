@@ -11,7 +11,7 @@ metadata:
     "helm.sh/hook-weight": "1"
 rules:
   - apiGroups: [""]
-    resources: ["secrets"]
+    resources: ["secrets", "configmaps" ]
     verbs: ["get", "create", "delete"]
   - apiGroups: ["admissionregistration.k8s.io"]
     resources: ["mutatingwebhookconfigurations/v1"]
