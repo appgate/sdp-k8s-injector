@@ -86,5 +86,9 @@ Default app version
 Namespace
 */}}
 {{- define "sdp-k8s-client.namespace" -}}
-  {{ print "sdp-system" }}
+{{- if eq .Release.Namespace "default" }}
+{{- print "sdp-system" }}
+{{- else}}
+{{- .Release.Namespace }}
+{{- end }}
 {{- end -}}
