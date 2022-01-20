@@ -2,12 +2,13 @@ apiVersion: batch/v1
 kind: Job
 metadata:
   name: {{ include "sdp-k8s-client.fullname" . }}-postdelete
+  namespace: {{ include "sdp-k8s-client.namespace" . }}
   labels:
   {{- include "sdp-k8s-client.labels" . | nindent 4 }}
   annotations:
     "helm.sh/hook": post-delete
-    "helm.sh/hook-weight": "2"
-    "helm.sh/hook-delete-policy": hook-succeeded, hook-failed
+    "helm.sh/hook-weight": "1"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
 spec:
   template:
     metadata:
@@ -37,8 +38,12 @@ spec:
         - name: delete-secret
           image: "bitnami/kubectl"
           command: ["kubectl"]
-          args: [ "delete", "secret", "{{ include "sdp-k8s-client.injector-secret" . }}", "--namespace", "{{ .Release.Namespace }}"]
+          args: [ "delete", "secret", "{{ include "sdp-k8s-client.injector-secret" . }}", "--namespace={{ include "sdp-k8s-client.namespace" . }}"]
         - name: delete-admission-webhook
           image: "bitnami/kubectl"
           command: ["kubectl"]
-          args: [ "delete", "mutatingwebhookconfigurations", "sdp-admission-webhook-{{ .Release.Name }}", "--ignore-not-found", "true"]
+          args: [ "delete", "mutatingwebhookconfigurations", "sdp-admission-webhook-{{ .Release.Name }}", "--ignore-not-found=true"]
+        - name: delete-configmaps
+          image: "bitnami/kubectl"
+          command: ["kubectl"]
+          args: [ "delete", "configmap", "sdp-admission-webhook-{{ .Release.Name }},sdp-ca-config-{{ .Release.Name }},sdp-injector-config-{{ .Release.Name }},{{ include "sdp-k8s-client.sidecar-config" . }}", "--ignore-not-found=true", "--namespace={{ include "sdp-k8s-client.namespace" . }}"]

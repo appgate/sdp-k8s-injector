@@ -1,7 +1,8 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "sdp-k8s-client.fullname" . }}
+  name: {{ include "sdp-k8s-client.fullname" . }}-injector
+  namespace: {{ include "sdp-k8s-client.namespace" . }}
   labels:
   {{- include "sdp-k8s-client.labels" . | nindent 4 }}
 spec:

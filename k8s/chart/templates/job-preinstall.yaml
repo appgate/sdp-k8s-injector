@@ -2,11 +2,13 @@ apiVersion: batch/v1
 kind: Job
 metadata:
   name: {{ include "sdp-k8s-client.fullname" . }}-preinstall
+  namespace: {{ include "sdp-k8s-client.namespace" . }}
   labels:
   {{- include "sdp-k8s-client.labels" . | nindent 4 }}
   annotations:
     "helm.sh/hook": pre-install
     "helm.sh/hook-weight": "2"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
 spec:
   template:
     metadata:
@@ -95,11 +97,11 @@ spec:
         - name: delete-secret
           image: "bitnami/kubectl"
           command: ["kubectl"]
-          args: [ "delete", "secret", "{{ include "sdp-k8s-client.injector-secret" . }}", "--namespace", "{{ .Release.Namespace }}", "--ignore-not-found", "true"]
+          args: [ "delete", "secret", "{{ include "sdp-k8s-client.injector-secret" . }}", "--namespace", "{{ include "sdp-k8s-client.namespace" . }}", "--ignore-not-found", "true"]
         - name: create-secret
           image: "bitnami/kubectl"
           command: ["kubectl"]
-          args: [ "create", "secret", "generic", "{{ include "sdp-k8s-client.injector-secret" . }}", "--from-file=sdp-ca.crt=/tmp/sdp-ca.crt", "--from-file=sdp-injector-key.pem=/tmp/sdp-injector-key.pem", "--from-file=sdp-injector-crt.pem=/tmp/sdp-injector-crt.pem", "--namespace", "{{ .Release.Namespace }}"]
+          args: [ "create", "secret", "generic", "{{ include "sdp-k8s-client.injector-secret" . }}", "--from-file=sdp-ca.crt=/tmp/sdp-ca.crt", "--from-file=sdp-injector-key.pem=/tmp/sdp-injector-key.pem", "--from-file=sdp-injector-crt.pem=/tmp/sdp-injector-crt.pem", "--namespace", "{{ include "sdp-k8s-client.namespace" . }}"]
           volumeMounts:
             - name: tmp
               mountPath: /tmp
@@ -127,10 +129,10 @@ spec:
               curl -sLO https://storage.googleapis.com/kubernetes-release/release/v1.20.7/bin/linux/amd64/kubectl;
               mv kubectl /usr/local/bin/kubectl;
               chmod +x /usr/local/bin/kubectl;
-              export CA_BUNDLE="$(kubectl get secret {{ include "sdp-k8s-client.injector-secret" . }} -o jsonpath="{.data.sdp-ca\.crt}" --namespace {{ .Release.Namespace }})";
+              export CA_BUNDLE="$(kubectl get secret {{ include "sdp-k8s-client.injector-secret" . }} -o jsonpath="{.data.sdp-ca\.crt}" --namespace {{ include "sdp-k8s-client.namespace" . }})";
               envsubst < /tmp/config/sdp-admission-webhook.yaml > sdp-admission-webhook.yaml;
               cat sdp-admission-webhook.yaml;
-              kubectl apply --filename sdp-admission-webhook.yaml --namespace {{ .Release.Namespace }};
+              kubectl apply --filename sdp-admission-webhook.yaml --namespace {{ include "sdp-k8s-client.namespace" . }};
 {{/*#
 TODO: Use cert-manager to inject caBundle: https://cert-manager.io/docs/concepts/ca-injector/#injecting-ca-data-from-a-certificate-resource
 */}}

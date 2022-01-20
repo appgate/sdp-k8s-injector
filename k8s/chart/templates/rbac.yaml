@@ -3,7 +3,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
   name: {{ include "sdp-k8s-client.name" . }}
-  namespace: {{ .Release.Namespace }}
+  namespace: {{ include "sdp-k8s-client.namespace" . }}
   labels:
     {{- include "sdp-k8s-client.labels" . | nindent 4 }}
   annotations:
@@ -11,26 +11,26 @@ metadata:
     "helm.sh/hook-weight": "1"
 rules:
   - apiGroups: [""]
-    resources: ["secrets"]
+    resources: ["secrets", "configmaps" ]
     verbs: ["get", "create", "delete"]
   - apiGroups: ["admissionregistration.k8s.io"]
     resources: ["mutatingwebhookconfigurations/v1"]
-    verbs: ["get", "create"]
+    verbs: ["get", "create", "delete"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
   name: {{ include "sdp-k8s-client.name" . }}
-  namespace: {{ .Release.Namespace }}
+  namespace: {{ include "sdp-k8s-client.namespace" . }}
   labels:
   {{- include "sdp-k8s-client.labels" . | nindent 4 }}
   annotations:
     "helm.sh/hook": pre-install
-    "helm.sh/hook-weight": "-1"
+    "helm.sh/hook-weight": "0"
 subjects:
   - kind: ServiceAccount
     name: {{ include "sdp-k8s-client.serviceAccountName" . }}
-    namespace: {{ .Release.Namespace }}
+    namespace: {{ include "sdp-k8s-client.namespace" . }}
 roleRef:
   kind: Role
   name: {{ include "sdp-k8s-client.name" . }}
@@ -40,7 +40,6 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
   name: {{ include "sdp-k8s-client.name" . }}
-  namespace: {{ .Release.Namespace }}
   labels:
   {{- include "sdp-k8s-client.labels" . | nindent 4 }}
   annotations:
@@ -59,11 +58,11 @@ metadata:
   {{- include "sdp-k8s-client.labels" . | nindent 4 }}
   annotations:
     "helm.sh/hook": pre-install
-    "helm.sh/hook-weight": "-1"
+    "helm.sh/hook-weight": "0"
 subjects:
   - kind: ServiceAccount
     name: {{ include "sdp-k8s-client.serviceAccountName" . }}
-    namespace: {{ .Release.Namespace }}
+    namespace: {{ include "sdp-k8s-client.namespace" . }}
 roleRef:
   kind: ClusterRole
   name: {{ include "sdp-k8s-client.name" . }}

@@ -1,3 +1,4 @@
+----------------------------------------------------------------------------------------------------------
 |     ###    ########  ########   ######      ###    ######## ########     ######  ########  ########    |
 |    ## ##   ##     ## ##     ## ##    ##    ## ##      ##    ##          ##    ## ##     ## ##     ##   |
 |   ##   ##  ##     ## ##     ## ##         ##   ##     ##    ##          ##       ##     ## ##     ##   |
@@ -5,20 +6,36 @@
 |  ######### ##        ##        ##    ##  #########    ##    ##                ## ##     ## ##          |
 |  ##     ## ##        ##        ##    ##  ##     ##    ##    ##          ##    ## ##     ## ##          |
 |  ##     ## ##        ##         ######   ##     ##    ##    ########     ######  ########  ##          |
+----------------------------------------------------------------------------------------------------------
 
-1. Get the application URL by running these commands:
-{{- if contains "NodePort" .Values.service.type }}
-  export NODE_PORT=$(kubectl get --namespace {{ .Release.Namespace }} -o jsonpath="{.spec.ports[0].nodePort}" services {{ include "sdp-k8s-client.fullname" . }})
-  export NODE_IP=$(kubectl get nodes --namespace {{ .Release.Namespace }} -o jsonpath="{.items[0].status.addresses[0].address}")
-  echo http://$NODE_IP:$NODE_PORT
-{{- else if contains "LoadBalancer" .Values.service.type }}
-     NOTE: It may take a few minutes for the LoadBalancer IP to be available.
-           You can watch the status of by running 'kubectl get --namespace {{ .Release.Namespace }} svc -w {{ include "sdp-k8s-client.fullname" . }}'
-  export SERVICE_IP=$(kubectl get svc --namespace {{ .Release.Namespace }} {{ include "sdp-k8s-client.fullname" . }} --template "{{"{{ range (index .status.loadBalancer.ingress 0) }}{{.}}{{ end }}"}}")
-  echo http://$SERVICE_IP:{{ .Values.service.port }}
-{{- else if contains "ClusterIP" .Values.service.type }}
-  export POD_NAME=$(kubectl get pods --namespace {{ .Release.Namespace }} -l "app.kubernetes.io/name={{ include "sdp-k8s-client.name" . }},app.kubernetes.io/instance={{ .Release.Name }}" -o jsonpath="{.items[0].metadata.name}")
-  export CONTAINER_PORT=$(kubectl get pod --namespace {{ .Release.Namespace }} $POD_NAME -o jsonpath="{.spec.containers[0].ports[0].containerPort}")
-  echo "Visit http://127.0.0.1:8080 to use your application"
-  kubectl --namespace {{ .Release.Namespace }} port-forward $POD_NAME 8080:$CONTAINER_PORT
-{{- end }}
+Thank you for installing {{ .Chart.Name }}
+Your release is named {{ .Release.Name }}
+
+### Getting Started
+
+1. Create and label the namespace for SDP client injection
+$ kubectl create namespace sdp-demo
+$ kubectl label namespace sdp-demo --overwrite sdp-injection=enabled
+
+
+2. Create a secret containing username, password, and profile URL for SDP Injector authentication
+$ kubectl create secret generic sdp-injector-client-secrets \
+    --namespace sdp-demo \
+    --from-literal=client-username=<USERNAME> \
+    --from-literal=client-password=<PASSWORD> \
+    --from-literal=client-controller-url=<PROFILE_URL>
+
+
+3. Create a configmap containing SDP Injector configuration
+$ kubectl create configmap sdp-injector-client-config \
+    --namespace sdp-demo \
+    --from-literal=client-log-level=Debug
+
+The following configurations are currently supported:
+* client-log-level - The log level of the client
+* client-device-id - Specific device ID in UUID v4 format to use for the client. If unspecified, a random UUID is generated
+
+
+4. Create a busybox pod and ping an IP address protected by SDP
+$ kubectl run --namespace sdp-demo -i --tty busybox --image=busybox -- sh
+$ / # ping <IP_ADDRESS>
