@@ -11,7 +11,7 @@ The following tools are required to install the SDP Kubernetes Client:
 ## Getting Started
 1. Install the SDP Kubernetes Client with Helm 
     ```bash
-    $ export HELM_EXPERIENTAL_OCI=1
+    $ export HELM_EXPERIMENTAL_OCI=1
     $ helm install sdp-k8s-client oci://ghcr.io/appgate/sdp-k8s-client --version <VERSION>
     ```
     Browse the available versions on [Appgate GitHub Container Registry](https://github.com/appgate/sdp-k8s-client/pkgs/container/charts%2Fsdp-k8s-client)
