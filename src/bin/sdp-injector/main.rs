@@ -82,6 +82,8 @@ fn get_env_vars(container_name: &str, client_config: &str, client_secret: &str,
             env_var!(
                 configMap :: "APPGATE_LOGLEVEL" => client_config),
             env_var!(
+                configMap :: "APPGATE_DEVICE_ID" => client_config),
+            env_var!(
                 secrets :: "APPGATE_PROFILE_URL" => client_secret),
             env_var!(
                 secrets :: "APPGATE_USERNAME" => client_secret),
