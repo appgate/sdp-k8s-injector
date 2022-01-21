@@ -5,13 +5,14 @@ By injecting an SDP Client into pods on-demand, any Kubernetes workloads can acc
 
 ## Requirements
 The following tools are required to install the SDP Kubernetes Client:
-* helm - https://helm.sh/docs/intro/install/
+* helm v3.7.0+ - https://helm.sh/docs/intro/install/
 * kubectl - https://kubernetes.io/docs/tasks/tools/#kubectl
 
 ## Getting Started
-1. Install the SDP Kubernetes Client with Helm
+1. Install the SDP Kubernetes Client with Helm 
     ```bash
-    $ helm install sdp-k8s-client ghcr.io/appgate/sdp-k8s-client --version <VERSION> 
+    $ export HELM_EXPERIENTAL_OCI=1
+    $ helm install sdp-k8s-client oci://ghcr.io/appgate/sdp-k8s-client --version <VERSION>
     ```
     Browse the available versions on [Appgate GitHub Container Registry](https://github.com/appgate/sdp-k8s-client/pkgs/container/charts%2Fsdp-k8s-client)
 
