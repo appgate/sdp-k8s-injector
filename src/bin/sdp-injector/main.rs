@@ -80,13 +80,13 @@ fn get_env_vars(container_name: &str, client_config: &str, client_secret: &str,
     if container_name == SDP_SERVICE_CONTAINER_NAME {
         vec![
             env_var!(
-                configMap :: "CLIENT_LOG_LEVEL" => client_config),
+                configMap :: "APPGATE_LOGLEVEL" => client_config),
             env_var!(
-                secrets :: "CLIENT_CONTROLLER_URL" => client_secret),
+                secrets :: "APPGATE_PROFILE_URL" => client_secret),
             env_var!(
-                secrets :: "CLIENT_USERNAME" => client_secret),
+                secrets :: "APPGATE_USERNAME" => client_secret),
             env_var!(
-                secrets :: "CLIENT_PASSWORD" => client_secret),
+                secrets :: "APPGATE_PASSWORD" => client_secret),
             env_var!(
                 fieldRef :: "POD_NODE" => "spec.nodeName"),
             env_var!(
