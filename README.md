@@ -107,7 +107,9 @@ In the case of the SDP Kubernetes Client, a dnsmasq instance is configured accor
 When running on GKE, the firewall needs to be configured to allow traffic from the Kubernets API into the nodes to the port 8443 even if the service is listening. See [issue on GitHub](https://github.com/istio/istio/issues/19532)
 
 ## Parameters
+
 ### SDP parameters
+
 | Name                                   | Description                                                                              | Value                            |
 | -------------------------------------- | ---------------------------------------------------------------------------------------- | -------------------------------- |
 | `global.image.repository`              | Image registry to use for all SDP images.                                                | `ghcr.io/appgate/sdp-k8s-client` |
@@ -128,7 +130,9 @@ When running on GKE, the firewall needs to be configured to allow traffic from t
 | `sdp.dnsmasq.image.tag`                | SDP Dnsmasq image tag. If set, it overrides `.global.image.tag`.                         | `""`                             |
 | `sdp.dnsmasq.image.pullPolicy`         | SDP Dnsmasq image pull policy. If set, it overrides `.global.image.pullPolicy`.          | `""`                             |
 
+
 ### Kubernetes parameters
+
 | Name                    | Description                                          | Value       |
 | ----------------------- | ---------------------------------------------------- | ----------- |
 | `serviceAccount.create` | Enable the creation of a ServiceAccount for SDP pods | `true`      |
@@ -136,5 +140,6 @@ When running on GKE, the firewall needs to be configured to allow traffic from t
 | `service.type`          | Type of the service                                  | `ClusterIP` |
 | `service.port`          | Port of the service                                  | `443`       |
 | `replicaCount`          | Number of SDP Client replicas to deploy              | `1`         |
+
 
 This table above was generated using [readme-generator-for-helm](https://github.com/bitnami-labs/readme-generator-for-helm)
