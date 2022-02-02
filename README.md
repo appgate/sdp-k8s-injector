@@ -1,6 +1,6 @@
 # SDP Kubernetes Client
-The sdp-k8s-client is a new member of the Appgate SDP Client family that enables it to be used in Kubernetes clusters.
-By injecting an SDP Client into pods on-demand, traffic *from* specific Kubernetes workloads can now be captured and sent to protected resources behind an SDP Gateway. The Client captures traffic in much the same way as desktop Clients. The Entitlements will be defined in the Policy which in this case is likely to be assigned based on the use of the 'Services' IDP combined with any labels that were used when the SDP Client was injected.
+The sdp-k8s-client is a member of the Appgate SDP Client family that enables it to be used in Kubernetes clusters.
+By injecting an SDP Client into pods on-demand, traffic *from* specific Kubernetes workloads can now be captured and sent to protected resources behind an SDP Gateway. The Client captures traffic in much the same way as other SDP Clients. The Entitlements will be defined in the Policy which in this case is likely to be assigned based on the use of the 'Services' IDP combined with any labels that were used when the SDP Client was injected.
 
 Remember you can already control access *to* specific Kubernetes workloads using the URL access feature (HTTP up action type). 
 
