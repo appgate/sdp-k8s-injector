@@ -13,12 +13,12 @@ Your release is named {{ .Release.Name }}
 
 ### Getting Started
 
-1. Create and label the namespace for SDP client injection
+1. Create and label the namespace for SDP Client injection
 $ kubectl create namespace sdp-demo
 $ kubectl label namespace sdp-demo --overwrite sdp-injection=enabled
 
 
-2. Create a secret containing username, password, and profile URL for SDP Injector authentication
+2. Create a secret containing username, password, and Client profile for SDP Injector authentication
 $ kubectl create secret generic sdp-injector-client-secrets \
     --namespace sdp-demo \
     --from-literal=client-username=<USERNAME> \
@@ -32,8 +32,8 @@ $ kubectl create configmap sdp-injector-client-config \
     --from-literal=client-log-level=Debug
 
 The following configurations are currently supported:
-* client-log-level - The log level of the client
-* client-device-id - Specific device ID in UUID v4 format to use for the client. If unspecified, a random UUID is generated
+* client-log-level - The log level of the Client
+* client-device-id - Specific device ID in UUID v4 format to use for the Client. If unspecified, a random UUID is generated
 
 
 4. Create a busybox pod and ping an IP address protected by SDP
