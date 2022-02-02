@@ -89,5 +89,5 @@ service:
   port: 443
 
 ## Number of SDP Client replicas to deploy
-## @param replicaCount Number of SDP client replicas to deploy
+## @param replicaCount Number of SDP Client replicas to deploy
 replicaCount: 1
