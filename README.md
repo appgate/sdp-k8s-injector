@@ -50,9 +50,10 @@ The following tools are required to install the SDP Kubernetes Client:
 | `client-device-id` | The device ID to use for the Client in UUID v4 format. If empty, the injector will generate a random UUID | `860ab4cc-50f4-4c18-9e9c-1709d5419f1d` |
 
 
-5. Test the deployment by creating a busybox pod to ping a resource behind an SDP Gateway
+5. Test the deployment by creating a busybox pod, verify a route through an SDP Gateway (via tun0), and ping a resource behind an SDP Gateway
     ```bash
     $ kubectl run --namespace sdp-demo -i --tty busybox --image=busybox -- sh
+    $ /# ip route | grep tun0
     $ /# ping <IP_ADDRESS>
     ```
 
@@ -104,7 +105,7 @@ In the case of the SDP Kubernetes Client, a dnsmasq instance is configured accor
 
 ## Known Issues
 ### Google Kubernetes Engine (GKE)
-When running on GKE, the firewall needs to be configured to allow traffic from the Kubernets API into the nodes to the port 8443 even if the service is listening. See [issue on GitHub](https://github.com/istio/istio/issues/19532)
+When running on GKE, the firewall needs to be configured to allow traffic from the Kubernetes API into the nodes to the port 8443 even if the service is listening. See [issue on GitHub](https://github.com/istio/istio/issues/19532)
 
 ## Parameters
 
