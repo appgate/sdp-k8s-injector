@@ -35,6 +35,14 @@ spec:
       securityContext:
         runAsUser: 1000
       initContainers:
+        - name: delete-secret
+          image: "bitnami/kubectl"
+          command: [ "kubectl" ]
+          args: [ "delete", "secret", "{{ include "sdp-k8s-client.injector-secret" . }}", "--namespace", "{{ include "sdp-k8s-client.namespace" . }}", "--ignore-not-found", "true" ]
+        - name: delete-admission-webhook
+          image: "bitnami/kubectl"
+          command: [ "kubectl" ]
+          args: [ "delete", "mutatingwebhookconfigurations", "sdp-admission-webhook-{{ .Release.Name }}", "--ignore-not-found", "true" ]
         - name: create-sdp-ca-key
           image: "alpine/openssl"
           volumeMounts:
@@ -93,23 +101,15 @@ spec:
               mountPath: /tmp
           command: ["openssl"]
           args: ["x509", "-text", "-in", "/tmp/sdp-injector-crt.pem"]
-      containers:
-        - name: delete-secret
-          image: "bitnami/kubectl"
-          command: ["kubectl"]
-          args: [ "delete", "secret", "{{ include "sdp-k8s-client.injector-secret" . }}", "--namespace", "{{ include "sdp-k8s-client.namespace" . }}", "--ignore-not-found", "true"]
         - name: create-secret
           image: "bitnami/kubectl"
-          command: ["kubectl"]
-          args: [ "create", "secret", "generic", "{{ include "sdp-k8s-client.injector-secret" . }}", "--from-file=sdp-ca.crt=/tmp/sdp-ca.crt", "--from-file=sdp-injector-key.pem=/tmp/sdp-injector-key.pem", "--from-file=sdp-injector-crt.pem=/tmp/sdp-injector-crt.pem", "--namespace", "{{ include "sdp-k8s-client.namespace" . }}"]
+          command: [ "kubectl" ]
+          args: [ "create", "secret", "generic", "{{ include "sdp-k8s-client.injector-secret" . }}", "--from-file=sdp-ca.crt=/tmp/sdp-ca.crt", "--from-file=sdp-injector-key.pem=/tmp/sdp-injector-key.pem", "--from-file=sdp-injector-crt.pem=/tmp/sdp-injector-crt.pem", "--namespace", "{{ include "sdp-k8s-client.namespace" . }}" ]
           volumeMounts:
             - name: tmp
               mountPath: /tmp
               readOnly: true
-        - name: delete-admission-webhook
-          image: "bitnami/kubectl"
-          command: ["kubectl"]
-          args: [ "delete", "mutatingwebhookconfigurations", "sdp-admission-webhook-{{ .Release.Name }}", "--ignore-not-found", "true"]
+      containers:
         - name: create-admission-webhook
           image: "alpine:3"
           securityContext:
