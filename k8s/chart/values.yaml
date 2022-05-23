@@ -26,6 +26,7 @@ sdp:
   ## @param sdp.injector.image.repository SDP Injector image repository. If set, it overrides `.global.image.repository`.
   ## @param sdp.injector.image.tag SDP Injector image tag. If set, it overrides `.global.image.tag`.
   ## @param sdp.injector.image.pullPolicy SDP Injector pull policy. If set, it overrides `.global.image.pullPolicy`.
+  ## @param sdp.injector.certDays How many days will be the SDP Injector certificate be valid.
   injector:
     logLevel: info
     image:
@@ -36,6 +37,7 @@ sdp:
       ## ref: http://kubernetes.io/docs/user-guide/images/#pre-pulling-images
       ##
       pullPolicy: ""
+    certDays: 365
 
   ## @param sdp.headlessService.image.tag SDP Headless Service image repository. If set, it overrides `.global.image.repository`.
   ## @param sdp.headlessService.image.repository SDP Headless Service image tag. If set, it overrides `.global.image.tag`.
