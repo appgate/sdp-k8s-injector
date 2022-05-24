@@ -86,7 +86,7 @@ spec:
             - name: tmp
               mountPath: /tmp
           command: ["openssl"]
-          args: ["x509", "-req", "-in", "/tmp/sdp-injector.csr", "-extfile", "/tmp/config/sdp-x509-ext.conf", "-extensions", "v3_ca", "-CA", "/tmp/sdp-ca.crt", "-CAkey",  "/tmp/sdp-ca-key.pem", "-CAcreateserial", "-out", "/tmp/sdp-injector-crt.pem"]
+          args: ["x509", "-req", "-in", "/tmp/sdp-injector.csr", "-extfile", "/tmp/config/sdp-x509-ext.conf", "-extensions", "v3_ca", "-CA", "/tmp/sdp-ca.crt", "-CAkey",  "/tmp/sdp-ca-key.pem", "-CAcreateserial", "-days", "{{ .Values.sdp.injector.certDays }}", "-out", "/tmp/sdp-injector-crt.pem"]
         - name: print-csr
           image: "alpine/openssl"
           volumeMounts:
