@@ -1,16 +1,16 @@
-# SDP Kubernetes Client
-The sdp-k8s-client is a member of the Appgate SDP Client family that enables it to be used in Kubernetes clusters.
-By injecting an SDP Client into pods on-demand, traffic *from* specific Kubernetes workloads can now be captured and sent to protected resources behind an SDP Gateway. The Client captures traffic in much the same way as other SDP Clients. The Entitlements will be defined in the Policy which in this case is likely to be assigned based on the use of the 'Services' IDP combined with any labels that were used when the SDP Client was injected.
+# Kubernetes Client for Appgate SDP
+The k8s service Client is a member of the Appgate SDP Client family that enables it to be used in Kubernetes clusters.
+By injecting an SDP Client into pods on-demand, traffic *from* specific Kubernetes workloads can now be captured and sent to protected resources behind an SDP Gateway. The k8s service Client captures traffic in much the same way as other SDP Clients. The Entitlements will be defined in the Policy which in this case is likely to be assigned based on the use of the 'Services' IDP combined with any labels that were used when the k8s service Client was injected.
 
 Remember you can already control access *to* specific Kubernetes workloads using the URL access feature (HTTP up action type). 
 
 ## Requirements
-The following tools are required to install the SDP Kubernetes Client:
+The following tools are required to install the k8s service Client:
 * helm v3.7.0+ - https://helm.sh/docs/intro/install/
 * kubectl - https://kubernetes.io/docs/tasks/tools/#kubectl
 
 ## Getting Started
-1. Install the SDP Kubernetes Client with Helm 
+1. Install the k8s service Client with Helm 
     ```bash
     $ export HELM_EXPERIMENTAL_OCI=1
     $ helm install sdp-k8s-client oci://ghcr.io/appgate/charts/sdp-k8s-client --version <VERSION>
@@ -18,7 +18,7 @@ The following tools are required to install the SDP Kubernetes Client:
     Browse the available versions on [Appgate GitHub Container Registry](https://github.com/appgate/sdp-k8s-client/pkgs/container/charts%2Fsdp-k8s-client)
 
 
-2. Create a `sdp-demo` namespace and label the namespace with `sdp-injection="enabled"` for SDP Client injection
+2. Create a `sdp-demo` namespace and label the namespace with `sdp-injection="enabled"` for k8s service Client injection
     ```bash
     $ kubectl create namespace sdp-demo
     $ kubectl label namespace sdp-demo --overwrite sdp-injection="enabled"
@@ -59,7 +59,7 @@ The following tools are required to install the SDP Kubernetes Client:
 
 ## Advanced Usage
 ### Namespace Labels
-SDP injection is bound to namespaces. Adding the label `sdp-injection="enabled"` to a namespace will instruct the injector to inject a Client to all pods in the namespace.
+SDP injection is bound to namespaces. Adding the label `sdp-injection="enabled"` to a namespace will instruct the injector to inject a k8s service Client to all pods in the namespace.
 ```bash
 $ kubectl label --overwrite namespace sdp-demo sdp-injection="enabled"
 ```
@@ -71,7 +71,7 @@ sdp-demo      Active   1m     enabled
 ```
 
 ### Excluding Pods from Injection
-To prevent Client injection at a per-Pod basis, annotate the pod with `sdp-injector="false"`. Any pod with this annotation will not get an SDP Client even if it exists inside a namespace label with `sdp-injection="enabled"`
+To prevent Client injection at a per-Pod basis, annotate the pod with `sdp-injector="false"`. Any pod with this annotation will not get an k8s service Client even if it exists inside a namespace label with `sdp-injection="enabled"`
 ```bash
 $ kubectl annotate --overwrite pod <POD> sdp-injector="false"
 ```
@@ -93,9 +93,9 @@ $ kubectl annotate --overwrite pod <POD> sdp-injector-client-secrets="<SECRET>"
 
 ## How It Works
 ### sdp-dnsmasq
-The SDP Client can make DNS queries for specific hosts to specific DNS servers behind the SDP Gateways. This is configured by the sdp-driver which notifies the system about which domains should use the DNS servers behind the SDP Gateways.
+SDP Clients can make DNS queries for specific hosts to specific DNS servers behind the SDP Gateways. This is configured by the sdp-driver which notifies the system about which domains should use the DNS servers behind the SDP Gateways.
 
-In the case of the SDP Kubernetes Client, a dnsmasq instance is configured according to the instructions that the sdp-driver sends. Since only sdp-driver container can modify `/etc/resolv.conf`, the setup is done in the following steps:
+In the case of the k8s service Client, a dnsmasq instance is configured according to the instructions that the sdp-driver sends. Since only sdp-driver container can modify `/etc/resolv.conf`, the setup is done in the following steps:
 
 1. The sdp-dnsmasq container grabs the address of the kube-dns service and starts a new dnsmasq instance using that DNS server as upstream. This allows the dnsmasq instance to forward everything into the kube-dns service. 
 2. The sdp-dnsmasq container opens a UNIX socket to receive instructions from the sdp-driver container for when there are specific domain based DNS settings.
