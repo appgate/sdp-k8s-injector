@@ -14,11 +14,15 @@ function decho () {
 
 # NOTE: stdin reads from the socat socket.
 DNSMASQ_APPGATE=/etc/dnsmasq.d/appgate.conf
+DNSMASQ_APPGATE_NEW=/tmp/appgate.conf.new
+DNSMASQ_APPGATE_BACKUP=/tmp/appgate.conf.bk
+KUBE_DNS_FILE=/etc/kube-dns
 USE_SERVER_ENTRIES=0
+DNSMASQ_DEBUG=0
 
 # This reuses later the first entry in the file since that entry
 # points to the kube_dns service
-KUBE_DNS=$(cat $DNSMASQ_APPGATE|head -1)
+KUBE_DNS_SERVICE="server=$(cat $KUBE_DNS_FILE)"
 
 # What does the AWKward AWK script?
 #
@@ -35,8 +39,8 @@ match_domains () {
     servers="$1"
     domains="$2"
     echo -n "$domains" | awk -vSERVERS="$servers" \
-                             -vSERVER_ENTRIES="$SERVER_ENTRIES" \
-                             -e '
+			     -vSERVER_ENTRIES="$SERVER_ENTRIES" \
+			     -e '
 BEGIN {
   RS = ","
   lend = 0
@@ -47,11 +51,11 @@ BEGIN {
     # sdp-driver sent an entry with the form: dns.server.X.Y.Z.W.domain
     #    where X.Y.Z.W is the DNS to use to resolve hosts in domain
     if (match($0, ".default$")) {
-        servers[++lens] = gensub(/dns.server\.([0-9]+\.[0-9]+\.[0-9]+\.[0-9]+).(.+)/, "\\1", "g")
+	servers[++lens] = gensub(/dns.server\.([0-9]+\.[0-9]+\.[0-9]+\.[0-9]+).(.+)/, "\\1", "g")
     } else {
-        domains[lend++] = gensub(/dns.server\.([0-9]+\.[0-9]+\.[0-9]+\.[0-9]+).(.+)/, "server=/\\2/\\1", "g")
-        dns = gensub(/dns.server\.([0-9]+\.[0-9]+\.[0-9]+\.[0-9]+).(.+)/, "\\1", "g")
-        servers_for_domains[dns] = 1
+	domains[lend++] = gensub(/dns.server\.([0-9]+\.[0-9]+\.[0-9]+\.[0-9]+).(.+)/, "server=/\\2/\\1", "g")
+	dns = gensub(/dns.server\.([0-9]+\.[0-9]+\.[0-9]+\.[0-9]+).(.+)/, "\\1", "g")
+	servers_for_domains[dns] = 1
     }
   } else if (length() > 0) {
     # sdp-driver sent a plain domain so all the known servers should search hosts there
@@ -64,7 +68,7 @@ END {
   if (SERVER_ENTRIES) {
     for (s in servers) {
       if (! servers_for_domains[servers[s]]) {
-        print("server=" servers[s])
+	print("server=" servers[s])
       }
     }
   }
@@ -80,56 +84,100 @@ opt=${cli%% *}
 reset=0
 while [ -n "$opt" ]; do
     case ${opt%%=*} in
-        --reset)
-            reset=1
-            rm -rf $DNSMASQ_APPGATE
-            break
-            ;;
-        --servers)
-            servers="${opt##*=}"
-            ;;
-        --domains)
-            domains="${opt##*=}"
-            ;;
-        *)
-            # ignore this
-            ;;
+	--reset)
+	    reset=1
+	    echo $KUBE_DNS_FILE > $DNSMASQ_APPGATE_NEW
+	    servers=""
+	    domains=""
+	    break
+	    ;;
+	--servers)
+	    servers="${opt##*=}"
+	    ;;
+	--domains)
+	    domains="${opt##*=}"
+	    ;;
+	*)
+	    # ignore this
+	    ;;
     esac
     cli=${cli#* }
     opt=${cli%% *}
     if [ "$opt" = "$cli" ]; then
-        cli=""
+	cli=""
     fi
 done
 
-if [[ -z "$servers" && -z $domains ]]; then
-    if [[ $reset == 0 ]]; then
-        decho "--servers not provided, doing nothing"
-        exit 0
+# Flag to know if we need to restart the service
+restart=1
+
+# No reset was required
+if [[ $reset == 0 ]]; then
+    if [[ -z "$servers" && -z $domains ]]; then
+	decho "--servers not provided, doing nothing"
+	exit 0
+    fi
+
+    decho "Setting new DNS configuration"
+    echo $KUBE_DNS_SERVICE > $DNSMASQ_APPGATE_NEW
+    for i in $(match_domains "$servers" "$domains"); do
+	echo $i >> $DNSMASQ_APPGATE_NEW
+    done
+    old_hash=$(cat $DNSMASQ_APPGATE | awk '{print($1)}')
+    new_hash=$(cat $DNSMASQ_APPGATE_NEW | awk '{print($1)}')
+    if [[ "$old_hash" = "$new_hash" ]]; then
+	decho "Configuration file did not change, no need to restart the service"
+	restart=0
     fi
 fi
 
-decho "Setting new DNS configuration"
-echo $KUBE_DNS > $DNSMASQ_APPGATE
-for i in $(match_domains "$servers" "$domains"); do
-   echo $i >> $DNSMASQ_APPGATE
-done
-
-decho "Applying new DNS configuration"
-# dnsmasq can not reload files on SIHGUP so we need to restart it
-pid=$(pgrep dnsmasq)
-if [[ -n "$pid" ]]; then
-    kill -9 "$pid"
-fi
-res=1
-while [[ $res != 0 ]]; do
-    decho "Restarting dnsmasq ..."
-    /usr/sbin/dnsmasq --pid-file=/sdp-dnsmasq/dnsmasq.pid --port=53 --local-service \
-                      --listen-address=127.0.0.1 --log-queries -8 /proc/1/fd/1
-    res=$?
-    if [[ $res != 0 ]]; then
-        # Wait a bit so we dont try like crazy to restart it
-        decho "Trying to restart dnsmasq again ...."
-        sleep 5
+if [[ $restart -eq 1 ]]; then
+    decho "Applying new DNS configuration"
+    # Backup current configuration
+    cp $DNSMASQ_APPGATE $DNSMASQ_APPGATE_BACKUP
+    # Make new to be current
+    cp $DNSMASQ_APPGATE_NEW $DNSMASQ_APPGATE
+    # Counter for restart retries in case something goes wrong
+    retries=0
+    # Flag to know if we have already rollbacked
+    rollbacked=0
+    res=1
+    # dnsmasq can not reload files on SIHGUP so we need to restart it
+    pid=$(pgrep dnsmasq)
+    if [[ -n "$pid" ]]; then
+	kill -9 "$pid"
     fi
-done
+    if [[ $DNSMASQ_DEBUG -eq 1 ]]; then
+	LOG_QUERIES="--log-queries"
+    else
+	LOG_QUERIES=""
+    fi
+    while [[ $res != 0 ]]; do
+	decho "Restarting dnsmasq ..."
+	/usr/sbin/dnsmasq --pid-file=/sdp-dnsmasq/dnsmasq.pid --port=53 --local-service \
+			  --listen-address=127.0.0.1 $LOG_QUERIES -8 /proc/1/fd/1
+	res=$?
+	if [[ $res != 0 ]]; then
+	    if [[ $retries -gt 5 && $rollbacked -eq 0 ]]; then
+		# We have retry 5 times, rollback dnsmasq config
+		decho "Too many attempts to restart service, rolling back"
+		cp $DNSMASQ_APPGATE_BACKUP $DNSMASQ_APPGATE
+		rm -f $DNSMASQ_APPGATE_NEW
+		rollbacked=1
+		retries=0
+		sleep 5
+	    elif [[ $retries -le 5 ]]; then
+		retries=$((retries+1))
+		# Wait a bit so we dont try like crazy to restart it
+		decho "Trying to restart dnsmasq again ...."
+		sleep 5
+	    else
+		# We have rollbacked and still not working!
+		# Go to the default config
+		decho "Unable to restart service, using safe default values"
+		echo $KUBE_DNS_FILE > $DNSMASQ_APPGATE_NEW
+		sleep 5
+	    fi
+	fi
+    done
+fi
