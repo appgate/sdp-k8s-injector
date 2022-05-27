@@ -8,8 +8,8 @@ $1 ~ /nameserver/ {print($2);c++}
 END {if(c != 1) exit(1)}')
 
     if [ $? -ne 0 -o -z "$KUBE_DNS_SERVICE" ]; then
-	echo "Unable to get the kube dns service!. Dying now!"
-	exit 1
+        echo "Unable to get the kube dns service!. Dying now!"
+        exit 1
     fi
     echo server=$KUBE_DNS_SERVICE > /etc/dnsmasq.d/appgate.conf
     echo $KUBE_DNS_SERVICE > /tmp/kube-dns
@@ -31,7 +31,7 @@ fi
 # Start dnsmasq now so it has not pid 1
 # --log-facility sends the logs to the stdout the process with PID 1
 /usr/sbin/dnsmasq --pid-file=/sdp-dnsmasq/dnsmasq.pid --port=53 --local-service \
-		  --listen-address=127.0.0.1 $LOG_QUERIES --log-facility /proc/1/fd/1
+                  --listen-address=127.0.0.1 $LOG_QUERIES --log-facility /proc/1/fd/1
 
 # Start listening for events from sdp-driver
 # socat will fork sdp-dnsmasq-set-dns and it will send data receive in the socket to the
