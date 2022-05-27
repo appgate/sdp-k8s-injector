@@ -124,8 +124,8 @@ if [[ $reset == 0 ]]; then
     for i in $(match_domains "$servers" "$domains"); do
         echo $i >> $DNSMASQ_APPGATE_NEW
     done
-    old_hash=$(cat $DNSMASQ_APPGATE | awk '{print($1)}')
-    new_hash=$(cat $DNSMASQ_APPGATE_NEW | awk '{print($1)}')
+    old_hash=$(sha256sum $DNSMASQ_APPGATE | awk '{print($1)}')
+    new_hash=$(sha256sum $DNSMASQ_APPGATE_NEW | awk '{print($1)}')
     if [[ "$old_hash" = "$new_hash" ]]; then
         decho "Configuration file did not change, no need to restart the service"
         restart=0
