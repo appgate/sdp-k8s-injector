@@ -16,7 +16,8 @@ function decho () {
 DNSMASQ_APPGATE=/etc/dnsmasq.d/appgate.conf
 DNSMASQ_APPGATE_NEW=/tmp/appgate.conf.new
 DNSMASQ_APPGATE_BACKUP=/tmp/appgate.conf.bk
-KUBE_DNS_FILE=/etc/kube-dns
+DNSMASQ_APPGATE_FAIL=/tmp/appgate.conf.fail
+KUBE_DNS_FILE=/tmp/kube-dns
 USE_SERVER_ENTRIES=0
 DNSMASQ_DEBUG=0
 
@@ -137,6 +138,16 @@ if [[ $restart -eq 1 ]]; then
     cp $DNSMASQ_APPGATE $DNSMASQ_APPGATE_BACKUP
     # Make new to be current
     cp $DNSMASQ_APPGATE_NEW $DNSMASQ_APPGATE
+    # Basic check for the confic
+    /usr/sbin/dnsmasq --test || {
+	decho "Syntax errors when applying configuration. Rolling back configuration"
+	cp $DNSMASQ_APPGATE_BACKUP $DNSMASQ_APPGATE
+	cp $DNSMASQ_APPGATE_NEW $DNSMASQ_APPGATE_FAIL
+	decho "Configuration that failed:"
+	decho "FILE: $DNSMASQ_APPGATE"
+	awk '{system("echo \"" $0 "\"")}' $DNSMASQ_APPGATE_FAIL
+	exit 1
+    }
     # Counter for restart retries in case something goes wrong
     retries=0
     # Flag to know if we have already rollbacked
