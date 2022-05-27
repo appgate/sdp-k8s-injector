@@ -86,7 +86,7 @@ while [ -n "$opt" ]; do
     case ${opt%%=*} in
 	--reset)
 	    reset=1
-	    echo $KUBE_DNS_FILE > $DNSMASQ_APPGATE_NEW
+	    echo $KUBE_DNS_SERVICE > $DNSMASQ_APPGATE_NEW
 	    servers=""
 	    domains=""
 	    break
