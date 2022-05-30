@@ -157,7 +157,7 @@ if [[ $restart -eq 1 ]]; then
     if [[ -n "$pid" ]]; then
         kill -9 "$pid"
     fi
-    if [[ $DNSMASQ_DEBUG -eq 1 ]]; then
+    if [[ ${DNSMASQ_DEBUG:-0} -eq 1 ]]; then
         LOG_QUERIES="--log-queries"
     else
         LOG_QUERIES=""
