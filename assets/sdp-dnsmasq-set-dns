@@ -13,13 +13,12 @@ function decho () {
 }
 
 # NOTE: stdin reads from the socat socket.
-DNSMASQ_APPGATE=/etc/dnsmasq.d/appgate.conf
+DNSMASQ_APPGATE=/sdp-dnsmasq/dnsmasq.d/appgate.conf
 DNSMASQ_APPGATE_NEW=/tmp/appgate.conf.new
 DNSMASQ_APPGATE_BACKUP=/tmp/appgate.conf.bk
 DNSMASQ_APPGATE_FAIL=/tmp/appgate.conf.fail
 KUBE_DNS_FILE=/tmp/kube-dns
 USE_SERVER_ENTRIES=0
-DNSMASQ_DEBUG=0
 
 # This reuses later the first entry in the file since that entry
 # points to the kube_dns service

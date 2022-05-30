@@ -38,4 +38,4 @@ RUN rm -rf \
 COPY assets/sdp-driver-set-dns /opt/appgate/linux/set_dns
 RUN chmod +x /opt/appgate/linux/set_dns
 WORKDIR /root
-CMD ["/opt/appgate/appgate-driver", "-d", "-p", "/var/run/appgate/.driver.sock", "--container"]
+CMD ["/opt/appgate/appgate-driver", "-d", "-p", "/var/run/sdp-driver/.driver.sock", "--container"]

@@ -34,7 +34,11 @@ RUN rm -rf \
 
 COPY assets/sdp-client-headless-service /opt/appgate/sdp-client-headless-service
 COPY assets/sdp-driver-pod-info /opt/appgate/pod_info
-RUN chmod +x /opt/appgate/sdp-client-headless-service
-RUN chmod +x /opt/appgate/pod_info
-WORKDIR /root
+RUN chmod +x /opt/appgate/sdp-client-headless-service && \
+    mkdir /sdp-service && \
+    mkdir /var/run/appgate && \
+    chown 103:102 /sdp-service && \
+    chown 103:102 /var/run/appgate && \
+    chmod +x /opt/appgate/pod_info
+WORKDIR /sdp-service
 CMD ["/opt/appgate/sdp-client-headless-service"]
