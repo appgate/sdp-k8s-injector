@@ -36,7 +36,7 @@ sdp:
       ## Defaults to 'Always' if image tag is 'latest', else set to 'IfNotPresent'
       ## ref: http://kubernetes.io/docs/user-guide/images/#pre-pulling-images
       ##
-      pullPolicy: ""
+      pullPolicy: Always
     certDays: 365
 
   ## @param sdp.headlessService.image.tag SDP Headless Service image repository. If set, it overrides `.global.image.repository`.
@@ -46,7 +46,7 @@ sdp:
     image:
       repository: ""
       tag: ""
-      pullPolicy: ""
+      pullPolicy: Always
 
   ## @param sdp.headlessDriver.image.repository SDP Headless Driver image repository. If set, it overrides `.global.image.repository`.
   ## @param sdp.headlessDriver.image.tag SDP Headless Driver image tag. If set, it overrides `.global.image.tag`.
@@ -55,7 +55,7 @@ sdp:
     image:
       repository: ""
       tag: ""
-      pullPolicy: ""
+      pullPolicy: Always
 
   ## @param sdp.dnsmasq.image.repository SDP Dnsmasq image repository. If set, it overrides `.global.image.repository`.
   ## @param sdp.dnsmasq.image.tag SDP Dnsmasq image tag. If set, it overrides `.global.image.tag`.
@@ -64,7 +64,7 @@ sdp:
     image:
       repository: ""
       tag: ""
-      pullPolicy: ""
+      pullPolicy: Always
 
 ## @section Kubernetes parameters
 
