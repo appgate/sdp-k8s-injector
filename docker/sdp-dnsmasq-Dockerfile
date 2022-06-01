@@ -14,4 +14,5 @@ RUN mkdir /var/run/sdp-dnsmasq && \
     chown 100:101 /sdp-dnsmasq/ -R && \
     chmod +x /sdp-dnsmasq/sdp-dnsmasq
 WORKDIR /sdp-dnsmasq
+USER dnsmasq
 CMD ["/sdp-dnsmasq/sdp-dnsmasq"]
