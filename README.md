@@ -2,7 +2,7 @@
 The k8s service Client is a member of the Appgate SDP Client family that enables it to be used in Kubernetes clusters.
 By injecting an SDP Client into pods on-demand, traffic *from* specific Kubernetes workloads can now be captured and sent to protected resources behind an SDP Gateway. The k8s service Client captures traffic in much the same way as other SDP Clients. The Entitlements will be defined in the Policy which in this case is likely to be assigned based on the use of the 'Services' IDP combined with any labels that were used when the k8s service Client was injected.
 
-Remember you can already control access *to* specific Kubernetes workloads using the URL access feature (HTTP up action type). 
+Remember you can already control access *to* specific Kubernetes workloads using the URL access feature (HTTP up action type).
 
 ## Requirements
 The following tools are required to install the k8s service Client:
@@ -10,7 +10,7 @@ The following tools are required to install the k8s service Client:
 * kubectl - https://kubernetes.io/docs/tasks/tools/#kubectl
 
 ## Getting Started
-1. Install the k8s service Client with Helm 
+1. Install the k8s service Client with Helm
     ```bash
     $ export HELM_EXPERIMENTAL_OCI=1
     $ helm install sdp-k8s-client oci://ghcr.io/appgate/charts/sdp-k8s-client --version <VERSION>
@@ -97,10 +97,10 @@ SDP Clients can make DNS queries for specific hosts to specific DNS servers behi
 
 In the case of the k8s service Client, a dnsmasq instance is configured according to the instructions that the sdp-driver sends. Since only sdp-driver container can modify `/etc/resolv.conf`, the setup is done in the following steps:
 
-1. The sdp-dnsmasq container grabs the address of the kube-dns service and starts a new dnsmasq instance using that DNS server as upstream. This allows the dnsmasq instance to forward everything into the kube-dns service. 
+1. The sdp-dnsmasq container grabs the address of the kube-dns service and starts a new dnsmasq instance using that DNS server as upstream. This allows the dnsmasq instance to forward everything into the kube-dns service.
 2. The sdp-dnsmasq container opens a UNIX socket to receive instructions from the sdp-driver container for when there are specific domain based DNS settings.
 3. The sdp-driver container waits for the service to connect. Once connected, the sdp-driver calls the [sdp-driver-set-dns](./assets/sdp-driver-set-dns) script.
-4. [sdp-driver-set-dns](./assets/sdp-driver-set-dns) configures `/etc/resolv.conf` to point to sdp-dnsmasq. From this point onwards, sdp-dnsmasq takes the responsibility of resolving names inside the pod. 
+4. [sdp-driver-set-dns](./assets/sdp-driver-set-dns) configures `/etc/resolv.conf` to point to sdp-dnsmasq. From this point onwards, sdp-dnsmasq takes the responsibility of resolving names inside the pod.
 5. Any new instructions are sent to sdp-dnsmasq via UNIX socket by the sdp-driver. Then sdp-dnsmasq configures dnsmasq with the latest DNS domain and DNS server updates.
 
 ## Known Issues
