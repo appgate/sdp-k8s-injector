@@ -18,7 +18,7 @@ data:
           "imagePullPolicy": "{{.Values.sdp.headlessService.image.pullPolicy}}",
           "securityContext": {
             "runAsGroup": 102,
-            "runAsUser":103
+            "runAsUser":103,
             "runAsNonRoot": true
           },
           "resources": {},
