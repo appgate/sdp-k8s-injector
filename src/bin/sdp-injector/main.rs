@@ -520,6 +520,7 @@ mod tests {
         client_config_map: &'a str,
         client_secrets: &'a str,
         envs: Vec<(String, Option<String>)>,
+        service: Service
     }
 
     struct TestValidate {
@@ -540,7 +541,8 @@ mod tests {
                 envs: vec![
                     ("POD_N_CONTAINERS".to_string(), Some("0".to_string())),
                     ("K8S_DNS_SERVICE".to_string(), Some("".to_string()))
-                ]
+                ],
+                service: Service::default()
             },
             TestPatch {
                 pod: test_pod!(containers => vec!["random-service"]),
@@ -551,7 +553,9 @@ mod tests {
                     ("POD_N_CONTAINERS".to_string(), Some("1".to_string())),
                     ("K8S_DNS_SERVICE".to_string(), Some("".to_string()))
 
-                ]
+                ],
+                service: Service::default()
+
             },
             TestPatch {
                 pod: test_pod!(containers => vec!["random-service"],
@@ -562,7 +566,8 @@ mod tests {
                 envs: vec![
                     ("POD_N_CONTAINERS".to_string(), Some("1".to_string())),
                     ("K8S_DNS_SERVICE".to_string(), Some("".to_string()))
-                ]
+                ],
+                service: Service::default()
             },
             TestPatch {
                 pod: test_pod!(containers => vec!["random-service"],
@@ -575,7 +580,8 @@ mod tests {
                 envs: vec![
                     ("POD_N_CONTAINERS".to_string(), Some("1".to_string())),
                     ("K8S_DNS_SERVICE".to_string(), Some("".to_string()))
-                ]
+                ],
+                service: Service::default()
             },
             TestPatch {
                 pod: test_pod!(containers => vec!["random-service"],
@@ -587,7 +593,8 @@ mod tests {
                 envs: vec![
                     ("POD_N_CONTAINERS".to_string(), Some("1".to_string())),
                     ("K8S_DNS_SERVICE".to_string(), Some("".to_string()))
-                ]
+                ],
+                service: Service::default()
             },
             TestPatch {
                 pod: test_pod!(containers => vec!["some-random-service-1",
@@ -599,7 +606,8 @@ mod tests {
                 envs: vec![
                     ("POD_N_CONTAINERS".to_string(), Some("2".to_string())),
                     ("K8S_DNS_SERVICE".to_string(), Some("".to_string()))
-                ]
+                ],
+                service: Service::default()
             },
             TestPatch {
                 pod: test_pod!(containers => vec![sdp_sidecar_names[0].clone(),
@@ -611,7 +619,8 @@ mod tests {
                 envs: vec![
                     ("POD_N_CONTAINERS".to_string(), Some("3".to_string())),
                     ("K8S_DNS_SERVICE".to_string(), Some("".to_string()))
-                ]
+                ],
+                service: Service::default()
             },
             TestPatch {
                 pod: test_pod!(containers => vec![sdp_sidecar_names[0].clone(),
@@ -624,7 +633,8 @@ mod tests {
                 envs: vec![
                     ("POD_N_CONTAINERS".to_string(), Some("3".to_string())),
                     ("K8S_DNS_SERVICE".to_string(), Some("".to_string()))
-                ]
+                ],
+                service: Service::default()
             },
             TestPatch {
                 pod: test_pod!(containers => vec![sdp_sidecar_names[1].clone(),
@@ -635,7 +645,8 @@ mod tests {
                 envs: vec![
                     ("POD_N_CONTAINERS".to_string(), Some("2".to_string())),
                     ("K8S_DNS_SERVICE".to_string(), Some("".to_string()))
-                ]
+                ],
+                service: Service::default()
             },
             TestPatch {
                 pod: test_pod!(containers => vec![sdp_sidecar_names[1].clone(),
@@ -647,7 +658,8 @@ mod tests {
                 envs: vec![
                     ("POD_N_CONTAINERS".to_string(), Some("2".to_string())),
                     ("K8S_DNS_SERVICE".to_string(), Some("".to_string()))
-                ]
+                ],
+                service: Service::default()
             },
         ]
     }
@@ -706,12 +718,11 @@ POD is missing needed volumes: pod-info, run-appgate, tun-device"#.to_string()),
     fn needs_patching() {
         let sdp_sidecars = load_sidecar_containers_env()
             .expect("Unable to load test SDPSidecars: ");
-        let service = &Service::default();
         let results: Vec<TestResult> = patch_tests(&sdp_sidecars).iter().map(|t| {
             let sdp_pod = SDPPod {
                 pod: &t.pod,
                 sdp_sidecars: &sdp_sidecars,
-                k8s_dns_service: Some(service)
+                k8s_dns_service: Some(&t.service)
             };
             let needs_patching = sdp_pod.needs_patching();
             (t.needs_patching == needs_patching, "Needs patching simple".to_string(),
@@ -808,11 +819,10 @@ POD is missing needed volumes: pod-info, run-appgate, tun-device"#.to_string()),
 
         let assert_patch = |sdp_pod: &SDPPod, patch: Patch, test_patch: &TestPatch| -> Result<bool, String> {
             let patched_pod = patch_pod(sdp_pod, patch)?;
-            let service = &Service::default();
             let patched_sdp_pod = SDPPod {
                 pod: &patched_pod,
                 sdp_sidecars: &sdp_sidecars,
-                k8s_dns_service: Some(service)
+                k8s_dns_service: Some(&test_patch.service)
             };
             let unpatched_containers = sdp_pod.container_names().unwrap_or(vec![]);
             let unpatched_volumes = sdp_pod.volume_names().unwrap_or(vec![]);
@@ -822,12 +832,11 @@ POD is missing needed volumes: pod-info, run-appgate, tun-device"#.to_string()),
         };
 
         let test_description = || "Test patch".to_string();
-        let service = &Service::default();
         let results: Vec<TestResult> = patch_tests(&sdp_sidecars).iter().map(|test| {
             let sdp_pod = SDPPod {
                 pod: &test.pod,
                 sdp_sidecars: &sdp_sidecars,
-                k8s_dns_service: Some(service)
+                k8s_dns_service: Some(&test.service)
             };
             let needs_patching = sdp_pod.needs_patching();
             let patch = sdp_pod.patch_sidecars();
@@ -856,12 +865,11 @@ POD is missing needed volumes: pod-info, run-appgate, tun-device"#.to_string()),
             sdp_sidecars: &sdp_sidecars,
             k8s_dns_service: None,
         };
-        let service = &Service::default();
         let assert_response = Box::new(|test: &TestPatch| -> Result<bool, String> {
             let sdp_pod = SDPPod {
                 pod: &test.pod,
                 sdp_sidecars: &sdp_sidecars,
-                k8s_dns_service: Some(service)
+                k8s_dns_service: Some(&test.service)
             };
             let pod_value = serde_json::to_value(&sdp_pod.pod)
                 .expect(&format!("Unable to parse test input {}", sdp_pod));
@@ -936,12 +944,12 @@ POD is missing needed volumes: pod-info, run-appgate, tun-device"#.to_string()),
         let sdp_sidecars = load_sidecar_containers_env()
             .expect("Unable to load sidecars context");
         let test_description = || "Test POD validation".to_string();
-        let service = &Service::default();
+        let service = Service::default();
         let results: Vec<TestResult> = validation_tests().iter().map(|t| {
             let sdp_pod = SDPPod {
                 pod: &t.pod,
                 sdp_sidecars: &sdp_sidecars,
-                k8s_dns_service: Some(service)
+                k8s_dns_service: Some(&service)
             };
             let pass_validation = sdp_pod.validate_sidecars();
             match (pass_validation, t.validation_errors.as_ref()) {
