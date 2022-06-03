@@ -426,13 +426,14 @@ async fn validate(request: HttpRequest, body: String) -> Result<HttpResponse, Ht
 
 #[cfg(test)]
 mod tests {
-    use k8s_openapi::api::core::v1::{Pod, Container, Volume, Service};
+    use k8s_openapi::api::core::v1::{Pod, Container, Volume, Service, ServiceSpec, ServiceStatus};
     use std::collections::{BTreeMap, HashSet};
     use crate::{SDPPod, load_sidecar_containers, SDP_SIDECARS_FILE_ENV, SDPSidecars, patch_request, SDP_DEFAULT_CLIENT_CONFIG, SDP_ANNOTATION_CLIENT_CONFIG, SDP_DEFAULT_CLIENT_SECRETS, SDP_ANNOTATION_CLIENT_SECRETS, SDP_SERVICE_CONTAINER_NAME, SDPPatchContext};
     use std::iter::FromIterator;
     use kube::core::admission::AdmissionReview;
     use serde_json::json;
     use json_patch::Patch;
+    use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
 
     fn load_sidecar_containers_env() -> Result<SDPSidecars, String> {
         std::env::set_var(SDP_SIDECARS_FILE_ENV, "k8s/sdp-sidecars.json");
@@ -540,7 +541,6 @@ mod tests {
                 client_secrets: SDP_DEFAULT_CLIENT_SECRETS,
                 envs: vec![
                     ("POD_N_CONTAINERS".to_string(), Some("0".to_string())),
-                    ("K8S_DNS_SERVICE".to_string(), Some("".to_string()))
                 ],
                 service: Service::default()
             },
@@ -551,8 +551,7 @@ mod tests {
                 client_secrets: SDP_DEFAULT_CLIENT_SECRETS,
                 envs: vec![
                     ("POD_N_CONTAINERS".to_string(), Some("1".to_string())),
-                    ("K8S_DNS_SERVICE".to_string(), Some("".to_string()))
-
+                    ("K8S_DNS_SERVICE".to_string(), Some("".to_string())),
                 ],
                 service: Service::default()
 
@@ -565,7 +564,6 @@ mod tests {
                 client_secrets: SDP_DEFAULT_CLIENT_SECRETS,
                 envs: vec![
                     ("POD_N_CONTAINERS".to_string(), Some("1".to_string())),
-                    ("K8S_DNS_SERVICE".to_string(), Some("".to_string()))
                 ],
                 service: Service::default()
             },
@@ -598,16 +596,23 @@ mod tests {
             },
             TestPatch {
                 pod: test_pod!(containers => vec!["some-random-service-1",
-                                                  "some-random-service-2"],
-                               annotations => vec![(SDP_ANNOTATION_CLIENT_CONFIG, "some-config-map")]),
+                                                      "some-random-service-2"],
+                                   annotations => vec![(SDP_ANNOTATION_CLIENT_CONFIG, "some-config-map")]),
                 needs_patching: true,
                 client_config_map: "some-config-map",
                 client_secrets: SDP_DEFAULT_CLIENT_SECRETS,
                 envs: vec![
                     ("POD_N_CONTAINERS".to_string(), Some("2".to_string())),
-                    ("K8S_DNS_SERVICE".to_string(), Some("".to_string()))
+                    ("K8S_DNS_SERVICE".to_string(), Some("10.0.0.10".to_string())),
                 ],
-                service: Service::default()
+                service: Service {
+                    metadata: ObjectMeta::default(),
+                    spec: Some(ServiceSpec {
+                        cluster_ip: Some(String::from("10.0.0.10")),
+                        ..Default::default()
+                    }),
+                    status: Some(ServiceStatus::default()),
+                },
             },
             TestPatch {
                 pod: test_pod!(containers => vec![sdp_sidecar_names[0].clone(),
@@ -618,7 +623,6 @@ mod tests {
                 client_secrets: SDP_DEFAULT_CLIENT_SECRETS,
                 envs: vec![
                     ("POD_N_CONTAINERS".to_string(), Some("3".to_string())),
-                    ("K8S_DNS_SERVICE".to_string(), Some("".to_string()))
                 ],
                 service: Service::default()
             },
@@ -632,7 +636,6 @@ mod tests {
                 client_secrets: SDP_DEFAULT_CLIENT_SECRETS,
                 envs: vec![
                     ("POD_N_CONTAINERS".to_string(), Some("3".to_string())),
-                    ("K8S_DNS_SERVICE".to_string(), Some("".to_string()))
                 ],
                 service: Service::default()
             },
@@ -644,7 +647,6 @@ mod tests {
                 client_secrets: SDP_DEFAULT_CLIENT_SECRETS,
                 envs: vec![
                     ("POD_N_CONTAINERS".to_string(), Some("2".to_string())),
-                    ("K8S_DNS_SERVICE".to_string(), Some("".to_string()))
                 ],
                 service: Service::default()
             },
@@ -657,7 +659,6 @@ mod tests {
                 client_secrets: SDP_DEFAULT_CLIENT_SECRETS,
                 envs: vec![
                     ("POD_N_CONTAINERS".to_string(), Some("2".to_string())),
-                    ("K8S_DNS_SERVICE".to_string(), Some("".to_string()))
                 ],
                 service: Service::default()
             },
@@ -816,7 +817,6 @@ POD is missing needed volumes: pod-info, run-appgate, tun-device"#.to_string()),
                 Ok(true)
             }
         };
-
         let assert_patch = |sdp_pod: &SDPPod, patch: Patch, test_patch: &TestPatch| -> Result<bool, String> {
             let patched_pod = patch_pod(sdp_pod, patch)?;
             let patched_sdp_pod = SDPPod {
