@@ -1,13 +1,12 @@
 use actix_web::{post, App, HttpResponse, HttpServer, HttpRequest};
-use k8s_openapi::api::core::v1::{Container, Pod, Volume, EnvVar, EnvVarSource, ConfigMapKeySelector,
-                                 SecretKeySelector, ObjectFieldSelector};
+use k8s_openapi::api::core::v1::{Container, Pod, Volume, EnvVar, EnvVarSource, ConfigMapKeySelector, SecretKeySelector, ObjectFieldSelector, Service};
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::Status;
 use std::path::PathBuf;
 use std::fs::File;
 use std::io::BufReader;
 use std::error::Error;
 use serde::Deserialize;
-use log::{debug, error, info};
+use log::{debug, error, info, warn};
 use std::fmt::{Display, Formatter, Result as FResult};
 use rustls::{ServerConfig, NoClientAuth};
 use rustls::internal::pemfile::{certs, rsa_private_keys};
@@ -15,9 +14,11 @@ use kube::api::admission::{AdmissionReview, AdmissionResponse, AdmissionRequest}
 use json_patch::{Patch, AddOperation};
 use json_patch::PatchOperation::Add;
 use std::convert::TryInto;
-use kube::api::DynamicObject;
+use kube::api::{DynamicObject, ListParams};
 use std::collections::{HashSet, BTreeMap};
+use std::collections::hash_map::RandomState;
 use std::iter::FromIterator;
+use kube::{Api, Client};
 
 const SDP_SIDECARS_FILE: &str = "/opt/sdp-injector/k8s/sdp-sidecars.json";
 const SDP_SIDECARS_FILE_ENV: &str = "SDP_SIDECARS_FILE";
@@ -76,7 +77,8 @@ macro_rules! env_var {
 }
 
 fn get_env_vars(container_name: &str, client_config: &str, client_secret: &str,
-                n_containers: String) -> Vec<EnvVar> {
+                n_containers: String, k8s_dns_service_ip: Option<&str>) -> Vec<EnvVar> {
+    let k8s_dns = k8s_dns_service_ip.unwrap_or("").to_string();
     if container_name == SDP_SERVICE_CONTAINER_NAME {
         vec![
             env_var!(
@@ -97,11 +99,15 @@ fn get_env_vars(container_name: &str, client_config: &str, client_secret: &str,
                 fieldRef :: "POD_SERVICE_ACCOUNT" => "spec.serviceAccountName"),
             env_var!(
                 value :: "POD_N_CONTAINERS" => n_containers),
+            env_var!(
+                value :: "K8S_DNS_SERVICE" => k8s_dns),
         ]
     } else {
         vec![
             env_var!(
                 value :: "POD_N_CONTAINERS" => n_containers),
+            env_var!(
+                value :: "K8S_DNS_SERVICE" => k8s_dns),
         ]
     }
 }
@@ -112,9 +118,28 @@ fn reader_from_cwd(file_name: &str) -> Result<BufReader<File>, Box<dyn Error>> {
     Ok(BufReader::new(file))
 }
 
+async fn discover_dns_service<'a>(k8s_client: &'a Client) -> Option<Service> {
+    let ns = [String::from("kubedns"), String::from("coredns")];
+    let names: HashSet<&String, RandomState> = HashSet::from_iter(ns.iter());
+    let services_api: Api<Service> = Api::namespaced(k8s_client.clone(), "kube-system");
+    let services= services_api.list(&ListParams::default()).await;
+    services.map(
+        |xs| {
+            let mut iter = xs.items.into_iter();
+            iter.find(
+                |s| s.metadata.name.as_ref()
+                    .map(|ns| names.contains(ns)).unwrap_or(false))
+        }
+    ).unwrap_or_else(|_| {
+        warn!("Unable to discover k8s DNS service !");
+        Option::None
+    })
+}
+
 struct SDPPod<'a> {
     pod: &'a Pod,
     sdp_sidecars: &'a SDPSidecars,
+    k8s_dns_service: Option<&'a Service>,
 }
 
 impl SDPPod<'_> {
@@ -187,10 +212,18 @@ impl SDPPod<'_> {
             .unwrap_or(SDP_DEFAULT_CLIENT_SECRETS.to_string());
         let mut patches = vec![];
         if self.needs_patching() {
+            let k8s_dns_service_ip = self.k8s_dns_service.as_ref()
+                .and_then(|s| s.spec.as_ref())
+                .and_then(|s| s.cluster_ip.as_ref())
+                .and_then(|ip| (ip != "None" && ip != "").then(|| {
+                    warn!("Unable to discover k8s DNS service ip");
+                    ip
+                }));
             let n_containers = self.containers().map(|xs| xs.len()).unwrap_or(0);
             for c in self.sdp_sidecars.containers.clone().iter_mut() {
                 c.env = Some(get_env_vars(&c.name, &config_map, &secrets,
-                                          n_containers.to_string()));
+                                          n_containers.to_string(),
+                                          k8s_dns_service_ip.map(|s| s.as_str())));
                 patches.push(Add(AddOperation {
                     path: "/spec/containers/-".to_string(),
                     value: serde_json::to_value(&c)?,
@@ -269,6 +302,18 @@ struct SDPSidecars {
     volumes: Box<Vec<Volume>>,
 }
 
+#[derive(Clone)]
+struct SDPInjectorContext {
+    sdp_sidecars: SDPSidecars,
+    k8s_client: Client,
+}
+
+#[derive(Debug, Clone)]
+struct SDPPatchContext<'a> {
+    sdp_sidecars: &'a SDPSidecars,
+    k8s_dns_service: Option<Service>,
+}
+
 impl SDPSidecars {
     fn container_names(&self) -> Vec<String> {
         self.containers.iter().map(|c| c.name.clone()).collect()
@@ -301,12 +346,16 @@ fn load_cert_files() -> Result<(BufReader<File>, BufReader<File>), Box<dyn Error
     Ok((cert_buf, key_buf))
 }
 
-fn patch_request(request_body: &str, sdp_sidecars: &SDPSidecars) -> Result<AdmissionReview<DynamicObject>, Box<dyn Error>> {
+fn patch_request(request_body: &str, sdp_context: &SDPPatchContext) -> Result<AdmissionReview<DynamicObject>, Box<dyn Error>> {
     let admision_review = serde_json::from_str::<AdmissionReview<Pod>>(&request_body)
         .map_err(|e| format!("Error parsing payload: {}", e.to_string()))?;
     let admission_request: AdmissionRequest<Pod> = admision_review.try_into()?;
     let pod = admission_request.object.as_ref().ok_or("Admission review does not contain a POD")?;
-    let sdp_pod = SDPPod { pod, sdp_sidecars };
+    let sdp_pod = SDPPod {
+        pod,
+        sdp_sidecars: sdp_context.sdp_sidecars,
+        k8s_dns_service: sdp_context.k8s_dns_service.as_ref(),
+    };
     let mut admission_response = AdmissionResponse::from(&admission_request);
     match sdp_pod.patch_sidecars() {
         Ok(patch) => {
@@ -328,7 +377,11 @@ fn validate_request(request_body: &str, sdp_sidecars: &SDPSidecars) -> Result<Ad
         .map_err(|e| format!("Error parsing payload: {}", e.to_string()))?;
     let admission_request: AdmissionRequest<Pod> = admision_review.try_into()?;
     let pod = admission_request.object.as_ref().ok_or("Admission review does not contain a POD")?;
-    let sdp_pod = SDPPod { pod, sdp_sidecars };
+    let sdp_pod = SDPPod {
+        pod: pod,
+        sdp_sidecars: sdp_sidecars,
+        k8s_dns_service: Option::None
+    };
     let mut admission_response = AdmissionResponse::from(&admission_request);
     if let Err(error) = sdp_pod.validate_sidecars() {
         let mut status: Status = Default::default();
@@ -342,9 +395,14 @@ fn validate_request(request_body: &str, sdp_sidecars: &SDPSidecars) -> Result<Ad
 
 #[post("/mutate")]
 async fn mutate(request: HttpRequest, body: String) -> Result<HttpResponse, HttpResponse> {
-    let context = request.app_data::<SDPSidecars>()
-        .expect("Unable to get app context");
-    let admission_review = patch_request(&body, context);
+    let sdp_injector_context = request.app_data::<SDPInjectorContext>()
+        .expect("Unable to get injector context");
+    let k8s_dns_service = discover_dns_service(&(sdp_injector_context.k8s_client)).await;
+    let sdp_context = SDPPatchContext {
+        sdp_sidecars: &(sdp_injector_context.sdp_sidecars),
+        k8s_dns_service: k8s_dns_service,
+    };
+    let admission_review = patch_request(&body, &sdp_context);
     if admission_review.is_err() {
         error!("Error injecting SDP client into POD: {}", admission_review.as_ref().unwrap_err());
     }
@@ -368,9 +426,9 @@ async fn validate(request: HttpRequest, body: String) -> Result<HttpResponse, Ht
 
 #[cfg(test)]
 mod tests {
-    use k8s_openapi::api::core::v1::{Pod, Container, Volume};
+    use k8s_openapi::api::core::v1::{Pod, Container, Volume, Service};
     use std::collections::{BTreeMap, HashSet};
-    use crate::{SDPPod, load_sidecar_containers, SDP_SIDECARS_FILE_ENV, SDPSidecars, patch_request, SDP_DEFAULT_CLIENT_CONFIG, SDP_ANNOTATION_CLIENT_CONFIG, SDP_DEFAULT_CLIENT_SECRETS, SDP_ANNOTATION_CLIENT_SECRETS, SDP_SERVICE_CONTAINER_NAME};
+    use crate::{SDPPod, load_sidecar_containers, SDP_SIDECARS_FILE_ENV, SDPSidecars, patch_request, SDP_DEFAULT_CLIENT_CONFIG, SDP_ANNOTATION_CLIENT_CONFIG, SDP_DEFAULT_CLIENT_SECRETS, SDP_ANNOTATION_CLIENT_SECRETS, SDP_SERVICE_CONTAINER_NAME, SDPPatchContext};
     use std::iter::FromIterator;
     use kube::core::admission::AdmissionReview;
     use serde_json::json;
@@ -480,7 +538,8 @@ mod tests {
                 client_config_map: SDP_DEFAULT_CLIENT_CONFIG,
                 client_secrets: SDP_DEFAULT_CLIENT_SECRETS,
                 envs: vec![
-                    ("POD_N_CONTAINERS".to_string(), Some("0".to_string()))
+                    ("POD_N_CONTAINERS".to_string(), Some("0".to_string())),
+                    ("K8S_DNS_SERVICE".to_string(), Some("".to_string()))
                 ]
             },
             TestPatch {
@@ -489,7 +548,9 @@ mod tests {
                 client_config_map: SDP_DEFAULT_CLIENT_CONFIG,
                 client_secrets: SDP_DEFAULT_CLIENT_SECRETS,
                 envs: vec![
-                    ("POD_N_CONTAINERS".to_string(), Some("1".to_string()))
+                    ("POD_N_CONTAINERS".to_string(), Some("1".to_string())),
+                    ("K8S_DNS_SERVICE".to_string(), Some("".to_string()))
+
                 ]
             },
             TestPatch {
@@ -499,7 +560,8 @@ mod tests {
                 client_config_map: SDP_DEFAULT_CLIENT_CONFIG,
                 client_secrets: SDP_DEFAULT_CLIENT_SECRETS,
                 envs: vec![
-                    ("POD_N_CONTAINERS".to_string(), Some("1".to_string()))
+                    ("POD_N_CONTAINERS".to_string(), Some("1".to_string())),
+                    ("K8S_DNS_SERVICE".to_string(), Some("".to_string()))
                 ]
             },
             TestPatch {
@@ -511,7 +573,8 @@ mod tests {
                 client_config_map: "some-config-map",
                 client_secrets: "some-secrets",
                 envs: vec![
-                    ("POD_N_CONTAINERS".to_string(), Some("1".to_string()))
+                    ("POD_N_CONTAINERS".to_string(), Some("1".to_string())),
+                    ("K8S_DNS_SERVICE".to_string(), Some("".to_string()))
                 ]
             },
             TestPatch {
@@ -522,7 +585,8 @@ mod tests {
                 client_config_map: SDP_DEFAULT_CLIENT_CONFIG,
                 client_secrets: "some-secrets",
                 envs: vec![
-                    ("POD_N_CONTAINERS".to_string(), Some("1".to_string()))
+                    ("POD_N_CONTAINERS".to_string(), Some("1".to_string())),
+                    ("K8S_DNS_SERVICE".to_string(), Some("".to_string()))
                 ]
             },
             TestPatch {
@@ -533,7 +597,8 @@ mod tests {
                 client_config_map: "some-config-map",
                 client_secrets: SDP_DEFAULT_CLIENT_SECRETS,
                 envs: vec![
-                    ("POD_N_CONTAINERS".to_string(), Some("2".to_string()))
+                    ("POD_N_CONTAINERS".to_string(), Some("2".to_string())),
+                    ("K8S_DNS_SERVICE".to_string(), Some("".to_string()))
                 ]
             },
             TestPatch {
@@ -544,7 +609,8 @@ mod tests {
                 client_config_map: SDP_DEFAULT_CLIENT_CONFIG,
                 client_secrets: SDP_DEFAULT_CLIENT_SECRETS,
                 envs: vec![
-                    ("POD_N_CONTAINERS".to_string(), Some("3".to_string()))
+                    ("POD_N_CONTAINERS".to_string(), Some("3".to_string())),
+                    ("K8S_DNS_SERVICE".to_string(), Some("".to_string()))
                 ]
             },
             TestPatch {
@@ -556,7 +622,8 @@ mod tests {
                 client_config_map: SDP_DEFAULT_CLIENT_CONFIG,
                 client_secrets: SDP_DEFAULT_CLIENT_SECRETS,
                 envs: vec![
-                    ("POD_N_CONTAINERS".to_string(), Some("3".to_string()))
+                    ("POD_N_CONTAINERS".to_string(), Some("3".to_string())),
+                    ("K8S_DNS_SERVICE".to_string(), Some("".to_string()))
                 ]
             },
             TestPatch {
@@ -566,7 +633,8 @@ mod tests {
                 client_config_map: SDP_DEFAULT_CLIENT_CONFIG,
                 client_secrets: SDP_DEFAULT_CLIENT_SECRETS,
                 envs: vec![
-                    ("POD_N_CONTAINERS".to_string(), Some("2".to_string()))
+                    ("POD_N_CONTAINERS".to_string(), Some("2".to_string())),
+                    ("K8S_DNS_SERVICE".to_string(), Some("".to_string()))
                 ]
             },
             TestPatch {
@@ -577,7 +645,8 @@ mod tests {
                 client_config_map: SDP_DEFAULT_CLIENT_CONFIG,
                 client_secrets: SDP_DEFAULT_CLIENT_SECRETS,
                 envs: vec![
-                    ("POD_N_CONTAINERS".to_string(), Some("2".to_string()))
+                    ("POD_N_CONTAINERS".to_string(), Some("2".to_string())),
+                    ("K8S_DNS_SERVICE".to_string(), Some("".to_string()))
                 ]
             },
         ]
@@ -636,9 +705,14 @@ POD is missing needed volumes: pod-info, run-appgate, tun-device"#.to_string()),
     #[test]
     fn needs_patching() {
         let sdp_sidecars = load_sidecar_containers_env()
-            .expect("Unable to load sidecars context");
+            .expect("Unable to load test SDPSidecars: ");
+        let service = &Service::default();
         let results: Vec<TestResult> = patch_tests(&sdp_sidecars).iter().map(|t| {
-            let sdp_pod = SDPPod { pod: &t.pod, sdp_sidecars: &sdp_sidecars };
+            let sdp_pod = SDPPod {
+                pod: &t.pod,
+                sdp_sidecars: &sdp_sidecars,
+                k8s_dns_service: Some(service)
+            };
             let needs_patching = sdp_pod.needs_patching();
             (t.needs_patching == needs_patching, "Needs patching simple".to_string(),
              format!("Got {}, expected {}", needs_patching, t.needs_patching))
@@ -734,7 +808,12 @@ POD is missing needed volumes: pod-info, run-appgate, tun-device"#.to_string()),
 
         let assert_patch = |sdp_pod: &SDPPod, patch: Patch, test_patch: &TestPatch| -> Result<bool, String> {
             let patched_pod = patch_pod(sdp_pod, patch)?;
-            let patched_sdp_pod = SDPPod { pod: &patched_pod, sdp_sidecars: &sdp_sidecars };
+            let service = &Service::default();
+            let patched_sdp_pod = SDPPod {
+                pod: &patched_pod,
+                sdp_sidecars: &sdp_sidecars,
+                k8s_dns_service: Some(service)
+            };
             let unpatched_containers = sdp_pod.container_names().unwrap_or(vec![]);
             let unpatched_volumes = sdp_pod.volume_names().unwrap_or(vec![]);
             assert_volumes(&patched_sdp_pod, unpatched_volumes)?;
@@ -743,8 +822,13 @@ POD is missing needed volumes: pod-info, run-appgate, tun-device"#.to_string()),
         };
 
         let test_description = || "Test patch".to_string();
+        let service = &Service::default();
         let results: Vec<TestResult> = patch_tests(&sdp_sidecars).iter().map(|test| {
-            let sdp_pod = SDPPod { pod: &test.pod, sdp_sidecars: &sdp_sidecars };
+            let sdp_pod = SDPPod {
+                pod: &test.pod,
+                sdp_sidecars: &sdp_sidecars,
+                k8s_dns_service: Some(service)
+            };
             let needs_patching = sdp_pod.needs_patching();
             let patch = sdp_pod.patch_sidecars();
             if test.needs_patching && needs_patching {
@@ -768,8 +852,17 @@ POD is missing needed volumes: pod-info, run-appgate, tun-device"#.to_string()),
     #[test]
     fn test_mutate_responses() {
         let sdp_sidecars = load_sidecar_containers_env().expect("Unable to load sidecars context");
-        let assert_response = |test: &TestPatch| -> Result<bool, String> {
-            let sdp_pod = SDPPod { pod: &test.pod, sdp_sidecars: &sdp_sidecars };
+        let sdp_context = SDPPatchContext {
+            sdp_sidecars: &sdp_sidecars,
+            k8s_dns_service: None,
+        };
+        let service = &Service::default();
+        let assert_response = Box::new(|test: &TestPatch| -> Result<bool, String> {
+            let sdp_pod = SDPPod {
+                pod: &test.pod,
+                sdp_sidecars: &sdp_sidecars,
+                k8s_dns_service: Some(service)
+            };
             let pod_value = serde_json::to_value(&sdp_pod.pod)
                 .expect(&format!("Unable to parse test input {}", sdp_pod));
             let admission_review_value = json!({
@@ -810,7 +903,7 @@ POD is missing needed volumes: pod-info, run-appgate, tun-device"#.to_string()),
                 .map_err(|e| format!("Unable to convert to string generated AdmissionReview value: {}", e.to_string()))?;
             // test the patch_request function now
             // TODO: Test responses not allowing the patch!
-            match patch_request(&admission_review_str, &sdp_sidecars).map(|r| r.response) {
+            match patch_request(&admission_review_str, &sdp_context).map(|r| r.response) {
                 Ok(Some(response)) if !response.allowed =>
                     Err(format!("{} got response not allowed,, expected response allowed", sdp_pod)),
                 Ok(Some(response)) => response.patch
@@ -828,8 +921,7 @@ POD is missing needed volumes: pod-info, run-appgate, tun-device"#.to_string()),
                 Ok(None) => Err("Could not find a response!".to_string()),
                 Err(error) => Err(format!("Could not generate a response: {}", error.to_string())),
             }
-        };
-
+        });
         let results: Vec<TestResult> = patch_tests(&sdp_sidecars).iter().map(|test| {
             match assert_response(test) {
                 Ok(r) => (r, "Injection Containers Test".to_string(), "Unknown".to_string()),
@@ -844,8 +936,13 @@ POD is missing needed volumes: pod-info, run-appgate, tun-device"#.to_string()),
         let sdp_sidecars = load_sidecar_containers_env()
             .expect("Unable to load sidecars context");
         let test_description = || "Test POD validation".to_string();
+        let service = &Service::default();
         let results: Vec<TestResult> = validation_tests().iter().map(|t| {
-            let sdp_pod = SDPPod { pod: &t.pod, sdp_sidecars: &sdp_sidecars };
+            let sdp_pod = SDPPod {
+                pod: &t.pod,
+                sdp_sidecars: &sdp_sidecars,
+                k8s_dns_service: Some(service)
+            };
             let pass_validation = sdp_pod.validate_sidecars();
             match (pass_validation, t.validation_errors.as_ref()) {
                 (Ok(_), Some(expected_error)) => {
@@ -888,12 +985,19 @@ async fn main() -> std::io::Result<()> {
     info!("Starting sdp-injector!!!!");
     // Get the sidecar containers definition
     // this is used to inject later the sidecars
-    let sdp_context = load_sidecar_containers()
+    let sdp_sidecars: SDPSidecars = load_sidecar_containers()
         .expect("Unable to load the sidecar information");
+    let k8s_client: Client = async move {
+        Client::try_default().await.expect("SS")
+    }.await;
+    let sdp_injector_context = SDPInjectorContext {
+        sdp_sidecars: sdp_sidecars,
+        k8s_client: k8s_client,
+    };
     let ssl_config = load_ssl().expect("Unable to load certificates");
     HttpServer::new(move || {
         App::new()
-            .app_data(sdp_context.clone())
+            .app_data(sdp_injector_context.clone())
             .service(mutate)
             .service(validate)
     })
