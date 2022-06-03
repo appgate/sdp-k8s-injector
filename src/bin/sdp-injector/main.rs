@@ -1,24 +1,27 @@
-use actix_web::{post, App, HttpResponse, HttpServer, HttpRequest};
-use k8s_openapi::api::core::v1::{Container, Pod, Volume, EnvVar, EnvVarSource, ConfigMapKeySelector, SecretKeySelector, ObjectFieldSelector, Service};
+use actix_web::{post, App, HttpRequest, HttpResponse, HttpServer};
+use json_patch::PatchOperation::Add;
+use json_patch::{AddOperation, Patch};
+use k8s_openapi::api::core::v1::{
+    ConfigMapKeySelector, Container, EnvVar, EnvVarSource, ObjectFieldSelector, Pod,
+    SecretKeySelector, Service, Volume,
+};
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::Status;
-use std::path::PathBuf;
+use kube::api::admission::{AdmissionRequest, AdmissionResponse, AdmissionReview};
+use kube::api::{DynamicObject, ListParams};
+use kube::{Api, Client};
+use log::{debug, error, info, warn};
+use rustls::internal::pemfile::{certs, rsa_private_keys};
+use rustls::{NoClientAuth, ServerConfig};
+use serde::Deserialize;
+use std::collections::hash_map::RandomState;
+use std::collections::{BTreeMap, HashSet};
+use std::convert::TryInto;
+use std::error::Error;
+use std::fmt::{Display, Formatter, Result as FResult};
 use std::fs::File;
 use std::io::BufReader;
-use std::error::Error;
-use serde::Deserialize;
-use log::{debug, error, info, warn};
-use std::fmt::{Display, Formatter, Result as FResult};
-use rustls::{ServerConfig, NoClientAuth};
-use rustls::internal::pemfile::{certs, rsa_private_keys};
-use kube::api::admission::{AdmissionReview, AdmissionResponse, AdmissionRequest};
-use json_patch::{Patch, AddOperation};
-use json_patch::PatchOperation::Add;
-use std::convert::TryInto;
-use kube::api::{DynamicObject, ListParams};
-use std::collections::{HashSet, BTreeMap};
-use std::collections::hash_map::RandomState;
 use std::iter::FromIterator;
-use kube::{Api, Client};
+use std::path::PathBuf;
 
 const SDP_SIDECARS_FILE: &str = "/opt/sdp-injector/k8s/sdp-sidecars.json";
 const SDP_SIDECARS_FILE_ENV: &str = "SDP_SIDECARS_FILE";
@@ -46,7 +49,7 @@ macro_rules! env_var {
         env_source.config_map_key_ref = Some(ConfigMapKeySelector {
             key: $env_name.to_lowercase().replace("_", "-"),
             name: Some($map_name.to_string()),
-            optional: Some(false)
+            optional: Some(false),
         });
         env.value_from = Some(env_source);
         env
@@ -58,7 +61,7 @@ macro_rules! env_var {
         env_source.secret_key_ref = Some(SecretKeySelector {
             key: $env_name.to_lowercase().replace("_", "-"),
             name: Some($secret_name.to_string()),
-            optional: Some(false)
+            optional: Some(false),
         });
         env.value_from = Some(env_source);
         env
@@ -76,8 +79,13 @@ macro_rules! env_var {
     }};
 }
 
-fn get_env_vars(container_name: &str, client_config: &str, client_secret: &str,
-                n_containers: String, k8s_dns_service_ip: Option<&str>) -> Vec<EnvVar> {
+fn get_env_vars(
+    container_name: &str,
+    client_config: &str,
+    client_secret: &str,
+    n_containers: String,
+    k8s_dns_service_ip: Option<&str>,
+) -> Vec<EnvVar> {
     let k8s_dns = k8s_dns_service_ip.unwrap_or("").to_string();
     if container_name == SDP_SERVICE_CONTAINER_NAME {
         vec![
@@ -122,18 +130,22 @@ async fn discover_dns_service<'a>(k8s_client: &'a Client) -> Option<Service> {
     let ns = [String::from("kubedns"), String::from("coredns")];
     let names: HashSet<&String, RandomState> = HashSet::from_iter(ns.iter());
     let services_api: Api<Service> = Api::namespaced(k8s_client.clone(), "kube-system");
-    let services= services_api.list(&ListParams::default()).await;
-    services.map(
-        |xs| {
+    let services = services_api.list(&ListParams::default()).await;
+    services
+        .map(|xs| {
             let mut iter = xs.items.into_iter();
-            iter.find(
-                |s| s.metadata.name.as_ref()
-                    .map(|ns| names.contains(ns)).unwrap_or(false))
-        }
-    ).unwrap_or_else(|_| {
-        warn!("Unable to discover k8s DNS service !");
-        Option::None
-    })
+            iter.find(|s| {
+                s.metadata
+                    .name
+                    .as_ref()
+                    .map(|ns| names.contains(ns))
+                    .unwrap_or(false)
+            })
+        })
+        .unwrap_or_else(|_| {
+            warn!("Unable to discover k8s DNS service !");
+            Option::None
+        })
 }
 
 struct SDPPod<'a> {
@@ -152,7 +164,11 @@ impl SDPPod<'_> {
     }
 
     fn name(&self) -> String {
-        self.pod.metadata.name.as_ref().map(|x| x.clone())
+        self.pod
+            .metadata
+            .name
+            .as_ref()
+            .map(|x| x.clone())
             .unwrap_or("Unnamed".to_string())
     }
 
@@ -161,24 +177,26 @@ impl SDPPod<'_> {
     }
 
     fn sidecars(&self) -> Option<Vec<&Container>> {
-        self.containers().map(|cs|
+        self.containers().map(|cs| {
             cs.iter()
                 .filter(|&c| self.sdp_sidecars.container_names().contains(&c.name))
-                .collect())
+                .collect()
+        })
     }
 
     fn sidecar_names(&self) -> Option<Vec<String>> {
-        self.sidecars().map(|xs|
-            xs.iter().map(|&x| x.name.clone()).collect())
+        self.sidecars()
+            .map(|xs| xs.iter().map(|&x| x.name.clone()).collect())
     }
 
     fn container_names(&self) -> Option<Vec<String>> {
-        self.containers().map(|xs|
-            xs.iter().map(|x| x.name.clone()).collect())
+        self.containers()
+            .map(|xs| xs.iter().map(|x| x.name.clone()).collect())
     }
 
     fn volume_names(&self) -> Option<Vec<String>> {
-        self.volumes().map(|vs| vs.iter().map(|v| v.name.clone()).collect())
+        self.volumes()
+            .map(|vs| vs.iter().map(|v| v.name.clone()).collect())
     }
 
     fn has_any_sidecars(&self) -> bool {
@@ -202,28 +220,38 @@ impl SDPPod<'_> {
 
     fn patch_sidecars(&self) -> Result<Patch, Box<dyn Error>> {
         info!("Patching POD with SDP client");
-        let config_map = self.annotations()
+        let config_map = self
+            .annotations()
             .and_then(|bt| bt.get(SDP_ANNOTATION_CLIENT_CONFIG))
             .map(|s| s.clone())
             .unwrap_or(SDP_DEFAULT_CLIENT_CONFIG.to_string());
-        let secrets = self.annotations()
+        let secrets = self
+            .annotations()
             .and_then(|bt| bt.get(SDP_ANNOTATION_CLIENT_SECRETS))
             .map(|s| s.clone())
             .unwrap_or(SDP_DEFAULT_CLIENT_SECRETS.to_string());
         let mut patches = vec![];
         if self.needs_patching() {
-            let k8s_dns_service_ip = self.k8s_dns_service.as_ref()
+            let k8s_dns_service_ip = self
+                .k8s_dns_service
+                .as_ref()
                 .and_then(|s| s.spec.as_ref())
                 .and_then(|s| s.cluster_ip.as_ref())
-                .and_then(|ip| (ip != "None" && ip != "").then(|| {
-                    warn!("Unable to discover k8s DNS service ip");
-                    ip
-                }));
+                .and_then(|ip| {
+                    (ip != "None" && ip != "").then(|| {
+                        warn!("Unable to discover k8s DNS service ip");
+                        ip
+                    })
+                });
             let n_containers = self.containers().map(|xs| xs.len()).unwrap_or(0);
             for c in self.sdp_sidecars.containers.clone().iter_mut() {
-                c.env = Some(get_env_vars(&c.name, &config_map, &secrets,
-                                          n_containers.to_string(),
-                                          k8s_dns_service_ip.map(|s| s.as_str())));
+                c.env = Some(get_env_vars(
+                    &c.name,
+                    &config_map,
+                    &secrets,
+                    n_containers.to_string(),
+                    k8s_dns_service_ip.map(|s| s.as_str()),
+                ));
                 patches.push(Add(AddOperation {
                     path: "/spec/containers/-".to_string(),
                     value: serde_json::to_value(&c)?,
@@ -252,32 +280,44 @@ impl SDPPod<'_> {
     }
 
     fn validate_sidecars(&self) -> Result<(), String> {
-        let expected_volume_names = HashSet::from_iter(
-            self.sdp_sidecars.volumes.iter().map(|v| v.name.clone()));
-        let expected_container_names = HashSet::from_iter(
-            self.sdp_sidecars.containers.iter().map(|c| c.name.clone()));
-        let container_names = HashSet::from_iter(self.sidecar_names()
-            .unwrap_or(vec![])
-            .iter().cloned());
-        let volume_names = HashSet::from_iter(self.volume_names()
-            .unwrap_or(vec![])
-            .iter().cloned());
+        let expected_volume_names =
+            HashSet::from_iter(self.sdp_sidecars.volumes.iter().map(|v| v.name.clone()));
+        let expected_container_names =
+            HashSet::from_iter(self.sdp_sidecars.containers.iter().map(|c| c.name.clone()));
+        let container_names =
+            HashSet::from_iter(self.sidecar_names().unwrap_or(vec![]).iter().cloned());
+        let volume_names =
+            HashSet::from_iter(self.volume_names().unwrap_or(vec![]).iter().cloned());
         let mut errors: Vec<String> = vec![];
         if !expected_container_names.is_subset(&container_names) {
-            let container_i: HashSet<String> = container_names.intersection(&expected_container_names)
-                .cloned().collect();
+            let container_i: HashSet<String> = container_names
+                .intersection(&expected_container_names)
+                .cloned()
+                .collect();
             let mut missing_containers: Vec<String> = expected_container_names
-                .difference(&container_i).cloned().collect();
+                .difference(&container_i)
+                .cloned()
+                .collect();
             missing_containers.sort();
-            errors.push(format!("POD is missing needed containers: {}", missing_containers.join(", ")));
+            errors.push(format!(
+                "POD is missing needed containers: {}",
+                missing_containers.join(", ")
+            ));
         }
         if !expected_volume_names.is_subset(&volume_names) {
-            let volumes_i: HashSet<String> = volume_names.intersection(&expected_volume_names)
-                .cloned().collect();
+            let volumes_i: HashSet<String> = volume_names
+                .intersection(&expected_volume_names)
+                .cloned()
+                .collect();
             let mut missing_volumes: Vec<String> = expected_volume_names
-                .difference(&volumes_i).cloned().collect();
+                .difference(&volumes_i)
+                .cloned()
+                .collect();
             missing_volumes.sort();
-            errors.push(format!("POD is missing needed volumes: {}", missing_volumes.join(", ")));
+            errors.push(format!(
+                "POD is missing needed volumes: {}",
+                missing_volumes.join(", ")
+            ));
         }
         if errors.is_empty() {
             Ok(())
@@ -289,10 +329,14 @@ impl SDPPod<'_> {
 
 impl Display for SDPPod<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> FResult {
-        write!(f, "POD(name:{}, needs_patching:{}, containers:[{}], volumes: [{}])",
-               self.name(), self.needs_patching(),
-               self.container_names().unwrap_or(vec![]).join(","),
-               self.volume_names().unwrap_or(vec![]).join(","))
+        write!(
+            f,
+            "POD(name:{}, needs_patching:{}, containers:[{}], volumes: [{}])",
+            self.name(),
+            self.needs_patching(),
+            self.container_names().unwrap_or(vec![]).join(","),
+            self.volume_names().unwrap_or(vec![]).join(",")
+        )
     }
 }
 
@@ -346,11 +390,17 @@ fn load_cert_files() -> Result<(BufReader<File>, BufReader<File>), Box<dyn Error
     Ok((cert_buf, key_buf))
 }
 
-fn patch_request(request_body: &str, sdp_context: &SDPPatchContext) -> Result<AdmissionReview<DynamicObject>, Box<dyn Error>> {
+fn patch_request(
+    request_body: &str,
+    sdp_context: &SDPPatchContext,
+) -> Result<AdmissionReview<DynamicObject>, Box<dyn Error>> {
     let admision_review = serde_json::from_str::<AdmissionReview<Pod>>(&request_body)
         .map_err(|e| format!("Error parsing payload: {}", e.to_string()))?;
     let admission_request: AdmissionRequest<Pod> = admision_review.try_into()?;
-    let pod = admission_request.object.as_ref().ok_or("Admission review does not contain a POD")?;
+    let pod = admission_request
+        .object
+        .as_ref()
+        .ok_or("Admission review does not contain a POD")?;
     let sdp_pod = SDPPod {
         pod,
         sdp_sidecars: sdp_context.sdp_sidecars,
@@ -358,9 +408,7 @@ fn patch_request(request_body: &str, sdp_context: &SDPPatchContext) -> Result<Ad
     };
     let mut admission_response = AdmissionResponse::from(&admission_request);
     match sdp_pod.patch_sidecars() {
-        Ok(patch) => {
-            admission_response = admission_response.with_patch(patch)?
-        }
+        Ok(patch) => admission_response = admission_response.with_patch(patch)?,
         Err(error) => {
             let mut status: Status = Default::default();
             status.code = Some(40);
@@ -372,15 +420,21 @@ fn patch_request(request_body: &str, sdp_context: &SDPPatchContext) -> Result<Ad
     Ok(admission_response.into_review())
 }
 
-fn validate_request(request_body: &str, sdp_sidecars: &SDPSidecars) -> Result<AdmissionReview<DynamicObject>, Box<dyn Error>> {
+fn validate_request(
+    request_body: &str,
+    sdp_sidecars: &SDPSidecars,
+) -> Result<AdmissionReview<DynamicObject>, Box<dyn Error>> {
     let admision_review = serde_json::from_str::<AdmissionReview<Pod>>(&request_body)
         .map_err(|e| format!("Error parsing payload: {}", e.to_string()))?;
     let admission_request: AdmissionRequest<Pod> = admision_review.try_into()?;
-    let pod = admission_request.object.as_ref().ok_or("Admission review does not contain a POD")?;
+    let pod = admission_request
+        .object
+        .as_ref()
+        .ok_or("Admission review does not contain a POD")?;
     let sdp_pod = SDPPod {
         pod: pod,
         sdp_sidecars: sdp_sidecars,
-        k8s_dns_service: Option::None
+        k8s_dns_service: Option::None,
     };
     let mut admission_response = AdmissionResponse::from(&admission_request);
     if let Err(error) = sdp_pod.validate_sidecars() {
@@ -395,7 +449,8 @@ fn validate_request(request_body: &str, sdp_sidecars: &SDPSidecars) -> Result<Ad
 
 #[post("/mutate")]
 async fn mutate(request: HttpRequest, body: String) -> Result<HttpResponse, HttpResponse> {
-    let sdp_injector_context = request.app_data::<SDPInjectorContext>()
+    let sdp_injector_context = request
+        .app_data::<SDPInjectorContext>()
         .expect("Unable to get injector context");
     let k8s_dns_service = discover_dns_service(&(sdp_injector_context.k8s_client)).await;
     let sdp_context = SDPPatchContext {
@@ -404,7 +459,10 @@ async fn mutate(request: HttpRequest, body: String) -> Result<HttpResponse, Http
     };
     let admission_review = patch_request(&body, &sdp_context);
     if admission_review.is_err() {
-        error!("Error injecting SDP client into POD: {}", admission_review.as_ref().unwrap_err());
+        error!(
+            "Error injecting SDP client into POD: {}",
+            admission_review.as_ref().unwrap_err()
+        );
     }
     admission_review
         .and_then(|r| Ok(HttpResponse::Ok().json(&r)))
@@ -413,11 +471,15 @@ async fn mutate(request: HttpRequest, body: String) -> Result<HttpResponse, Http
 
 #[post("/validate")]
 async fn validate(request: HttpRequest, body: String) -> Result<HttpResponse, HttpResponse> {
-    let context = request.app_data::<SDPSidecars>()
+    let context = request
+        .app_data::<SDPSidecars>()
         .expect("Unable to get app context");
     let admission_review = validate_request(&body, context);
     if admission_review.is_err() {
-        error!("Error validating POD with SDP client: {}", admission_review.as_ref().unwrap_err());
+        error!(
+            "Error validating POD with SDP client: {}",
+            admission_review.as_ref().unwrap_err()
+        );
     }
     admission_review
         .and_then(|r| Ok(HttpResponse::Ok().json(&r)))
@@ -426,14 +488,18 @@ async fn validate(request: HttpRequest, body: String) -> Result<HttpResponse, Ht
 
 #[cfg(test)]
 mod tests {
-    use k8s_openapi::api::core::v1::{Pod, Container, Volume, Service, ServiceSpec, ServiceStatus};
-    use std::collections::{BTreeMap, HashSet};
-    use crate::{SDPPod, load_sidecar_containers, SDP_SIDECARS_FILE_ENV, SDPSidecars, patch_request, SDP_DEFAULT_CLIENT_CONFIG, SDP_ANNOTATION_CLIENT_CONFIG, SDP_DEFAULT_CLIENT_SECRETS, SDP_ANNOTATION_CLIENT_SECRETS, SDP_SERVICE_CONTAINER_NAME, SDPPatchContext};
-    use std::iter::FromIterator;
+    use crate::{
+        load_sidecar_containers, patch_request, SDPPatchContext, SDPPod, SDPSidecars,
+        SDP_ANNOTATION_CLIENT_CONFIG, SDP_ANNOTATION_CLIENT_SECRETS, SDP_DEFAULT_CLIENT_CONFIG,
+        SDP_DEFAULT_CLIENT_SECRETS, SDP_SERVICE_CONTAINER_NAME, SDP_SIDECARS_FILE_ENV,
+    };
+    use json_patch::Patch;
+    use k8s_openapi::api::core::v1::{Container, Pod, Service, ServiceSpec, ServiceStatus, Volume};
+    use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
     use kube::core::admission::AdmissionReview;
     use serde_json::json;
-    use json_patch::Patch;
-    use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
+    use std::collections::{BTreeMap, HashSet};
+    use std::iter::FromIterator;
 
     fn load_sidecar_containers_env() -> Result<SDPSidecars, String> {
         std::env::set_var(SDP_SIDECARS_FILE_ENV, "k8s/sdp-sidecars.json");
@@ -443,21 +509,27 @@ mod tests {
 
     macro_rules! set_pod_field {
         ($pod:expr, containers => $cs:expr) => {
-            let test_cs: Vec<Container> = $cs.iter().map(|x| {
-                let mut c: Container = Default::default();
-                c.name = x.to_string();
-                c
-            }).collect();
+            let test_cs: Vec<Container> = $cs
+                .iter()
+                .map(|x| {
+                    let mut c: Container = Default::default();
+                    c.name = x.to_string();
+                    c
+                })
+                .collect();
             if let Some(spec) = $pod.spec.as_mut() {
                 spec.containers = test_cs;
             }
         };
         ($pod:expr, volumes => $vs:expr) => {
-            let volumes: Vec<Volume> = $vs.iter().map(|x| {
+            let volumes: Vec<Volume> = $vs
+                .iter()
+                .map(|x| {
                     let mut v: Volume = Default::default();
                     v.name = x.to_string();
                     v
-            }).collect();
+                })
+                .collect();
 
             if volumes.len() > 0 {
                 if let Some(spec) = $pod.spec.as_mut() {
@@ -498,17 +570,20 @@ mod tests {
 
     fn assert_tests(test_results: &[TestResult]) -> () {
         let mut test_errors: Vec<(usize, String, String)> = Vec::new();
-        let ok = test_results.iter()
-            .enumerate().fold(true, |total, (c, (result, test_description, error_message))| {
-            if !result {
-                test_errors.push((c, test_description.clone(), error_message.clone()));
-            }
-            total && *result
-        });
+        let ok = test_results.iter().enumerate().fold(
+            true,
+            |total, (c, (result, test_description, error_message))| {
+                if !result {
+                    test_errors.push((c, test_description.clone(), error_message.clone()));
+                }
+                total && *result
+            },
+        );
         if !ok {
-            let errors: Vec<String> = test_errors.iter().map(|x|
-                format!("Test {} [#{}] failed, reason: {}", x.1, x.0, x.2).to_string()
-            ).collect();
+            let errors: Vec<String> = test_errors
+                .iter()
+                .map(|x| format!("Test {} [#{}] failed, reason: {}", x.1, x.0, x.2).to_string())
+                .collect();
             panic!("Inject test failed: {}", errors.join("\n"));
         }
         assert_eq!(true, true);
@@ -521,7 +596,7 @@ mod tests {
         client_config_map: &'a str,
         client_secrets: &'a str,
         envs: Vec<(String, Option<String>)>,
-        service: Service
+        service: Service,
     }
 
     struct TestValidate {
@@ -539,10 +614,8 @@ mod tests {
                 needs_patching: false,
                 client_config_map: SDP_DEFAULT_CLIENT_CONFIG,
                 client_secrets: SDP_DEFAULT_CLIENT_SECRETS,
-                envs: vec![
-                    ("POD_N_CONTAINERS".to_string(), Some("0".to_string())),
-                ],
-                service: Service::default()
+                envs: vec![("POD_N_CONTAINERS".to_string(), Some("0".to_string()))],
+                service: Service::default(),
             },
             TestPatch {
                 pod: test_pod!(containers => vec!["random-service"]),
@@ -553,8 +626,7 @@ mod tests {
                     ("POD_N_CONTAINERS".to_string(), Some("1".to_string())),
                     ("K8S_DNS_SERVICE".to_string(), Some("".to_string())),
                 ],
-                service: Service::default()
-
+                service: Service::default(),
             },
             TestPatch {
                 pod: test_pod!(containers => vec!["random-service"],
@@ -562,10 +634,8 @@ mod tests {
                 needs_patching: false,
                 client_config_map: SDP_DEFAULT_CLIENT_CONFIG,
                 client_secrets: SDP_DEFAULT_CLIENT_SECRETS,
-                envs: vec![
-                    ("POD_N_CONTAINERS".to_string(), Some("1".to_string())),
-                ],
-                service: Service::default()
+                envs: vec![("POD_N_CONTAINERS".to_string(), Some("1".to_string()))],
+                service: Service::default(),
             },
             TestPatch {
                 pod: test_pod!(containers => vec!["random-service"],
@@ -577,9 +647,9 @@ mod tests {
                 client_secrets: "some-secrets",
                 envs: vec![
                     ("POD_N_CONTAINERS".to_string(), Some("1".to_string())),
-                    ("K8S_DNS_SERVICE".to_string(), Some("".to_string()))
+                    ("K8S_DNS_SERVICE".to_string(), Some("".to_string())),
                 ],
-                service: Service::default()
+                service: Service::default(),
             },
             TestPatch {
                 pod: test_pod!(containers => vec!["random-service"],
@@ -590,9 +660,9 @@ mod tests {
                 client_secrets: "some-secrets",
                 envs: vec![
                     ("POD_N_CONTAINERS".to_string(), Some("1".to_string())),
-                    ("K8S_DNS_SERVICE".to_string(), Some("".to_string()))
+                    ("K8S_DNS_SERVICE".to_string(), Some("".to_string())),
                 ],
-                service: Service::default()
+                service: Service::default(),
             },
             TestPatch {
                 pod: test_pod!(containers => vec!["some-random-service-1",
@@ -621,10 +691,8 @@ mod tests {
                 needs_patching: false,
                 client_config_map: SDP_DEFAULT_CLIENT_CONFIG,
                 client_secrets: SDP_DEFAULT_CLIENT_SECRETS,
-                envs: vec![
-                    ("POD_N_CONTAINERS".to_string(), Some("3".to_string())),
-                ],
-                service: Service::default()
+                envs: vec![("POD_N_CONTAINERS".to_string(), Some("3".to_string()))],
+                service: Service::default(),
             },
             TestPatch {
                 pod: test_pod!(containers => vec![sdp_sidecar_names[0].clone(),
@@ -634,10 +702,8 @@ mod tests {
                 needs_patching: false,
                 client_config_map: SDP_DEFAULT_CLIENT_CONFIG,
                 client_secrets: SDP_DEFAULT_CLIENT_SECRETS,
-                envs: vec![
-                    ("POD_N_CONTAINERS".to_string(), Some("3".to_string())),
-                ],
-                service: Service::default()
+                envs: vec![("POD_N_CONTAINERS".to_string(), Some("3".to_string()))],
+                service: Service::default(),
             },
             TestPatch {
                 pod: test_pod!(containers => vec![sdp_sidecar_names[1].clone(),
@@ -645,10 +711,8 @@ mod tests {
                 needs_patching: false,
                 client_config_map: SDP_DEFAULT_CLIENT_CONFIG,
                 client_secrets: SDP_DEFAULT_CLIENT_SECRETS,
-                envs: vec![
-                    ("POD_N_CONTAINERS".to_string(), Some("2".to_string())),
-                ],
-                service: Service::default()
+                envs: vec![("POD_N_CONTAINERS".to_string(), Some("2".to_string()))],
+                service: Service::default(),
             },
             TestPatch {
                 pod: test_pod!(containers => vec![sdp_sidecar_names[1].clone(),
@@ -657,10 +721,8 @@ mod tests {
                 needs_patching: false,
                 client_config_map: SDP_DEFAULT_CLIENT_CONFIG,
                 client_secrets: SDP_DEFAULT_CLIENT_SECRETS,
-                envs: vec![
-                    ("POD_N_CONTAINERS".to_string(), Some("2".to_string())),
-                ],
-                service: Service::default()
+                envs: vec![("POD_N_CONTAINERS".to_string(), Some("2".to_string()))],
+                service: Service::default(),
             },
         ]
     }
@@ -717,25 +779,30 @@ POD is missing needed volumes: pod-info, run-appgate, tun-device"#.to_string()),
 
     #[test]
     fn needs_patching() {
-        let sdp_sidecars = load_sidecar_containers_env()
-            .expect("Unable to load test SDPSidecars: ");
-        let results: Vec<TestResult> = patch_tests(&sdp_sidecars).iter().map(|t| {
-            let sdp_pod = SDPPod {
-                pod: &t.pod,
-                sdp_sidecars: &sdp_sidecars,
-                k8s_dns_service: Some(&t.service)
-            };
-            let needs_patching = sdp_pod.needs_patching();
-            (t.needs_patching == needs_patching, "Needs patching simple".to_string(),
-             format!("Got {}, expected {}", needs_patching, t.needs_patching))
-        }).collect();
+        let sdp_sidecars =
+            load_sidecar_containers_env().expect("Unable to load test SDPSidecars: ");
+        let results: Vec<TestResult> = patch_tests(&sdp_sidecars)
+            .iter()
+            .map(|t| {
+                let sdp_pod = SDPPod {
+                    pod: &t.pod,
+                    sdp_sidecars: &sdp_sidecars,
+                    k8s_dns_service: Some(&t.service),
+                };
+                let needs_patching = sdp_pod.needs_patching();
+                (
+                    t.needs_patching == needs_patching,
+                    "Needs patching simple".to_string(),
+                    format!("Got {}, expected {}", needs_patching, t.needs_patching),
+                )
+            })
+            .collect();
         assert_tests(&results)
     }
 
     #[test]
     fn test_pod_patch_sidecars() {
-        let sdp_sidecars = load_sidecar_containers_env()
-            .expect("Unable to load sidecars context");
+        let sdp_sidecars = load_sidecar_containers_env().expect("Unable to load sidecars context");
         let expected_containers = |vs: &[String]| -> HashSet<String> {
             let mut xs: Vec<String> = sdp_sidecars.container_names();
             xs.extend_from_slice(vs);
@@ -743,7 +810,11 @@ POD is missing needed volumes: pod-info, run-appgate, tun-device"#.to_string()),
         };
 
         let expected_volumes = |vs: &[String]| -> HashSet<String> {
-            let mut xs: Vec<String> = sdp_sidecars.volumes.iter().map(|c| c.name.clone()).collect();
+            let mut xs: Vec<String> = sdp_sidecars
+                .volumes
+                .iter()
+                .map(|c| c.name.clone())
+                .collect();
             xs.extend_from_slice(vs);
             HashSet::from_iter(xs.iter().cloned())
         };
@@ -757,103 +828,173 @@ POD is missing needed volumes: pod-info, run-appgate, tun-device"#.to_string()),
             Ok(patched_pod)
         };
 
-        let assert_volumes = |patched_sdp_pod: &SDPPod, unpatched_volumes: Vec<String>| -> Result<bool, String> {
-            let patched_volumes = HashSet::from_iter(patched_sdp_pod.volume_names()
-                .unwrap_or(vec![]).iter().cloned());
-            (patched_volumes == expected_volumes(&unpatched_volumes)).then(|| true)
-                .ok_or(format!("Wrong volumes after patch, got {:?}, expected {:?}", patched_volumes,
-                               expected_volumes(&unpatched_volumes)))
-        };
+        let assert_volumes =
+            |patched_sdp_pod: &SDPPod, unpatched_volumes: Vec<String>| -> Result<bool, String> {
+                let patched_volumes = HashSet::from_iter(
+                    patched_sdp_pod
+                        .volume_names()
+                        .unwrap_or(vec![])
+                        .iter()
+                        .cloned(),
+                );
+                (patched_volumes == expected_volumes(&unpatched_volumes))
+                    .then(|| true)
+                    .ok_or(format!(
+                        "Wrong volumes after patch, got {:?}, expected {:?}",
+                        patched_volumes,
+                        expected_volumes(&unpatched_volumes)
+                    ))
+            };
 
-        let assert_containers = |patched_sdp_pod: &SDPPod, unpatched_containers: Vec<String>| -> Result<bool, String> {
-            let patched_containers = HashSet::from_iter(patched_sdp_pod.container_names()
-                .unwrap_or(vec![]).iter().cloned());
-            (patched_containers == expected_containers(&unpatched_containers)).then(|| true)
-                .ok_or(format!("Wrong containers after patch, got {:?}, expected {:?}", patched_containers,
-                               expected_containers(&unpatched_containers)))
-        };
+        let assert_containers =
+            |patched_sdp_pod: &SDPPod, unpatched_containers: Vec<String>| -> Result<bool, String> {
+                let patched_containers = HashSet::from_iter(
+                    patched_sdp_pod
+                        .container_names()
+                        .unwrap_or(vec![])
+                        .iter()
+                        .cloned(),
+                );
+                (patched_containers == expected_containers(&unpatched_containers))
+                    .then(|| true)
+                    .ok_or(format!(
+                        "Wrong containers after patch, got {:?}, expected {:?}",
+                        patched_containers,
+                        expected_containers(&unpatched_containers)
+                    ))
+            };
 
-        let assert_envs = |patched_sdp_pod: &SDPPod, test_patch: &TestPatch| -> Result<bool, String> {
-            let css = patched_sdp_pod.containers()
-                .ok_or("Containers not found in POD")?;
-            let cs = css.iter().filter(|c| c.name == SDP_SERVICE_CONTAINER_NAME).collect::<Vec<&Container>>();
-            let c = cs.get(0).ok_or("sdp-service container not found in POD")?;
-            let env_vars = c.env.as_ref().ok_or("Environment not found in sdp-service container")?;
-            let mut env_errors: Vec<String> = vec![];
-            for env_var in env_vars.iter() {
-                if let Some(env_var_src) = env_var.value_from.as_ref() {
-                    match (env_var_src.secret_key_ref.as_ref(), env_var_src.config_map_key_ref.as_ref()) {
-                        (Some(secrets), None) => {
-                            if secrets.name.as_ref().is_none() ||
-                                !secrets.name.as_ref().unwrap().eq(test_patch.client_secrets) {
-                                let error = format!("EnvVar {} got sdp-injector secret {:?}, expected {}",
-                                                    env_var.name, secrets.name, test_patch.client_secrets);
-                                env_errors.insert(0, error);
+        let assert_envs =
+            |patched_sdp_pod: &SDPPod, test_patch: &TestPatch| -> Result<bool, String> {
+                let css = patched_sdp_pod
+                    .containers()
+                    .ok_or("Containers not found in POD")?;
+                let cs = css
+                    .iter()
+                    .filter(|c| c.name == SDP_SERVICE_CONTAINER_NAME)
+                    .collect::<Vec<&Container>>();
+                let c = cs.get(0).ok_or("sdp-service container not found in POD")?;
+                let env_vars = c
+                    .env
+                    .as_ref()
+                    .ok_or("Environment not found in sdp-service container")?;
+                let mut env_errors: Vec<String> = vec![];
+                for env_var in env_vars.iter() {
+                    if let Some(env_var_src) = env_var.value_from.as_ref() {
+                        match (
+                            env_var_src.secret_key_ref.as_ref(),
+                            env_var_src.config_map_key_ref.as_ref(),
+                        ) {
+                            (Some(secrets), None) => {
+                                if secrets.name.as_ref().is_none()
+                                    || !secrets.name.as_ref().unwrap().eq(test_patch.client_secrets)
+                                {
+                                    let error = format!(
+                                        "EnvVar {} got sdp-injector secret {:?}, expected {}",
+                                        env_var.name, secrets.name, test_patch.client_secrets
+                                    );
+                                    env_errors.insert(0, error);
+                                }
+                            }
+                            (None, Some(configmap)) => {
+                                if configmap.name.as_ref().is_none()
+                                    || !configmap
+                                        .name
+                                        .as_ref()
+                                        .unwrap()
+                                        .eq(test_patch.client_config_map)
+                                {
+                                    let error = format!(
+                                        "EnvVar {} got sdp-injector configMap {:?}, expected {}",
+                                        env_var.name, configmap.name, test_patch.client_config_map
+                                    );
+                                    env_errors.insert(0, error);
+                                }
+                            }
+                            (None, None) => {}
+                            _ => {
+                                env_errors.insert(
+                                    0,
+                                    format!("EnvVar {} reached unreachable code!", env_var.name),
+                                );
                             }
                         }
-                        (None, Some(configmap)) => {
-                            if configmap.name.as_ref().is_none() ||
-                                !configmap.name.as_ref().unwrap().eq(test_patch.client_config_map) {
-                                let error = format!("EnvVar {} got sdp-injector configMap {:?}, expected {}",
-                                                    env_var.name, configmap.name, test_patch.client_config_map);
-                                env_errors.insert(0, error);
-                            }
+                    } else {
+                        if !test_patch.envs.contains(&(
+                            env_var.name.to_string(),
+                            Some(env_var.value.as_ref().unwrap().to_string()),
+                        )) {
+                            env_errors.insert(
+                                0,
+                                format!(
+                                    "EnvVar {} with value {:?} not expected",
+                                    env_var.name, env_var.value
+                                ),
+                            );
                         }
-                        (None, None) => { }
-                        _ => {
-                            env_errors.insert(0, format!("EnvVar {} reached unreachable code!", env_var.name));
-                        }
-                    }
-                } else {
-                    if ! test_patch.envs.contains(&(env_var.name.to_string(), Some(env_var.value.as_ref().unwrap().to_string()))) {
-                        env_errors.insert(0, format!("EnvVar {} with value {:?} not expected", env_var.name, env_var.value));
-
                     }
                 }
+                if env_errors.len() > 0 {
+                    Err(format!(
+                        "Found errors on sdp-service container environments: {}",
+                        env_errors.join(", ")
+                    ))
+                } else {
+                    Ok(true)
+                }
             };
-            if env_errors.len() > 0 {
-                Err(format!("Found errors on sdp-service container environments: {}", env_errors.join(", ")))
-            } else {
-                Ok(true)
-            }
-        };
-        let assert_patch = |sdp_pod: &SDPPod, patch: Patch, test_patch: &TestPatch| -> Result<bool, String> {
-            let patched_pod = patch_pod(sdp_pod, patch)?;
-            let patched_sdp_pod = SDPPod {
-                pod: &patched_pod,
-                sdp_sidecars: &sdp_sidecars,
-                k8s_dns_service: Some(&test_patch.service)
+        let assert_patch =
+            |sdp_pod: &SDPPod, patch: Patch, test_patch: &TestPatch| -> Result<bool, String> {
+                let patched_pod = patch_pod(sdp_pod, patch)?;
+                let patched_sdp_pod = SDPPod {
+                    pod: &patched_pod,
+                    sdp_sidecars: &sdp_sidecars,
+                    k8s_dns_service: Some(&test_patch.service),
+                };
+                let unpatched_containers = sdp_pod.container_names().unwrap_or(vec![]);
+                let unpatched_volumes = sdp_pod.volume_names().unwrap_or(vec![]);
+                assert_volumes(&patched_sdp_pod, unpatched_volumes)?;
+                assert_containers(&patched_sdp_pod, unpatched_containers)?;
+                assert_envs(&patched_sdp_pod, test_patch)
             };
-            let unpatched_containers = sdp_pod.container_names().unwrap_or(vec![]);
-            let unpatched_volumes = sdp_pod.volume_names().unwrap_or(vec![]);
-            assert_volumes(&patched_sdp_pod, unpatched_volumes)?;
-            assert_containers(&patched_sdp_pod, unpatched_containers)?;
-            assert_envs(&patched_sdp_pod, test_patch)
-        };
 
         let test_description = || "Test patch".to_string();
-        let results: Vec<TestResult> = patch_tests(&sdp_sidecars).iter().map(|test| {
-            let sdp_pod = SDPPod {
-                pod: &test.pod,
-                sdp_sidecars: &sdp_sidecars,
-                k8s_dns_service: Some(&test.service)
-            };
-            let needs_patching = sdp_pod.needs_patching();
-            let patch = sdp_pod.patch_sidecars();
-            if test.needs_patching && needs_patching {
-                match patch.map_err(|e| e.to_string()).and_then(|p| assert_patch(&sdp_pod, p, test)) {
-                    Ok(res) => (res, test_description(), "".to_string()),
-                    Err(error) => {
-                        (false, test_description(), format!("Error applying patch: {}", error))
+        let results: Vec<TestResult> = patch_tests(&sdp_sidecars)
+            .iter()
+            .map(|test| {
+                let sdp_pod = SDPPod {
+                    pod: &test.pod,
+                    sdp_sidecars: &sdp_sidecars,
+                    k8s_dns_service: Some(&test.service),
+                };
+                let needs_patching = sdp_pod.needs_patching();
+                let patch = sdp_pod.patch_sidecars();
+                if test.needs_patching && needs_patching {
+                    match patch
+                        .map_err(|e| e.to_string())
+                        .and_then(|p| assert_patch(&sdp_pod, p, test))
+                    {
+                        Ok(res) => (res, test_description(), "".to_string()),
+                        Err(error) => (
+                            false,
+                            test_description(),
+                            format!("Error applying patch: {}", error),
+                        ),
                     }
+                } else if test.needs_patching != needs_patching {
+                    (
+                        false,
+                        test_description(),
+                        format!(
+                            "Got needs_patching {}, expected {}",
+                            needs_patching, test.needs_patching
+                        ),
+                    )
+                } else {
+                    (true, test_description(), "".to_string())
                 }
-            } else if test.needs_patching != needs_patching {
-                (false, test_description(), format!("Got needs_patching {}, expected {}", needs_patching,
-                                                    test.needs_patching))
-            } else {
-                (true, test_description(), "".to_string())
-            }
-        }).collect();
+            })
+            .collect();
 
         assert_tests(&results)
     }
@@ -869,7 +1010,7 @@ POD is missing needed volumes: pod-info, run-appgate, tun-device"#.to_string()),
             let sdp_pod = SDPPod {
                 pod: &test.pod,
                 sdp_sidecars: &sdp_sidecars,
-                k8s_dns_service: Some(&test.service)
+                k8s_dns_service: Some(&test.service),
             };
             let pod_value = serde_json::to_value(&sdp_pod.pod)
                 .expect(&format!("Unable to parse test input {}", sdp_pod));
@@ -896,9 +1037,13 @@ POD is missing needed volumes: pod-info, run-appgate, tun-device"#.to_string()),
                 },
                 "object": pod_value});
 
-            let mut admission_review: AdmissionReview<Pod> = serde_json::from_value(admission_review_value)
-                .map_err(|e| format!("Unable to parse generated AdmissionReview value: {}",
-                                     e.to_string()))?;
+            let mut admission_review: AdmissionReview<Pod> =
+                serde_json::from_value(admission_review_value).map_err(|e| {
+                    format!(
+                        "Unable to parse generated AdmissionReview value: {}",
+                        e.to_string()
+                    )
+                })?;
             // copy the POD
             let copied_pod: Pod = serde_json::to_value(&test.pod)
                 .and_then(|v| serde_json::from_value(v))
@@ -907,8 +1052,12 @@ POD is missing needed volumes: pod-info, run-appgate, tun-device"#.to_string()),
                 request.object = Some(copied_pod);
             }
             // Serialize the request into a string
-            let admission_review_str = serde_json::to_string(&admission_review)
-                .map_err(|e| format!("Unable to convert to string generated AdmissionReview value: {}", e.to_string()))?;
+            let admission_review_str = serde_json::to_string(&admission_review).map_err(|e| {
+                format!(
+                    "Unable to convert to string generated AdmissionReview value: {}",
+                    e.to_string()
+                )
+            })?;
             // test the patch_request function now
             // TODO: Test responses not allowing the patch!
             match patch_request(&admission_review_str, &sdp_context).map(|r| r.response) {
@@ -930,47 +1079,57 @@ POD is missing needed volumes: pod-info, run-appgate, tun-device"#.to_string()),
                 Err(error) => Err(format!("Could not generate a response: {}", error.to_string())),
             }
         });
-        let results: Vec<TestResult> = patch_tests(&sdp_sidecars).iter().map(|test| {
-            match assert_response(test) {
-                Ok(r) => (r, "Injection Containers Test".to_string(), "Unknown".to_string()),
-                Err(error) => (false, "Injection Containers Test".to_string(), error)
-            }
-        }).collect();
+        let results: Vec<TestResult> = patch_tests(&sdp_sidecars)
+            .iter()
+            .map(|test| match assert_response(test) {
+                Ok(r) => (
+                    r,
+                    "Injection Containers Test".to_string(),
+                    "Unknown".to_string(),
+                ),
+                Err(error) => (false, "Injection Containers Test".to_string(), error),
+            })
+            .collect();
         assert_tests(&results)
     }
 
     #[test]
     fn test_pod_validation() {
-        let sdp_sidecars = load_sidecar_containers_env()
-            .expect("Unable to load sidecars context");
+        let sdp_sidecars = load_sidecar_containers_env().expect("Unable to load sidecars context");
         let test_description = || "Test POD validation".to_string();
         let service = Service::default();
-        let results: Vec<TestResult> = validation_tests().iter().map(|t| {
-            let sdp_pod = SDPPod {
-                pod: &t.pod,
-                sdp_sidecars: &sdp_sidecars,
-                k8s_dns_service: Some(&service)
-            };
-            let pass_validation = sdp_pod.validate_sidecars();
-            match (pass_validation, t.validation_errors.as_ref()) {
-                (Ok(_), Some(expected_error)) => {
-                    let error_message = format!("Got no validation error, expected '{}'", expected_error);
-                    (false, test_description(), error_message)
+        let results: Vec<TestResult> = validation_tests()
+            .iter()
+            .map(|t| {
+                let sdp_pod = SDPPod {
+                    pod: &t.pod,
+                    sdp_sidecars: &sdp_sidecars,
+                    k8s_dns_service: Some(&service),
+                };
+                let pass_validation = sdp_pod.validate_sidecars();
+                match (pass_validation, t.validation_errors.as_ref()) {
+                    (Ok(_), Some(expected_error)) => {
+                        let error_message =
+                            format!("Got no validation error, expected '{}'", expected_error);
+                        (false, test_description(), error_message)
+                    }
+                    (Ok(_), None) => (true, test_description(), "".to_string()),
+                    (Err(error), None) => {
+                        let error_message =
+                            format!("Got validation error '{}', expected none", error);
+                        (false, test_description(), error_message)
+                    }
+                    (Err(error), Some(expected_error)) if !error.eq(expected_error) => {
+                        let error_message = format!(
+                            "Got validation error '{}', expected '{}'",
+                            error, expected_error
+                        );
+                        (false, test_description(), error_message)
+                    }
+                    (Err(_), Some(_)) => (true, test_description(), "".to_string()),
                 }
-                (Ok(_), None) => (true, test_description(), "".to_string()),
-                (Err(error), None) => {
-                    let error_message = format!("Got validation error '{}', expected none", error);
-                    (false, test_description(), error_message)
-                }
-                (Err(error), Some(expected_error)) if !error.eq(expected_error) => {
-                    let error_message = format!("Got validation error '{}', expected '{}'", error, expected_error);
-                    (false, test_description(), error_message)
-                }
-                (Err(_), Some(_)) => {
-                    (true, test_description(), "".to_string())
-                }
-            }
-        }).collect();
+            })
+            .collect();
         assert_tests(&results)
     }
 }
@@ -979,10 +1138,8 @@ fn load_ssl() -> Result<ServerConfig, Box<dyn Error>> {
     let (mut cert_buf, mut key_buf) = load_cert_files()?;
 
     let mut config = ServerConfig::new(NoClientAuth::new());
-    let cert_chain = certs(&mut cert_buf)
-        .map_err(|_| "Unable to load certificate file")?;
-    let mut keys = rsa_private_keys(&mut key_buf)
-        .map_err(|_| "Unable to load key file")?;
+    let cert_chain = certs(&mut cert_buf).map_err(|_| "Unable to load certificate file")?;
+    let mut keys = rsa_private_keys(&mut key_buf).map_err(|_| "Unable to load key file")?;
     config.set_single_cert(cert_chain, keys.remove(0))?;
     Ok(config)
 }
@@ -993,11 +1150,9 @@ async fn main() -> std::io::Result<()> {
     info!("Starting sdp-injector!!!!");
     // Get the sidecar containers definition
     // this is used to inject later the sidecars
-    let sdp_sidecars: SDPSidecars = load_sidecar_containers()
-        .expect("Unable to load the sidecar information");
-    let k8s_client: Client = async move {
-        Client::try_default().await.expect("SS")
-    }.await;
+    let sdp_sidecars: SDPSidecars =
+        load_sidecar_containers().expect("Unable to load the sidecar information");
+    let k8s_client: Client = async move { Client::try_default().await.expect("SS") }.await;
     let sdp_injector_context = SDPInjectorContext {
         sdp_sidecars: sdp_sidecars,
         k8s_client: k8s_client,
@@ -1009,7 +1164,7 @@ async fn main() -> std::io::Result<()> {
             .service(mutate)
             .service(validate)
     })
-        .bind_rustls("0.0.0.0:8443", ssl_config)?
-        .run()
-        .await
+    .bind_rustls("0.0.0.0:8443", ssl_config)?
+    .run()
+    .await
 }
