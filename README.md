@@ -117,20 +117,21 @@ When running on GKE, the firewall needs to be configured to allow traffic from t
 | `global.image.tag`                     | Image tag to use for all SDP images. If not set, it defaults to `.Chart.appVersion`.     | `""`                             |
 | `global.image.pullPolicy`              | Image pull policy to use for all SDP images.                                             | `IfNotPresent`                   |
 | `global.image.pullSecrets`             | Image pull secret to use for all SDP images.                                             | `[]`                             |
+| `cert-manager.installCRDs`             | Whether or not to install cert-manager CRDs.                                             | `true`                           |
 | `sdp.injector.logLevel`                | SDP Injector log level.                                                                  | `info`                           |
 | `sdp.injector.image.repository`        | SDP Injector image repository. If set, it overrides `.global.image.repository`.          | `""`                             |
 | `sdp.injector.image.tag`               | SDP Injector image tag. If set, it overrides `.global.image.tag`.                        | `""`                             |
-| `sdp.injector.image.pullPolicy`        | SDP Injector pull policy. If set, it overrides `.global.image.pullPolicy`.               | `""`                             |
-| `sdp.injector.certDays`                | How many days will be the SDP Injector certificate be valid.                             | `"365"`                          |
+| `sdp.injector.image.pullPolicy`        | SDP Injector pull policy. If set, it overrides `.global.image.pullPolicy`.               | `Always`                         |
+| `sdp.injector.certDays`                | How many days will be the SDP Injector certificate be valid.                             | `365`                            |
 | `sdp.headlessService.image.tag`        | SDP Headless Service image repository. If set, it overrides `.global.image.repository`.  | `""`                             |
 | `sdp.headlessService.image.repository` | SDP Headless Service image tag. If set, it overrides `.global.image.tag`.                | `""`                             |
-| `sdp.headlessService.image.pullPolicy` | SDP Headless Service image pull policy. If set, it overrides `.global.image.pullPolicy`. | `""`                             |
+| `sdp.headlessService.image.pullPolicy` | SDP Headless Service image pull policy. If set, it overrides `.global.image.pullPolicy`. | `Always`                         |
 | `sdp.headlessDriver.image.repository`  | SDP Headless Driver image repository. If set, it overrides `.global.image.repository`.   | `""`                             |
 | `sdp.headlessDriver.image.tag`         | SDP Headless Driver image tag. If set, it overrides `.global.image.tag`.                 | `""`                             |
-| `sdp.headlessDriver.image.pullPolicy`  | SDP Headless Service image pull policy. If set, it overrides `.global.image.pullPolicy`. | `""`                             |
+| `sdp.headlessDriver.image.pullPolicy`  | SDP Headless Service image pull policy. If set, it overrides `.global.image.pullPolicy`. | `Always`                         |
 | `sdp.dnsmasq.image.repository`         | SDP Dnsmasq image repository. If set, it overrides `.global.image.repository`.           | `""`                             |
 | `sdp.dnsmasq.image.tag`                | SDP Dnsmasq image tag. If set, it overrides `.global.image.tag`.                         | `""`                             |
-| `sdp.dnsmasq.image.pullPolicy`         | SDP Dnsmasq image pull policy. If set, it overrides `.global.image.pullPolicy`.          | `""`                             |
+| `sdp.dnsmasq.image.pullPolicy`         | SDP Dnsmasq image pull policy. If set, it overrides `.global.image.pullPolicy`.          | `Always`                         |
 
 
 ### Kubernetes parameters
