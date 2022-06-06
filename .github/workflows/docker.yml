@@ -118,7 +118,7 @@ jobs:
       - name: Lint chart
         run: helm lint k8s/chart
       - name: Package chart
-        run: helm package k8s/chart
+        run: helm package k8s/chart --dependency-update
       - name: Push chart
         if: ${{ github.ref == 'refs/heads/main' }}
         run: helm push sdp-k8s-client-${{ env.chart_version }}.tgz oci://ghcr.io/appgate/charts

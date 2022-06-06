@@ -77,7 +77,7 @@ spec:
               mountPath: /tmp
           command: ["openssl"]
           args: [ "req", "-new", "-key", "/tmp/sdp-injector-key.pem", "-out", "/tmp/sdp-injector.csr", "-config", "/tmp/config/sdp-injector.conf" ]
-        - name: create-sdp-injector-crt
+        - name: create-sdp-injector-ca-crt
           image: "alpine/openssl"
           volumeMounts:
             - name: sdp-injector-config
@@ -87,52 +87,42 @@ spec:
               mountPath: /tmp
           command: ["openssl"]
           args: ["x509", "-req", "-in", "/tmp/sdp-injector.csr", "-extfile", "/tmp/config/sdp-x509-ext.conf", "-extensions", "v3_ca", "-CA", "/tmp/sdp-ca.crt", "-CAkey",  "/tmp/sdp-ca-key.pem", "-CAcreateserial", "-days", "{{ .Values.sdp.injector.certDays }}", "-out", "/tmp/sdp-injector-crt.pem"]
-        - name: print-csr
-          image: "alpine/openssl"
-          volumeMounts:
-            - name: tmp
-              mountPath: /tmp
-          command: ["openssl"]
-          args: ["req", "-text", "-noout", "-verify", "-in", "/tmp/sdp-injector.csr"]
-        - name: print-ca
-          image: "alpine/openssl"
-          volumeMounts:
-            - name: tmp
-              mountPath: /tmp
-          command: ["openssl"]
-          args: ["x509", "-text", "-in", "/tmp/sdp-injector-crt.pem"]
-        - name: create-secret
+        - name: create-ca-crt-secret
           image: "bitnami/kubectl"
           command: [ "kubectl" ]
-          args: [ "create", "secret", "generic", "{{ include "sdp-k8s-client.injector-secret" . }}", "--from-file=sdp-ca.crt=/tmp/sdp-ca.crt", "--from-file=sdp-injector-key.pem=/tmp/sdp-injector-key.pem", "--from-file=sdp-injector-crt.pem=/tmp/sdp-injector-crt.pem", "--namespace", "{{ include "sdp-k8s-client.namespace" . }}" ]
+          args: [ "create", "secret", "generic", "{{ include "sdp-k8s-client.injector-ca-crt" . }}", "--from-file=ca.crt=/tmp/sdp-ca.crt", "--namespace", "{{ include "sdp-k8s-client.namespace" . }}" ]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+              readOnly: true
+        - name: annotate-ca-crt-secret
+          image: "bitnami/kubectl"
+          command: [ "kubectl" ]
+          args: [ "annotate", "secret", "{{ include "sdp-k8s-client.injector-ca-crt" . }}", "cert-manager.io/allow-direct-injection=true", "--namespace", "{{ include "sdp-k8s-client.namespace" . }}" ]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+              readOnly: true
+        - name: create-injector-secret
+          image: "bitnami/kubectl"
+          command: [ "kubectl" ]
+          args: [ "create", "secret", "generic", "{{ include "sdp-k8s-client.injector-secret" . }}", "--from-file=sdp-injector-key.pem=/tmp/sdp-injector-key.pem", "--from-file=sdp-injector-crt.pem=/tmp/sdp-injector-crt.pem", "--namespace", "{{ include "sdp-k8s-client.namespace" . }}" ]
           volumeMounts:
             - name: tmp
               mountPath: /tmp
               readOnly: true
       containers:
-        - name: create-admission-webhook
-          image: "alpine:3"
-          securityContext:
-            runAsUser: 0
+        - name: print-csr
+          image: "alpine/openssl"
           volumeMounts:
             - name: tmp
               mountPath: /tmp
-              readOnly: true
-            - name: sdp-admission-webhook
-              mountPath: /tmp/config
-              readOnly: true
-          command: ["bin/sh", "-c"]
-          args:
-            - apk add openssl;
-              apk add curl;
-              apk add gettext;
-              curl -sLO https://storage.googleapis.com/kubernetes-release/release/v1.20.7/bin/linux/amd64/kubectl;
-              mv kubectl /usr/local/bin/kubectl;
-              chmod +x /usr/local/bin/kubectl;
-              export CA_BUNDLE="$(kubectl get secret {{ include "sdp-k8s-client.injector-secret" . }} -o jsonpath="{.data.sdp-ca\.crt}" --namespace {{ include "sdp-k8s-client.namespace" . }})";
-              envsubst < /tmp/config/sdp-admission-webhook.yaml > sdp-admission-webhook.yaml;
-              cat sdp-admission-webhook.yaml;
-              kubectl apply --filename sdp-admission-webhook.yaml --namespace {{ include "sdp-k8s-client.namespace" . }};
-{{/*#
-TODO: Use cert-manager to inject caBundle: https://cert-manager.io/docs/concepts/ca-injector/#injecting-ca-data-from-a-certificate-resource
-*/}}
+          command: [ "openssl" ]
+          args: [ "req", "-text", "-noout", "-verify", "-in", "/tmp/sdp-injector.csr" ]
+        - name: print-ca-crt
+          image: "alpine/openssl"
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+          command: [ "openssl" ]
+          args: [ "x509", "-text", "-in", "/tmp/sdp-ca.crt" ]

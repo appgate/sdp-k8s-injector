@@ -12,10 +12,7 @@ metadata:
 rules:
   - apiGroups: [""]
     resources: ["secrets", "configmaps" ]
-    verbs: ["get", "create", "delete"]
-  - apiGroups: ["admissionregistration.k8s.io"]
-    resources: ["mutatingwebhookconfigurations/v1"]
-    verbs: ["get", "create", "delete"]
+    verbs: ["get", "create", "delete", "patch"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
@@ -33,38 +30,6 @@ subjects:
     namespace: {{ include "sdp-k8s-client.namespace" . }}
 roleRef:
   kind: Role
-  name: {{ include "sdp-k8s-client.name" . }}
-  apiGroup: rbac.authorization.k8s.io
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRole
-metadata:
-  name: {{ include "sdp-k8s-client.name" . }}
-  labels:
-  {{- include "sdp-k8s-client.labels" . | nindent 4 }}
-  annotations:
-    "helm.sh/hook": pre-install
-    "helm.sh/hook-weight": "1"
-rules:
-  - apiGroups: ["admissionregistration.k8s.io"]
-    resources: ["mutatingwebhookconfigurations"]
-    verbs: ["get", "create", "delete"]
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
-metadata:
-  name: {{ include "sdp-k8s-client.name" . }}
-  labels:
-  {{- include "sdp-k8s-client.labels" . | nindent 4 }}
-  annotations:
-    "helm.sh/hook": pre-install
-    "helm.sh/hook-weight": "0"
-subjects:
-  - kind: ServiceAccount
-    name: {{ include "sdp-k8s-client.serviceAccountName" . }}
-    namespace: {{ include "sdp-k8s-client.namespace" . }}
-roleRef:
-  kind: ClusterRole
   name: {{ include "sdp-k8s-client.name" . }}
   apiGroup: rbac.authorization.k8s.io
 {{- end }}
