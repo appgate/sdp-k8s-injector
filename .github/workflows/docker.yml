@@ -108,8 +108,12 @@ jobs:
       HELM_EXPERIMENTAL_OCI: 1
     steps:
       - uses: actions/checkout@v2
+      - uses: mikefarah/yq@master
+        id: chartVersion
+        with:
+          cmd: yq eval .version k8s/chart/Chart.yaml
       - run: |
-          echo "chart_version=$(grep version: k8s/chart/Chart.yaml | awk '/version:/{print $NF}')" >> $GITHUB_ENV
+          echo "chart_version=${{ steps.chartVersion.outputs.result }}" >> $GITHUB_ENV
       - uses: azure/setup-helm@v1
         with:
           version: 3.7.2
