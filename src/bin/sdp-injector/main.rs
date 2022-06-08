@@ -1,4 +1,5 @@
-use actix_web::{post, App, HttpRequest, HttpResponse, HttpServer};
+use actix_web::{error, get, post, App, HttpRequest, HttpResponse, HttpServer};
+use http::Uri;
 use json_patch::PatchOperation::Add;
 use json_patch::{AddOperation, Patch};
 use k8s_openapi::api::core::v1::{
@@ -8,21 +9,24 @@ use k8s_openapi::api::core::v1::{
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::Status;
 use kube::api::admission::{AdmissionRequest, AdmissionResponse, AdmissionReview};
 use kube::api::{DynamicObject, ListParams};
-use kube::{Api, Client};
+use kube::{Api, Client, Config};
 use log::{debug, error, info, warn};
-use rustls::internal::pemfile::{certs, rsa_private_keys};
-use rustls::{NoClientAuth, ServerConfig};
+use rustls::{Certificate, PrivateKey, ServerConfig};
+use rustls_pemfile::{read_one, Item};
 use serde::Deserialize;
 use std::collections::hash_map::RandomState;
 use std::collections::{BTreeMap, HashSet};
-use std::convert::TryInto;
+use std::convert::{TryFrom, TryInto};
 use std::error::Error;
 use std::fmt::{Display, Formatter, Result as FResult};
 use std::fs::File;
-use std::io::BufReader;
+use std::io::{BufReader, Error as IOError, ErrorKind};
 use std::iter::FromIterator;
 use std::path::PathBuf;
 
+const SDP_K8S_HOST_ENV: &str = "SDP_K8S_HOST";
+const SDP_K8S_HOST_DEFAULT: &str = "kubernetes.default.svc";
+const SDP_K8S_NO_VERIFY_ENV: &str = "SDP_K8S_NO_VERIFY";
 const SDP_SIDECARS_FILE: &str = "/opt/sdp-injector/k8s/sdp-sidecars.json";
 const SDP_SIDECARS_FILE_ENV: &str = "SDP_SIDECARS_FILE";
 const SDP_CERT_FILE_ENV: &str = "SDP_CERT_FILE";
@@ -34,6 +38,7 @@ const SDP_ANNOTATION_CLIENT_CONFIG: &str = "sdp-injector-client-config";
 const SDP_ANNOTATION_CLIENT_SECRETS: &str = "sdp-injector-client-secrets";
 const SDP_DEFAULT_CLIENT_CONFIG: &str = "sdp-injector-client-config";
 const SDP_DEFAULT_CLIENT_SECRETS: &str = "sdp-injector-client-secrets";
+const SDP_DNS_SERVICE_NAMES: [&str; 2] = ["kube-dns", "coredns"];
 
 macro_rules! env_var {
     (value :: $env_name:expr => $value:expr) => {{
@@ -126,10 +131,10 @@ fn reader_from_cwd(file_name: &str) -> Result<BufReader<File>, Box<dyn Error>> {
     Ok(BufReader::new(file))
 }
 
-async fn discover_dns_service<'a>(k8s_client: &'a Client) -> Option<Service> {
-    let ns = [String::from("kubedns"), String::from("coredns")];
-    let names: HashSet<&String, RandomState> = HashSet::from_iter(ns.iter());
+async fn dns_service_discover<'a>(k8s_client: &'a Client) -> Option<Service> {
+    let names: HashSet<&str, RandomState> = HashSet::from_iter(SDP_DNS_SERVICE_NAMES);
     let services_api: Api<Service> = Api::namespaced(k8s_client.clone(), "kube-system");
+    info!("Discovering K8S DNS service");
     let services = services_api.list(&ListParams::default()).await;
     services
         .map(|xs| {
@@ -138,14 +143,26 @@ async fn discover_dns_service<'a>(k8s_client: &'a Client) -> Option<Service> {
                 s.metadata
                     .name
                     .as_ref()
-                    .map(|ns| names.contains(ns))
+                    .map(|ns| names.contains(ns.as_str()))
                     .unwrap_or(false)
             })
         })
-        .unwrap_or_else(|_| {
-            warn!("Unable to discover k8s DNS service !");
+        .unwrap_or_else(|e| {
+            warn!("Unable to discover k8s DNS service {}", e);
             Option::None
         })
+}
+
+trait K8SDNSService {
+    fn maybe_ip(&self) -> Option<&String>;
+}
+
+impl K8SDNSService for Option<&Service> {
+    fn maybe_ip(&self) -> Option<&String> {
+        self.as_ref()
+            .and_then(|s| s.spec.as_ref())
+            .and_then(|s| s.cluster_ip.as_ref())
+    }
 }
 
 struct SDPPod<'a> {
@@ -232,17 +249,15 @@ impl SDPPod<'_> {
             .unwrap_or(SDP_DEFAULT_CLIENT_SECRETS.to_string());
         let mut patches = vec![];
         if self.needs_patching() {
-            let k8s_dns_service_ip = self
-                .k8s_dns_service
-                .as_ref()
-                .and_then(|s| s.spec.as_ref())
-                .and_then(|s| s.cluster_ip.as_ref())
-                .and_then(|ip| {
-                    (ip != "None" && ip != "").then(|| {
-                        warn!("Unable to discover k8s DNS service ip");
-                        ip
-                    })
-                });
+            let k8s_dns_service_ip = self.k8s_dns_service.maybe_ip();
+            match k8s_dns_service_ip {
+                Some(ip) => {
+                    info!("Found K8S DNS service IP: {}", ip);
+                }
+                None => {
+                    warn!("Unable to get K8S service IP");
+                }
+            };
             let n_containers = self.containers().map(|xs| xs.len()).unwrap_or(0);
             for c in self.sdp_sidecars.containers.clone().iter_mut() {
                 c.env = Some(get_env_vars(
@@ -364,10 +379,6 @@ impl SDPSidecars {
     }
 }
 
-fn error_to_bad_request(e: Box<dyn Error>) -> HttpResponse {
-    HttpResponse::BadRequest().body(e.to_string())
-}
-
 fn load_sidecar_containers() -> Result<SDPSidecars, Box<dyn Error>> {
     debug!("Loading SDP context");
     let cwd = std::env::current_dir()?;
@@ -382,12 +393,12 @@ fn load_sidecar_containers() -> Result<SDPSidecars, Box<dyn Error>> {
     Ok(sdp_sidecars)
 }
 
-fn load_cert_files() -> Result<(BufReader<File>, BufReader<File>), Box<dyn Error>> {
+fn load_cert_files() -> Result<(Option<Item>, Option<Item>), Box<dyn Error>> {
     let cert_file = std::env::var(SDP_CERT_FILE_ENV).unwrap_or(SDP_CERT_FILE.to_string());
     let key_file = std::env::var(SDP_KEY_FILE_ENV).unwrap_or(SDP_KEY_FILE.to_string());
-    let cert_buf = reader_from_cwd(&cert_file)?;
-    let key_buf = reader_from_cwd(&key_file)?;
-    Ok((cert_buf, key_buf))
+    let mut cert_buf = reader_from_cwd(&cert_file)?;
+    let mut key_buf = reader_from_cwd(&key_file)?;
+    Ok((read_one(&mut cert_buf)?, read_one(&mut key_buf)?))
 }
 
 fn patch_request(
@@ -448,11 +459,11 @@ fn validate_request(
 }
 
 #[post("/mutate")]
-async fn mutate(request: HttpRequest, body: String) -> Result<HttpResponse, HttpResponse> {
+async fn mutate(request: HttpRequest, body: String) -> Result<HttpResponse, error::Error> {
     let sdp_injector_context = request
         .app_data::<SDPInjectorContext>()
         .expect("Unable to get injector context");
-    let k8s_dns_service = discover_dns_service(&(sdp_injector_context.k8s_client)).await;
+    let k8s_dns_service = dns_service_discover(&(sdp_injector_context.k8s_client)).await;
     let sdp_context = SDPPatchContext {
         sdp_sidecars: &(sdp_injector_context.sdp_sidecars),
         k8s_dns_service: k8s_dns_service,
@@ -466,11 +477,11 @@ async fn mutate(request: HttpRequest, body: String) -> Result<HttpResponse, Http
     }
     admission_review
         .and_then(|r| Ok(HttpResponse::Ok().json(&r)))
-        .map_err(error_to_bad_request)
+        .map_err(|e| error::ErrorBadRequest(e.to_string()))
 }
 
 #[post("/validate")]
-async fn validate(request: HttpRequest, body: String) -> Result<HttpResponse, HttpResponse> {
+async fn validate(request: HttpRequest, body: String) -> Result<HttpResponse, error::Error> {
     let context = request
         .app_data::<SDPSidecars>()
         .expect("Unable to get app context");
@@ -483,7 +494,19 @@ async fn validate(request: HttpRequest, body: String) -> Result<HttpResponse, Ht
     }
     admission_review
         .and_then(|r| Ok(HttpResponse::Ok().json(&r)))
-        .map_err(error_to_bad_request)
+        .map_err(|e| error::ErrorBadRequest(e.to_string()))
+}
+
+#[get("/dns-service")]
+async fn get_dns_service(request: HttpRequest) -> Result<HttpResponse, error::Error> {
+    let sdp_injector_context = request
+        .app_data::<SDPInjectorContext>()
+        .expect("Unable to get injector context");
+    let k8s_dns_service = dns_service_discover(&(sdp_injector_context.k8s_client)).await;
+    match k8s_dns_service {
+        Some(s) => Ok(HttpResponse::Accepted().json(s)),
+        None => Ok(HttpResponse::NotFound().finish()),
+    }
 }
 
 #[cfg(test)]
@@ -1135,13 +1158,30 @@ POD is missing needed volumes: pod-info, run-appgate, tun-device"#.to_string()),
 }
 
 fn load_ssl() -> Result<ServerConfig, Box<dyn Error>> {
-    let (mut cert_buf, mut key_buf) = load_cert_files()?;
-
-    let mut config = ServerConfig::new(NoClientAuth::new());
-    let cert_chain = certs(&mut cert_buf).map_err(|_| "Unable to load certificate file")?;
-    let mut keys = rsa_private_keys(&mut key_buf).map_err(|_| "Unable to load key file")?;
-    config.set_single_cert(cert_chain, keys.remove(0))?;
-    Ok(config)
+    let (cert_pem, key_pem) = load_cert_files()?;
+    let cert: Option<Certificate>;
+    let key: Option<PrivateKey>;
+    if let Some(Item::X509Certificate(cs)) = cert_pem {
+        cert = Some(Certificate(cs));
+    } else {
+        return Err(Box::new(IOError::new(
+            ErrorKind::InvalidData,
+            "Unable to load certificate",
+        )));
+    }
+    match key_pem {
+        Some(Item::PKCS8Key(key_vec)) | Some(Item::RSAKey(key_vec)) => {
+            key = Some(PrivateKey(key_vec));
+            Ok(ServerConfig::builder()
+                .with_safe_defaults()
+                .with_no_client_auth()
+                .with_single_cert(vec![cert.unwrap()], key.unwrap())?)
+        }
+        _ => Err(Box::new(IOError::new(
+            ErrorKind::InvalidData,
+            "Unable to load private key",
+        ))),
+    }
 }
 
 #[actix_web::main]
@@ -1152,7 +1192,21 @@ async fn main() -> std::io::Result<()> {
     // this is used to inject later the sidecars
     let sdp_sidecars: SDPSidecars =
         load_sidecar_containers().expect("Unable to load the sidecar information");
-    let k8s_client: Client = async move { Client::try_default().await.expect("SS") }.await;
+
+    let mut k8s_host = String::from("https://");
+    k8s_host.push_str(&std::env::var(SDP_K8S_HOST_ENV).unwrap_or(SDP_K8S_HOST_DEFAULT.to_string()));
+    let k8s_uri = k8s_host
+        .parse::<Uri>()
+        .expect("Unable to parse SDP_K8S_HOST value:");
+    let mut k8s_config = Config::infer()
+        .await
+        .expect("Unable to infer K8S configuration");
+    k8s_config.cluster_url = k8s_uri;
+    k8s_config.accept_invalid_certs = std::env::var(SDP_K8S_NO_VERIFY_ENV)
+        .map(|v| v == "1" || v.to_lowercase() == "true")
+        .unwrap_or(false);
+    let k8s_client: Client =
+        async move { Client::try_from(k8s_config).expect("Unable to create k8s client") }.await;
     let sdp_injector_context = SDPInjectorContext {
         sdp_sidecars: sdp_sidecars,
         k8s_client: k8s_client,
@@ -1163,6 +1217,7 @@ async fn main() -> std::io::Result<()> {
             .app_data(sdp_injector_context.clone())
             .service(mutate)
             .service(validate)
+            .service(get_dns_service)
     })
     .bind_rustls("0.0.0.0:8443", ssl_config)?
     .run()
