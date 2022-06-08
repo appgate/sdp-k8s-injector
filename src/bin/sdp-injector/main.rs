@@ -3,7 +3,7 @@ use http::Uri;
 use json_patch::PatchOperation::Add;
 use json_patch::{AddOperation, Patch};
 use k8s_openapi::api::core::v1::{
-    ConfigMapKeySelector, Container, EnvVar, EnvVarSource, ObjectFieldSelector, Pod,
+    ConfigMapKeySelector, Container, EnvVar, EnvVarSource, ObjectFieldSelector, Pod, PodDNSConfig,
     SecretKeySelector, Service, Volume,
 };
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::Status;
@@ -355,10 +355,24 @@ impl Display for SDPPod<'_> {
     }
 }
 
+#[derive(Debug, Clone, Deserialize)]
+struct DNSConfig {
+    searches: String,
+}
+
+impl Default for DNSConfig {
+    fn default() -> Self {
+        DNSConfig {
+            searches: "svc.cluster.local cluster.local".to_string(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Default, Deserialize)]
 struct SDPSidecars {
     containers: Box<Vec<Container>>,
     volumes: Box<Vec<Volume>>,
+    dns_config: Box<DNSConfig>,
 }
 
 #[derive(Clone)]
@@ -376,6 +390,21 @@ struct SDPPatchContext<'a> {
 impl SDPSidecars {
     fn container_names(&self) -> Vec<String> {
         self.containers.iter().map(|c| c.name.clone()).collect()
+    }
+
+    fn dns_config(&self) -> PodDNSConfig {
+        let searches = Some(
+            self.dns_config
+                .searches
+                .split(" ")
+                .map(|s| s.trim().to_string())
+                .collect(),
+        );
+        PodDNSConfig {
+            nameservers: Some(vec!["127.0.0.1".to_string()]),
+            options: None,
+            searches: searches,
+        }
     }
 }
 

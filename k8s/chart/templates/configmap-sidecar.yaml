@@ -86,6 +86,9 @@ data:
           ]
         }
       ],
+      "dnsConfig": {
+        "searches": {{ .Values.sdp.dnsmasq.dnsConfig.searches | quote }},
+      },
       "volumes": [
         {
           "mountPath": "/var/run/sdp-driver",
