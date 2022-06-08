@@ -6,16 +6,14 @@ DNSMASQ_CONF_FILE=/sdp-dnsmasq/dnsmasq.conf
 DNSMASQ_CONF_APPGATE_FILE=/sdp-dnsmasq/dnsmasq.d/appgate.conf
 
 mk_dnsmasq_conf () {
-    KUBE_DNS_SERVICE=$(cat /etc/resolv.conf  | awk 'BEGIN{c=0}
-$1 ~ /nameserver/ {print($2);c++}
-END {if(c != 1) exit(1)}')
-
-    if [ $? -ne 0 -o -z "$KUBE_DNS_SERVICE" ]; then
-        echo "Unable to get the kube dns service!. Dying now!"
-        exit 1
+    echo "# sdp-dnsmasq config file" > $DNSMASQ_CONF_APPGATE_FILE
+    if [ -n "$K8S_DNS_SERVICE" ]; then
+        echo $K8S_DNS_SERVICE > /tmp/kube-dns
+        echo server=$K8S_DNS_SERVICE > $DNSMASQ_CONF_APPGATE_FILE
+    else
+        echo "Unable to get k8s dns service!"
+        echo "Resolution of internal names won't work!"
     fi
-    echo server=$KUBE_DNS_SERVICE > $DNSMASQ_CONF_APPGATE_FILE
-    echo $KUBE_DNS_SERVICE > /tmp/kube-dns
     cat > $DNSMASQ_CONF_FILE << EOF
 no-resolv
 listen-address=127.0.0.1

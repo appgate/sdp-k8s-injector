@@ -22,7 +22,9 @@ USE_SERVER_ENTRIES=0
 
 # This reuses later the first entry in the file since that entry
 # points to the kube_dns service
-KUBE_DNS_SERVICE="server=$(cat $KUBE_DNS_FILE)"
+if [[ -f $KUBE_DNS_FILE ]]; then
+   KUBE_DNS_SERVICE="server=$(cat $KUBE_DNS_FILE)"
+fi
 
 # What does the AWKward AWK script?
 #
@@ -86,7 +88,11 @@ while [ -n "$opt" ]; do
     case ${opt%%=*} in
         --reset)
             reset=1
-            echo $KUBE_DNS_SERVICE > $DNSMASQ_APPGATE_NEW
+            echo "# sdp-dnsmasq config file" > $DNSMASQ_APPGATE_NEW
+            if [[ -f $KUBE_DNS_FILE ]]; then
+                KUBE_DNS_SERVICE="server=$(cat $KUBE_DNS_FILE)"
+                echo $KUBE_DNS_SERVICE >> $DNSMASQ_APPGATE_NEW
+            fi
             servers=""
             domains=""
             break
@@ -119,7 +125,11 @@ if [[ $reset == 0 ]]; then
     fi
 
     decho "Setting new DNS configuration"
-    echo $KUBE_DNS_SERVICE > $DNSMASQ_APPGATE_NEW
+    echo "# sdp-dnsmasq config file" > $DNSMASQ_APPGATE_NEW
+    if [[ -f $KUBE_DNS_FILE ]]; then
+        KUBE_DNS_SERVICE="server=$(cat $KUBE_DNS_FILE)"
+        echo $KUBE_DNS_SERVICE >> $DNSMASQ_APPGATE_NEW
+    fi
     for i in $(match_domains "$servers" "$domains"); do
         echo $i >> $DNSMASQ_APPGATE_NEW
     done
