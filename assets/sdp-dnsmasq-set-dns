@@ -13,6 +13,7 @@ function decho () {
 }
 
 # NOTE: stdin reads from the socat socket.
+DNSMASQ_CONF_FILE=/sdp-dnsmasq/dnsmasq.conf
 DNSMASQ_APPGATE=/sdp-dnsmasq/dnsmasq.d/appgate.conf
 DNSMASQ_APPGATE_NEW=/tmp/appgate.conf.new
 DNSMASQ_APPGATE_BACKUP=/tmp/appgate.conf.bk
@@ -148,7 +149,7 @@ if [[ $restart -eq 1 ]]; then
     # Make new to be current
     cp $DNSMASQ_APPGATE_NEW $DNSMASQ_APPGATE
     # Basic check for the confic
-    /usr/sbin/dnsmasq --test || {
+    /usr/sbin/dnsmasq -C $DNSMASQ_CONF_FILE --test || {
         decho "Syntax errors when applying configuration. Rolling back configuration"
         cp $DNSMASQ_APPGATE_BACKUP $DNSMASQ_APPGATE
         cp $DNSMASQ_APPGATE_NEW $DNSMASQ_APPGATE_FAIL
@@ -175,7 +176,8 @@ if [[ $restart -eq 1 ]]; then
     while [[ $res != 0 ]]; do
         decho "Restarting dnsmasq ..."
         /usr/sbin/dnsmasq --pid-file=/sdp-dnsmasq/dnsmasq.pid --port=53 --local-service \
-                          --listen-address=127.0.0.1 $LOG_QUERIES -8 /proc/1/fd/1
+                          -C $DNSMASQ_CONF_FILE --listen-address=127.0.0.1 $LOG_QUERIES \
+                          -8 /proc/1/fd/1
         res=$?
         if [[ $res != 0 ]]; then
             if [[ $retries -gt 5 && $rollbacked -eq 0 ]]; then
