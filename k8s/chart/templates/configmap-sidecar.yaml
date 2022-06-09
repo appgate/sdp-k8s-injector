@@ -87,7 +87,7 @@ data:
         }
       ],
       "dnsConfig": {
-        "searches": {{ .Values.sdp.dnsmasq.dnsConfig.searches | quote }},
+        "searches": {{ .Values.sdp.dnsmasq.dnsConfig.searches | quote }}
       },
       "volumes": [
         {
