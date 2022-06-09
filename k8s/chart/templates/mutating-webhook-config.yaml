@@ -1,0 +1,26 @@
+apiVersion: admissionregistration.k8s.io/v1
+kind: MutatingWebhookConfiguration
+metadata:
+  name: sdp-admission-webhook-{{ .Release.Name }}
+  labels:
+    app: {{ include "sdp-k8s-client.fullname" . }}
+  annotations:
+    cert-manager.io/inject-ca-from-secret: {{ include "sdp-k8s-client.namespace" . }}/{{ include "sdp-k8s-client.injector-ca-crt" . }}
+webhooks:
+  - name: sdp-injector.appgate.com
+    clientConfig:
+      service:
+        name: {{ include "sdp-k8s-client.fullname" . }}
+        namespace: {{ include "sdp-k8s-client.namespace" . }}
+        path: "/mutate"
+    namespaceSelector:
+      matchLabels:
+        sdp-injection: enabled
+    rules:
+      - operations: ["CREATE"]
+        apiGroups: [""]
+        apiVersions: ["v1"]
+        resources: ["pods"]
+        scope: "Namespaced"
+    sideEffects: None
+    admissionReviewVersions: ["v1", "v1beta1"]

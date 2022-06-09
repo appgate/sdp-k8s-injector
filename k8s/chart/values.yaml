@@ -21,6 +21,10 @@ global:
     ##   - myRegistryKeySecretName
     pullSecrets: []
 
+cert-manager:
+  ## @param cert-manager.installCRDs Whether or not to install cert-manager CRDs.
+  installCRDs: true
+
 sdp:
   ## @param sdp.injector.logLevel SDP Injector log level.
   ## @param sdp.injector.image.repository SDP Injector image repository. If set, it overrides `.global.image.repository`.

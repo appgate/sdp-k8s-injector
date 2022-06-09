@@ -35,15 +35,15 @@ spec:
       securityContext:
         runAsUser: 1000
       containers:
-        - name: delete-secret
+        - name: delete-injector-secret
           image: "bitnami/kubectl"
           command: ["kubectl"]
           args: [ "delete", "secret", "{{ include "sdp-k8s-client.injector-secret" . }}", "--namespace={{ include "sdp-k8s-client.namespace" . }}"]
-        - name: delete-admission-webhook
+        - name: delete-ca-crt
           image: "bitnami/kubectl"
           command: ["kubectl"]
-          args: [ "delete", "mutatingwebhookconfigurations", "sdp-admission-webhook-{{ .Release.Name }}", "--ignore-not-found=true"]
+          args: [ "delete", "secret", "{{ include "sdp-k8s-client.injector-ca-crt" . }}", "--namespace={{ include "sdp-k8s-client.namespace" . }}"]
         - name: delete-configmaps
           image: "bitnami/kubectl"
           command: ["kubectl"]
-          args: [ "delete", "configmap", "sdp-admission-webhook-{{ .Release.Name }},sdp-ca-config-{{ .Release.Name }},sdp-injector-config-{{ .Release.Name }},{{ include "sdp-k8s-client.sidecar-config" . }}", "--ignore-not-found=true", "--namespace={{ include "sdp-k8s-client.namespace" . }}"]
+          args: [ "delete", "configmap", "sdp-ca-config-{{ .Release.Name }},sdp-injector-config-{{ .Release.Name }},{{ include "sdp-k8s-client.sidecar-config" . }}", "--ignore-not-found=true", "--namespace={{ include "sdp-k8s-client.namespace" . }}"]

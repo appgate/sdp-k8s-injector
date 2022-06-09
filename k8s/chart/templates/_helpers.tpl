@@ -64,6 +64,10 @@ ServiceAccount
 {{/*
 Secret
 */}}
+{{- define "sdp-k8s-client.injector-ca-crt" -}}
+{{- printf "sdp-client-ca-crt-%s" .Release.Name }}
+{{- end }}
+
 {{- define "sdp-k8s-client.injector-secret" -}}
 {{- printf "sdp-client-secret-%s" .Release.Name }}
 {{- end }}
