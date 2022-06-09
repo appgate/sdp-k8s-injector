@@ -560,7 +560,7 @@ mod tests {
     use std::iter::FromIterator;
 
     fn load_sidecar_containers_env() -> Result<SDPSidecars, String> {
-        std::env::set_var(SDP_SIDECARS_FILE_ENV, "k8s/sdp-sidecars.json");
+        std::env::set_var(SDP_SIDECARS_FILE_ENV, "tests/sdp-sidecars.json");
         load_sidecar_containers()
             .map_err(|e| format!("Unable to load the sidecar information {}", e.to_string()))
     }
