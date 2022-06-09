@@ -285,6 +285,11 @@ impl SDPPod<'_> {
                     value: serde_json::to_value(&self.sdp_sidecars.volumes)?,
                 }));
             }
+            // Patch DNSConfiguration now
+            patches.push(Add(AddOperation {
+                path: "/spec/dnsConfig".to_string(),
+                value: serde_json::to_value(&self.sdp_sidecars.dns_config())?,
+            }))
         }
         if patches.is_empty() {
             debug!("POD does not require patching");
@@ -372,6 +377,7 @@ impl Default for DNSConfig {
 struct SDPSidecars {
     containers: Box<Vec<Container>>,
     volumes: Box<Vec<Volume>>,
+    #[serde(rename = "dnsConfig")]
     dns_config: Box<DNSConfig>,
 }
 
