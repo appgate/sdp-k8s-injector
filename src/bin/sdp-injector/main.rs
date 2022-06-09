@@ -289,6 +289,10 @@ impl SDPPod<'_> {
             patches.push(Add(AddOperation {
                 path: "/spec/dnsConfig".to_string(),
                 value: serde_json::to_value(&self.sdp_sidecars.dns_config())?,
+            }));
+            patches.push(Add(AddOperation {
+                path: "/spec/dnsPolicy".to_string(),
+                value: serde_json::to_value("None".to_string())?,
             }))
         }
         if patches.is_empty() {
@@ -1002,13 +1006,27 @@ POD is missing needed volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-de
         let assert_dnsconfig =
             |patched_sdp_pod: &SDPPod, test_patch: &TestPatch| -> Result<bool, String> {
                 let expected_ns = Some(vec!["127.0.0.1".to_string()]);
-                let dns_config = patched_sdp_pod
+                patched_sdp_pod
                     .pod
                     .spec
                     .as_ref()
-                    .and_then(|p| p.dns_config.as_ref());
-                dns_config
-                    .ok_or_else(|| "DNSConfig not found in patched POD".to_string())
+                    .ok_or_else(|| "Specification not found in patched POD".to_string())
+                    .and_then(|spec| {
+                        (spec.dns_policy == Some("None".to_string()))
+                            .then(|| spec)
+                            .ok_or_else(|| {
+                                format!(
+                                    "POD spec got dnsPolicy {:?}, expected {:?}",
+                                    spec.dns_policy,
+                                    Some("None")
+                                )
+                            })
+                    })
+                    .and_then(|spec| {
+                        spec.dns_config
+                            .as_ref()
+                            .ok_or_else(|| "DNSConfig not found in patched POD".to_string())
+                    })
                     .and_then(|dc| {
                         (dc.nameservers == expected_ns).then(|| dc).ok_or_else(|| {
                             format!(
