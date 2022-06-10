@@ -1,6 +1,6 @@
 #!/usr/bin/env sh
 
-SETDNS_SOCKET=/var/run/appgate/dns-set.sock
+SETDNS_SOCKET=/var/run/sdp-dnsmasq/dns-set.sock
 
 has_reset() {
     echo "$@" | grep reset > /dev/null

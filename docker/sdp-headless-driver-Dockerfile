@@ -18,24 +18,39 @@ ARG CLIENT_DEB
 
 COPY --from=sdp-headless-client "/tmp/${CLIENT_DEB}" "/tmp/${CLIENT_DEB}"
 RUN apt-get update && apt-get install -y \
-        "/tmp/$CLIENT_DEB" \
-        && rm -rf /var/lib/apt/lists/*
+        "/tmp/$CLIENT_DEB" && \
+    rm -rf /var/lib/apt/lists/* && \
+    groupmod -g 103 messagebus && \
+    addgroup dnsmasq --gid 101 && \
+    usermod _apt -u 104 && \
+    usermod dnsmasq -u 100 -g 101 && \
+    usermod appgate -a -G dnsmasq
 
 RUN apt-get update && apt-get install -y \
         iproute2 \
         socat \
+        libcap2-bin \
         && rm -rf /var/lib/apt/lists/*
 
-RUN rm -rf \
+COPY assets/sdp-driver-set-dns /opt/appgate/linux/set_dns
+COPY assets/sdp-client-headless-driver /opt/appgate/sdp-client-headless-driver
+RUN mkdir /var/run/sdp-driver && \
+    chown -R 103:102 /var/run/sdp-driver && \
+    chmod +x /opt/appgate/linux/set_dns && \
+    chmod +x /opt/appgate/sdp-client-headless-driver && \
+    chown -R 103:102 /opt/appgate && \
+    rm -rf \
         /usr/share/doc \
         /usr/share/man \
         /var/lib/apt \
         /var/lib/dpkg \
         /var/cache \
         /etc/machine-id \
-        /tmp/$CLIENT_DEB
-
-COPY assets/sdp-driver-set-dns /opt/appgate/linux/set_dns
-RUN chmod +x /opt/appgate/linux/set_dns
-WORKDIR /root
-CMD ["/opt/appgate/appgate-driver", "-d", "-p", "/var/run/appgate/.driver.sock", "--container"]
+        /tmp/$CLIENT_DEB && \
+    setcap CAP_NET_ADMIN+ep /bin/ip && \
+    setcap CAP_NET_ADMIN,CAP_NET_RAW+ep /sbin/xtables-multi && \
+    setcap CAP_NET_ADMIN=ep /opt/appgate/appgate-driver && \
+    setcap CAP_MKNOD=ep /bin/mknod
+WORKDIR /opt/appgate
+USER appgate
+CMD ["/opt/appgate/sdp-client-headless-driver"]

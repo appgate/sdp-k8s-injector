@@ -69,7 +69,8 @@ sdp:
       repository: ""
       tag: ""
       pullPolicy: Always
-
+    dnsConfig:
+      searches: "svc.cluster.local cluster.local"
 ## @section Kubernetes parameters
 
 ## Specifies whether a ServiceAccount should be created
