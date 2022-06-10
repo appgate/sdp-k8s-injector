@@ -1,3 +1,5 @@
+pub mod protocol;
+
 #[derive(Debug)]
 struct SDPIdentity {
     name: Option<String>,
@@ -10,7 +12,6 @@ struct SDPService {
     namespace: String,
     identity: SDPIdentity,
 }
-
 
 fn main() {
     println!("Hello, world!");
