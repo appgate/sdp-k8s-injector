@@ -1,25 +1,45 @@
-use std::{borrow::BorrowMut, collections::VecDeque};
+use std::{
+    borrow::BorrowMut,
+    collections::{HashMap, VecDeque},
+};
 
 use futures::StreamExt;
 use k8s_openapi::api::apps::v1::Deployment;
 use kube::{api::ListParams, Api, Client};
+use kube_derive::CustomResource;
 use kube_runtime::watcher;
 use kube_runtime::watcher::Event;
 use log::{error, info, warn};
+use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 
 pub use crate::sdp;
 
 use self::sdp::Credentials;
 
-#[derive(Clone)]
-pub struct ServiceIdentity {
+#[derive(CustomResource, Serialize, Deserialize, Clone, Debug, JsonSchema)]
+#[kube(group = "sdp", version = "v1", kind = "ServiceIdentity", namespaced)]
+pub struct ServiceIdentitySpec {
+    credentials: ServiceCredentials,
+    name: String,
+    namespace: String,
+}
+
+impl ServiceIdentity {
+    pub fn name(&self) -> String {
+        format!("{}-{}", self.spec.namespace, self.spec.name).to_string()
+    }
+}
+
+#[derive(Clone, JsonSchema, Debug, Serialize, Deserialize)]
+pub struct ServiceCredentials {
     secret: String,
     field: String,
 }
 
 /// Messages exchanged between different components
-pub enum IdentityMessageRequest {
+pub enum IdentityManagerProtocol {
     /// Message used to request a new user
     RequestIdentity {
         service_name: String,
@@ -31,7 +51,7 @@ pub enum IdentityMessageRequest {
 
 pub enum IdentityMessageResponse {
     /// Message used to send a new user
-    NewIdentity(ServiceIdentity),
+    NewIdentity(ServiceCredentials),
     IdentityUnavailable,
 }
 
@@ -42,24 +62,28 @@ pub enum IdentityCreatorMessage {
 }
 
 pub struct IdentityManager {
-    pool: VecDeque<ServiceIdentity>,
+    pool: VecDeque<ServiceCredentials>,
+    service_identity_api: Api<ServiceIdentity>,
+    services: HashMap<String, ServiceIdentity>,
 }
 
 impl IdentityManager {
-    fn new() -> IdentityManager {
+    fn new(api: Api<ServiceIdentity>) -> IdentityManager {
         IdentityManager {
             pool: VecDeque::with_capacity(30),
+            service_identity_api: api,
+            services: HashMap::new(),
         }
     }
 
-    fn next_identity(&mut self) -> Option<ServiceIdentity> {
+    fn next_identity(&mut self) -> Option<ServiceCredentials> {
         self.pool.pop_front().map(|id| id.clone())
     }
 
-    async fn run(&mut self, mut rx: Receiver<IdentityMessageRequest>) -> () {
+    async fn run(&mut self, mut rx: Receiver<IdentityManagerProtocol>) -> () {
         while let Some(msg) = rx.recv().await {
             match msg {
-                IdentityMessageRequest::RequestIdentity {
+                IdentityManagerProtocol::RequestIdentity {
                     service_name,
                     service_ns,
                     channel,
@@ -80,29 +104,38 @@ impl IdentityManager {
                             info!("New ServiceIdentity dispatched");
                         }
                         Err(err) => {
-                            error!("Found error when notifying ServiceIdentify: {}", err);
+                            error!("Found error when notifying ServiceIdentity: {}", err);
                         }
                     };
                 }
-                IdentityMessageRequest::CredentialsCreated(credentials) => {
+                IdentityManagerProtocol::CredentialsCreated(credentials) => {
                     // TODO: Convert Crendetials => ServiceIdentity
-                    self.pool.push_back(ServiceIdentity {
+                    self.pool.push_back(ServiceCredentials {
                         secret: "THESECRET".to_string(),
                         field: "THEFIELD".to_string(),
                     });
-                }
+                },
             }
         }
     }
 
     async fn initialize(&mut self) -> () {
-        ()
+        match self.service_identity_api.list(&ListParams::default()).await {
+            Ok(xs) => {
+                xs.iter().for_each(|s| {
+                    self.services.insert(s.name(), s.clone());
+                });
+            }
+            Err(err) => {
+                error!("Error fetching list of current ServiceIdentity: {}", err);
+            }
+        }
     }
 
     async fn identity_creator(
         system: sdp::System,
         mut rx: Receiver<IdentityCreatorMessage>,
-        mut tx: Sender<IdentityMessageRequest>,
+        mut tx: Sender<IdentityManagerProtocol>,
     ) -> () {
         while let Some(message) = rx.recv().await {
             match message {
@@ -110,7 +143,7 @@ impl IdentityManager {
                     match system.create_user().await {
                         Ok(credentials) => {
                             if let Err(err) = tx
-                                .send(IdentityMessageRequest::CredentialsCreated(credentials))
+                                .send(IdentityManagerProtocol::CredentialsCreated(credentials))
                                 .await
                             {
                                 error!("Error notifying Credentials: {}", err);
@@ -135,10 +168,15 @@ impl IdentityManager {
     }
 }
 
-async fn run() -> Sender<IdentityMessageRequest> {
-    let (tx, mut rx) = channel::<IdentityMessageRequest>(50);
-    let mut identity_manager = IdentityManager::new();
+async fn run() -> Sender<IdentityManagerProtocol> {
+    let (tx, mut rx) = channel::<IdentityManagerProtocol>(50);
+    let client = Client::try_default()
+        .await
+        .expect("Unable to create K8S client");
+    let api: Api<ServiceIdentity> = Api::namespaced(client, "sdp-system");
+    let mut identity_manager = IdentityManager::new(api);
     tokio::spawn(async move {
+        identity_manager.initialize().await;
         identity_manager.borrow_mut().run(rx).await;
     });
     tx
@@ -174,7 +212,7 @@ impl DeploymentWatcher {
             let client = Client::try_default()
                 .await
                 .expect("Unable to create K8S client");
-            watch_deployments(client);
+            watch_deployments(client).await;
         });
     }
 }
