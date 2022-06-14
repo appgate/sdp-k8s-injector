@@ -1,18 +1,18 @@
 mod identity {
     use std::borrow::BorrowMut;
 
-    use futures::{StreamExt, channel::mpsc::SendError};
+    use futures::{channel::mpsc::SendError, StreamExt};
     use k8s_openapi::api::apps::v1::Deployment;
-    use kube::{Api, Client, api::ListParams};
+    use kube::{api::ListParams, Api, Client};
     use kube_runtime::watcher;
     use kube_runtime::watcher::Event;
-    use log::{info, error, warn};
+    use log::{error, info, warn};
     use tokio::sync::mpsc::{channel, Receiver, Sender};
 
     #[derive(Clone)]
     pub struct ServiceIdentity {
         secret: String,
-        field: String
+        field: String,
     }
 
     /// Messages exchanged between different components
@@ -21,7 +21,7 @@ mod identity {
         RequestIdentity {
             service_name: String,
             service_ns: String,
-            channel: Sender<IdentityMessageResponse> 
+            channel: Sender<IdentityMessageResponse>,
         },
     }
 
@@ -34,16 +34,16 @@ mod identity {
     pub struct IdentityManager {
         pool_size: u8,
         pool: Vec<ServiceIdentity>,
-        idx: usize
+        idx: usize,
     }
 
     impl IdentityManager {
         fn new() -> IdentityManager {
-            IdentityManager { 
-                pool_size: 30, 
-                pool: vec!(),
+            IdentityManager {
+                pool_size: 30,
+                pool: vec![],
                 idx: 0,
-             }
+            }
         }
 
         fn next_identity(&mut self) -> Option<ServiceIdentity> {
@@ -66,12 +66,13 @@ mod identity {
                             "New user requested for service {}[{}]",
                             service_name, service_ns
                         );
-                        let event = self.next_identity()
-                        .map(|id|IdentityMessageResponse::NewIdentity(id))
-                        .unwrap_or_else(|| {
-                            warn!("Unable to get next ServiceIdentity");
-                            IdentityMessageResponse::IdentityUnavailable
-                        });
+                        let event = self
+                            .next_identity()
+                            .map(|id| IdentityMessageResponse::NewIdentity(id))
+                            .unwrap_or_else(|| {
+                                warn!("Unable to get next ServiceIdentity");
+                                IdentityMessageResponse::IdentityUnavailable
+                            });
                         if let Err(err) = channel.send(event).await {
                             error!("Found error when notifying ServiceIdentify: {}", err);
                         }
@@ -99,28 +100,31 @@ mod identity {
     async fn watch_deployments(client: Client) -> () {
         let deployments_api: Api<Deployment> = Api::all(client);
         watcher(deployments_api, ListParams::default())
-        .for_each_concurrent(5, |res| async move {
-            match res {
-                Ok(Event::Restarted(deployments)) => {
-                    println!("Watcher restarted");
-                },
-                Ok(Event::Applied(deployment)) => {
-                    println!("New deployment or modified deployment");
-                },
-                Ok(Event::Deleted(deployment)) => {
-                    println!("Deleted deployment");
-                },
-                Err(err) => {
-                    println!("Some error")
+            .for_each_concurrent(5, |res| async move {
+                match res {
+                    Ok(Event::Restarted(deployments)) => {
+                        println!("Watcher restarted");
+                    }
+                    Ok(Event::Applied(deployment)) => {
+                        println!("New deployment or modified deployment");
+                    }
+                    Ok(Event::Deleted(deployment)) => {
+                        println!("Deleted deployment");
+                    }
+                    Err(err) => {
+                        println!("Some error")
+                    }
                 }
-            }
-        }).await
+            })
+            .await
     }
 
     impl DeploymentWatcher {
         async fn run() -> () {
             tokio::spawn(async move {
-                let client = Client::try_default().await.expect("Unable to create K8S client");
+                let client = Client::try_default()
+                    .await
+                    .expect("Unable to create K8S client");
                 watch_deployments(client);
             });
         }
