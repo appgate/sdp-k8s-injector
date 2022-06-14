@@ -1600,6 +1600,7 @@ dependencies = [
  "actix-web",
  "base64",
  "env_logger",
+ "futures",
  "http",
  "json-patch",
  "k8s-openapi",
