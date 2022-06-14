@@ -1,7 +1,7 @@
 mod identity {
-    use std::borrow::BorrowMut;
+    use std::{borrow::BorrowMut, collections::VecDeque};
 
-    use futures::{channel::mpsc::SendError, StreamExt};
+    use futures::StreamExt;
     use k8s_openapi::api::apps::v1::Deployment;
     use kube::{api::ListParams, Api, Client};
     use kube_runtime::watcher;
@@ -32,26 +32,18 @@ mod identity {
     }
 
     pub struct IdentityManager {
-        pool_size: u8,
-        pool: Vec<ServiceIdentity>,
-        idx: usize,
+        pool: VecDeque<ServiceIdentity>,
     }
 
     impl IdentityManager {
         fn new() -> IdentityManager {
             IdentityManager {
-                pool_size: 30,
-                pool: vec![],
-                idx: 0,
+                pool: VecDeque::with_capacity(30),
             }
         }
 
         fn next_identity(&mut self) -> Option<ServiceIdentity> {
-            let identity = self.pool.get(self.idx).map(|id| id.clone());
-            if let Some(_) = identity {
-                self.idx += 1;
-            }
-            identity
+            self.pool.pop_front().map(|id| id.clone())
         }
 
         async fn run(&mut self, mut rx: Receiver<IdentityMessageRequest>) -> () {
