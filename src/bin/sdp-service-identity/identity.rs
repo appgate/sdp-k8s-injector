@@ -5,7 +5,10 @@ use std::{
 
 use futures::StreamExt;
 use k8s_openapi::api::apps::v1::Deployment;
-use kube::{api::ListParams, Api, Client};
+use kube::{
+    api::{ListParams, PostParams},
+    Api, Client,
+};
 use kube_derive::CustomResource;
 use kube_runtime::watcher;
 use kube_runtime::watcher::Event;
@@ -21,14 +24,18 @@ use self::sdp::Credentials;
 #[derive(CustomResource, Serialize, Deserialize, Clone, Debug, JsonSchema)]
 #[kube(group = "sdp", version = "v1", kind = "ServiceIdentity", namespaced)]
 pub struct ServiceIdentitySpec {
-    credentials: ServiceCredentials,
-    name: String,
-    namespace: String,
+    service_credentials: ServiceCredentials,
+    service_name: String,
+    service_namespace: String,
+}
+
+fn derive_service_id(name: &str, namespace: &str) -> String {
+    format!("{}-{}", namespace, name).to_string()
 }
 
 impl ServiceIdentity {
     pub fn name(&self) -> String {
-        format!("{}-{}", self.spec.namespace, self.spec.name).to_string()
+        derive_service_id(&self.spec.service_name, &self.spec.service_namespace)
     }
 }
 
@@ -38,13 +45,21 @@ pub struct ServiceCredentials {
     field: String,
 }
 
+impl Default for ServiceCredentials {
+    fn default() -> Self {
+        Self {
+            secret: "sdp-service-secrets".to_string(),
+            field: "sdp-default-secret".to_string(),
+        }
+    }
+}
+
 /// Messages exchanged between different components
 pub enum IdentityManagerProtocol {
     /// Message used to request a new user
     RequestIdentity {
         service_name: String,
         service_ns: String,
-        channel: Sender<IdentityMessageResponse>,
     },
     CredentialsCreated(Credentials),
 }
@@ -76,8 +91,19 @@ impl IdentityManager {
         }
     }
 
-    fn next_identity(&mut self) -> Option<ServiceCredentials> {
-        self.pool.pop_front().map(|id| id.clone())
+    fn next_identity(&mut self, name: &String, namespace: &String) -> Option<ServiceIdentity> {
+        let service_id = derive_service_id(name, namespace);
+        match self.services.get(&service_id) {
+            None => self.pool.pop_front().map(|service_credentials| {
+                let service_identity_spec = ServiceIdentitySpec {
+                    service_name: name.clone(),
+                    service_namespace: name.clone(),
+                    service_credentials: service_credentials,
+                };
+                ServiceIdentity::new(&service_id, service_identity_spec)
+            }),
+            Some(c) => None,
+        }
     }
 
     async fn run(&mut self, mut rx: Receiver<IdentityManagerProtocol>) -> () {
@@ -86,25 +112,35 @@ impl IdentityManager {
                 IdentityManagerProtocol::RequestIdentity {
                     service_name,
                     service_ns,
-                    channel,
                 } => {
+                    let service_id = derive_service_id(&service_name, &service_ns);
                     info!(
                         "New user requested for service {}[{}]",
                         service_name, service_ns
                     );
-                    let event = self
-                        .next_identity()
-                        .map(|id| IdentityMessageResponse::NewIdentity(id))
-                        .unwrap_or_else(|| {
-                            warn!("Unable to get next ServiceIdentity");
-                            IdentityMessageResponse::IdentityUnavailable
-                        });
-                    match channel.send(event).await {
-                        Ok(_) => {
-                            info!("New ServiceIdentity dispatched");
+                    match self.next_identity(&service_name, &service_ns) {
+                        Some(identity) => {
+                            match self
+                                .service_identity_api
+                                .create(&PostParams::default(), &identity)
+                                .await
+                            {
+                                Ok(_) => {
+                                    info!(
+                                        "New ServiceIdentity created for service with id {}",
+                                        service_id
+                                    );
+                                }
+                                Err(err) => {
+                                    error!(
+                                        "Error creating ServiceIdentity for service with id {}: {}",
+                                        service_id, err
+                                    );
+                                }
+                            }
                         }
-                        Err(err) => {
-                            error!("Found error when notifying ServiceIdentity: {}", err);
+                        None => {
+                            warn!("ServiceIdentity not created");
                         }
                     };
                 }
@@ -114,7 +150,7 @@ impl IdentityManager {
                         secret: "THESECRET".to_string(),
                         field: "THEFIELD".to_string(),
                     });
-                },
+                }
             }
         }
     }
@@ -184,16 +220,28 @@ async fn run() -> Sender<IdentityManagerProtocol> {
 
 pub struct DeploymentWatcher;
 
-async fn watch_deployments(client: Client) -> () {
+async fn watch_deployments(client: Client, tx: &Sender<IdentityManagerProtocol>) -> () {
     let deployments_api: Api<Deployment> = Api::all(client);
     watcher(deployments_api, ListParams::default())
         .for_each_concurrent(5, |res| async move {
             match res {
-                Ok(Event::Restarted(deployments)) => {
-                    println!("Watcher restarted");
-                }
+                Ok(Event::Restarted(deployments)) => {}
                 Ok(Event::Applied(deployment)) => {
-                    println!("New deployment or modified deployment");
+                    let name = deployment.metadata.name;
+                    let namespace = deployment.metadata.namespace;
+                    if let (Some(name), Some(namespace)) = (name, namespace) {
+                        if let Err(err) = tx
+                            .send(IdentityManagerProtocol::RequestIdentity {
+                                service_name: name,
+                                service_ns: namespace,
+                            })
+                            .await
+                        {
+                            error!("Error requesting new ServiceIdentity")
+                        }
+                    } else {
+                        error!("Unknown deployment");
+                    }
                 }
                 Ok(Event::Deleted(deployment)) => {
                     println!("Deleted deployment");
@@ -207,12 +255,12 @@ async fn watch_deployments(client: Client) -> () {
 }
 
 impl DeploymentWatcher {
-    async fn run() -> () {
+    async fn run(tx: Sender<IdentityManagerProtocol>) -> () {
         tokio::spawn(async move {
             let client = Client::try_default()
                 .await
                 .expect("Unable to create K8S client");
-            watch_deployments(client).await;
+            watch_deployments(client, &tx).await;
         });
     }
 }
