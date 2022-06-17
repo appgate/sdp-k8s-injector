@@ -144,10 +144,7 @@ impl IdentityManager {
                     service_ns,
                 } => {
                     let service_id = derive_service_id(&service_name, &service_ns);
-                    info!(
-                        "New user requested for service {}[{}]",
-                        service_name, service_ns
-                    );
+                    info!("New user requested for service {}", service_id);
                     match self.next_identity(&service_name, &service_ns) {
                         Some(identity) => {
                             match self
@@ -170,7 +167,7 @@ impl IdentityManager {
                             }
                         }
                         None => {
-                            warn!("ServiceIdentity not created");
+                            error!("Unable to assign service identity for service {}. Identities pool seems to be empty!", service_id);
                         }
                     };
                 }
@@ -189,13 +186,21 @@ impl IdentityManager {
         info!("Initializing Identity Manager ...");
         match self.service_identity_api.list(&ListParams::default()).await {
             Ok(xs) => {
-                info!("Restore previous ServiceIdentities");
+                info!("Restoring previous service identities");
+                let mut n = 0;
                 xs.iter().for_each(|s| {
-                    self.services.insert(s.name(), s.clone());
+                    if let Some(service_id) = s.service_id() {
+                        n += 1;
+                        info!("Restoring service identity {}", service_id);
+                        self.services.insert(s.name(), s.clone());
+                    } else {
+                        error!("Unable to restore service identity {}", s.name());
+                    }
                 });
+                info!("Restored {} previous service identities", n);
             }
             Err(err) => {
-                error!("Error fetching list of current ServiceIdentity: {}", err);
+                panic!("Error fetching list of current ServiceIdentity: {}", err);
             }
         }
     }
@@ -204,11 +209,11 @@ impl IdentityManager {
         self,
         system: sdp::System,
         mut rx: Receiver<IdentityCreatorMessage>,
-        mut tx: Sender<IdentityManagerProtocol>,
+        tx: Sender<IdentityManagerProtocol>,
     ) -> () {
         while let Some(message) = rx.recv().await {
             match message {
-                CreateIdentity => {
+                IdentityCreatorMessage::CreateIdentity => {
                     match system.create_user().await {
                         Ok(credentials) => {
                             if let Err(err) = tx
@@ -224,19 +229,19 @@ impl IdentityManager {
                         }
                     };
                 }
-                DeleteIdentity => match system.delete_user().await {
-                    Ok(credentials) => {
+                IdentityCreatorMessage::DeleteIdentity => match system.delete_user().await {
+                    Ok(_credentials) => {
                         info!("Credentials deleted!");
                     }
                     Err(err) => {
-                        error!("Unable to delete credentials");
+                        error!("Unable to delete credentials: {}", err);
                     }
                 },
             }
         }
     }
 
-    pub async fn run(&mut self, mut receiver: Receiver<IdentityManagerProtocol>) -> () {
+    pub async fn run(&mut self, receiver: Receiver<IdentityManagerProtocol>) -> () {
         self.initialize().await;
         self.run_identity_manager(receiver).await;
     }
@@ -288,11 +293,14 @@ impl<'a> DeploymentWatcher {
                     Ok(Event::Applied(deployment)) => {
                         info!("Ignoring service {}, not a candidate since we can not guess the service id", deployment.name());
                     }
+                    Ok(Event::Deleted(deployment)) if deployment.service_id().is_some() => {
+                        info!("Deleted service candidate {}", deployment.service_id().unwrap());
+                    }
                     Ok(Event::Deleted(deployment)) => {
-                        println!("Deleted deployment");
+                        info!("Ignoring deleted service {}", deployment.name());
                     }
                     Err(err) => {
-                        //println!("Some error: {:?}", err);
+                        error!("Some error: {}", err);
                     }
                 }
             })
