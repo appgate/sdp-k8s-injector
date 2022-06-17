@@ -260,23 +260,29 @@ impl<'a> DeploymentWatcher {
         watcher(self.deployment_api, ListParams::default())
             .for_each_concurrent(5, |res| async move {
                 match res {
-                    Ok(Event::Restarted(deployments)) => {}
-                    Ok(Event::Applied(deployment)) if deployment.service_id().is_some() => {
-                        info!("Found new service candidate: {}", deployment.service_id().unwrap());
-                        let name = deployment.metadata.name;
-                        let namespace = deployment.metadata.namespace;
-                        if let (Some(name), Some(namespace)) = (name, namespace) {
+                    Ok(Event::Restarted(deployments)) => {
+                        for deployment in deployments {
+                            info!("Found new service candidate: {}", deployment.service_id().unwrap());
                             if let Err(err) = tx
                                 .send(IdentityManagerProtocol::RequestIdentity {
-                                    service_name: name,
-                                    service_ns: namespace,
-                                })
-                                .await
+                                    service_name: deployment.name(),
+                                    service_ns: deployment.namespace().unwrap(),
+                                }).await
                             {
                                 error!("Error requesting new ServiceIdentity")
                             }
-                        } else {
-                            error!("Unknown deployment");
+                        }
+                    }
+                    Ok(Event::Applied(deployment)) if deployment.service_id().is_some() => {
+                        info!("Found new service candidate: {}", deployment.service_id().unwrap());
+                        if let Err(err) = tx
+                            .send(IdentityManagerProtocol::RequestIdentity {
+                                service_name: deployment.name(),
+                                service_ns: deployment.namespace().unwrap(),
+                            })
+                            .await
+                        {
+                            error!("Error requesting new ServiceIdentity")
                         }
                     }
                     Ok(Event::Applied(deployment)) => {
