@@ -7,7 +7,7 @@ use futures::StreamExt;
 use k8s_openapi::api::apps::v1::Deployment;
 use kube::{
     api::{ListParams, PostParams},
-    Api, Client,
+    Api, Client, ResourceExt,
 };
 use kube_derive::CustomResource;
 use kube_runtime::watcher;
@@ -35,13 +35,31 @@ pub struct ServiceIdentitySpec {
     service_device_id: Option<String>,
 }
 
+pub trait ServiceCandidate {
+    fn service_id(&self) -> Option<String>;
+}
+
 fn derive_service_id(name: &str, namespace: &str) -> String {
     format!("{}-{}", namespace, name).to_string()
 }
 
-impl ServiceIdentity {
-    pub fn name(&self) -> String {
-        derive_service_id(&self.spec.service_name, &self.spec.service_namespace)
+impl ServiceCandidate for ServiceIdentity {
+    fn service_id(&self) -> Option<String> {
+        Some(derive_service_id(
+            &self.spec.service_namespace,
+            &self.spec.service_name,
+        ))
+    }
+}
+
+impl ServiceCandidate for Deployment {
+    fn service_id(&self) -> Option<String> {
+        self.metadata.namespace.as_ref().and_then(|ns| {
+            self.metadata
+                .name
+                .as_ref()
+                .map(|n| derive_service_id(&ns, &n))
+        })
     }
 }
 
@@ -243,7 +261,8 @@ impl<'a> DeploymentWatcher {
             .for_each_concurrent(5, |res| async move {
                 match res {
                     Ok(Event::Restarted(deployments)) => {}
-                    Ok(Event::Applied(deployment)) => {
+                    Ok(Event::Applied(deployment)) if deployment.service_id().is_some() => {
+                        info!("Found new service candidate: {}", deployment.service_id().unwrap());
                         let name = deployment.metadata.name;
                         let namespace = deployment.metadata.namespace;
                         if let (Some(name), Some(namespace)) = (name, namespace) {
@@ -259,6 +278,9 @@ impl<'a> DeploymentWatcher {
                         } else {
                             error!("Unknown deployment");
                         }
+                    }
+                    Ok(Event::Applied(deployment)) => {
+                        info!("Ignoring service {}, not a candidate since we can not guess the service id", deployment.name());
                     }
                     Ok(Event::Deleted(deployment)) => {
                         println!("Deleted deployment");
