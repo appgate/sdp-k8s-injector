@@ -84,35 +84,35 @@ impl System {
         resp.json::<Login>().await
     }
 
-    async fn maybe_refresh_login<'a>(&'a mut self) -> Result<(), RError> {
+    async fn maybe_refresh_login(&mut self) -> Result<&Login, RError> {
         if let Some(login) = self.login.as_ref().and_then(|l| l.expired().then(|| l)) {
             let login = self.login(&self.config.credentials).await?;
             self.login = Some(login);
         }
-        Ok(())
+        Ok(self.login.as_ref().unwrap())
     }
 
     /// GET /service-users
     pub async fn get_users(&mut self) -> Result<Vec<Credentials>, RError> {
-        self.maybe_refresh_login().await?;
+        let _ = self.maybe_refresh_login().await?;
         Ok(vec![])
     }
 
     /// GET /service-users-id
     pub async fn get_user(&mut self) -> Result<Credentials, RError> {
-        self.maybe_refresh_login().await?;
+        let _ = self.maybe_refresh_login().await?;
         unimplemented!();
     }
 
     /// POST /service-users-id
     pub async fn create_user(&mut self) -> Result<Credentials, RError> {
-        self.maybe_refresh_login().await?;
+        let _ = self.maybe_refresh_login().await?;
         unimplemented!();
     }
 
     /// DELETE /service-user-id
     pub async fn delete_user(&mut self) -> Result<Credentials, RError> {
-        self.maybe_refresh_login().await?;
+        let _ = self.maybe_refresh_login().await?;
         unimplemented!();
     }
 }
