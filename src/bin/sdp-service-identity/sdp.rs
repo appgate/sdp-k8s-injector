@@ -1,4 +1,3 @@
-use http::Error;
 use reqwest::header::HeaderMap;
 use reqwest::{Client, Error as RError, Url};
 use serde::{Deserialize, Serialize};
@@ -17,9 +16,16 @@ type Token = String;
 pub struct Login {
     user: LoginUser,
     token: Token,
+    expires: String,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+impl Login {
+    pub fn expired(&self) -> bool {
+        false
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct Credentials {
     pub username: String,
@@ -32,6 +38,7 @@ pub struct Credentials {
 struct SystemConfig {
     hosts: Vec<Url>,
     api_version: Option<String>,
+    credentials: Credentials,
 }
 
 pub struct SystemBuilder {
@@ -41,18 +48,20 @@ pub struct SystemBuilder {
 pub struct System {
     config: SystemConfig,
     client: Client,
+    login: Option<Login>,
 }
 
 impl SystemBuilder {
-    fn build(&self) -> Result<System, String> {
+    fn build(&self, credentials: Credentials) -> Result<System, String> {
         let mut hm = HeaderMap::new();
         Client::builder()
             .default_headers(hm)
             .build()
-            .map_err(|e| format!("Unable to crate the client: {:?}", e))
+            .map_err(|e| format!("Unable to create the client: {:?}", e))
             .map(|c| System {
                 config: self.config.clone(),
                 client: c,
+                login: None,
             })
     }
 }
@@ -65,7 +74,7 @@ impl System {
 
     /// /login
     /// Remove the clone!
-    async fn login(&self, creds: Credentials) -> Result<Login, RError> {
+    async fn login(&self, creds: &Credentials) -> Result<Login, RError> {
         let resp = self
             .client
             .post(self.config.hosts[0].clone())
@@ -75,23 +84,35 @@ impl System {
         resp.json::<Login>().await
     }
 
+    async fn maybe_refresh_login<'a>(&'a mut self) -> Result<(), RError> {
+        if let Some(login) = self.login.as_ref().and_then(|l| l.expired().then(|| l)) {
+            let login = self.login(&self.config.credentials).await?;
+            self.login = Some(login);
+        }
+        Ok(())
+    }
+
     /// GET /service-users
-    pub async fn get_users(&self, login: Login) -> Result<Vec<Credentials>, RError> {
-        unimplemented!();
+    pub async fn get_users(&mut self) -> Result<Vec<Credentials>, RError> {
+        self.maybe_refresh_login().await?;
+        Ok(vec![])
     }
 
     /// GET /service-users-id
-    pub async fn get_user(&self) -> Result<Credentials, RError> {
+    pub async fn get_user(&mut self) -> Result<Credentials, RError> {
+        self.maybe_refresh_login().await?;
         unimplemented!();
     }
 
     /// POST /service-users-id
-    pub async fn create_user(&self) -> Result<Credentials, RError> {
+    pub async fn create_user(&mut self) -> Result<Credentials, RError> {
+        self.maybe_refresh_login().await?;
         unimplemented!();
     }
 
     /// DELETE /service-user-id
-    pub async fn delete_user(&self) -> Result<Credentials, RError> {
+    pub async fn delete_user(&mut self) -> Result<Credentials, RError> {
+        self.maybe_refresh_login().await?;
         unimplemented!();
     }
 }

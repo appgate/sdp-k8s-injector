@@ -207,7 +207,7 @@ impl IdentityManager {
 
     async fn run_identity_creator(
         self,
-        system: sdp::System,
+        mut system: sdp::System,
         mut rx: Receiver<IdentityCreatorMessage>,
         tx: Sender<IdentityManagerProtocol>,
     ) -> () {
