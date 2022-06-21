@@ -1,13 +1,18 @@
 use http::Uri;
-use identity::{DeploymentWatcher, IdentityManager};
 use kube::{Client, Config, CustomResourceExt};
 use log::info;
 use std::{convert::TryFrom, env::args};
 use tokio::sync::mpsc::channel;
 
-use crate::identity::{IdentityManagerProtocol, ServiceIdentity};
+use crate::{
+    deployment_watcher::DeploymentWatcher,
+    identity_manager::{IdentityManager, IdentityManagerProtocol, ServiceIdentity},
+};
 
-pub mod identity;
+pub mod deployment_watcher;
+pub mod errors;
+pub mod identity_creator;
+pub mod identity_manager;
 pub mod sdp;
 
 const SDP_K8S_HOST_ENV: &str = "SDP_K8S_HOST";

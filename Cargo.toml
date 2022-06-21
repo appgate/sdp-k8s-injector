@@ -11,7 +11,7 @@ test = true
 bench = false
 
 [[bin]]
-name = "sdp-service-identity"
+name = "sdp-identity-service"
 test = true
 
 [dependencies]
