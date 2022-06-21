@@ -7,8 +7,8 @@ use k8s_openapi::api::core::v1::{
     SecretKeySelector, Service, Volume,
 };
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::Status;
-use kube::api::admission::{AdmissionRequest, AdmissionResponse, AdmissionReview};
 use kube::api::{DynamicObject, ListParams};
+use kube::core::admission::{AdmissionRequest, AdmissionResponse, AdmissionReview};
 use kube::{Api, Client, Config};
 use log::{debug, error, info, warn};
 use rustls::{Certificate, PrivateKey, ServerConfig};

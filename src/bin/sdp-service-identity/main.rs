@@ -1,6 +1,6 @@
 use http::Uri;
 use identity::{DeploymentWatcher, IdentityManager};
-use kube::{Client, Config};
+use kube::{Client, Config, CustomResourceExt};
 use log::info;
 use std::{convert::TryFrom, env::args};
 use tokio::sync::mpsc::channel;

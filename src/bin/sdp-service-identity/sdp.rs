@@ -20,7 +20,7 @@ pub struct Login {
 }
 
 impl Login {
-    pub fn expired(&self) -> bool {
+    pub fn has_expired(&self) -> bool {
         false
     }
 }
@@ -32,6 +32,16 @@ pub struct Credentials {
     password: String,
     provider_name: String,
     device_id: Option<String>,
+}
+#[derive(Serialize, Deserialize, Debug)]
+pub struct ServiceUser {
+    pub id: String,
+    pub labels: Vec<String>,
+    pub name: String,
+    pub password: String,
+    pub disabled: bool,
+    pub failed_login_attempts: u32,
+    pub lock_start: String,
 }
 
 #[derive(Clone)]
@@ -65,7 +75,6 @@ impl SystemBuilder {
             })
     }
 }
-
 impl System {
     fn headers() -> HeaderMap {
         let mut hm = HeaderMap::new();
@@ -85,7 +94,7 @@ impl System {
     }
 
     async fn maybe_refresh_login(&mut self) -> Result<&Login, RError> {
-        if let Some(login) = self.login.as_ref().and_then(|l| l.expired().then(|| l)) {
+        if let Some(login) = self.login.as_ref().and_then(|l| l.has_expired().then(|| l)) {
             let login = self.login(&self.config.credentials).await?;
             self.login = Some(login);
         }
@@ -93,26 +102,35 @@ impl System {
     }
 
     /// GET /service-users
-    pub async fn get_users(&mut self) -> Result<Vec<Credentials>, RError> {
+    pub async fn get_users(&mut self) -> Result<Vec<ServiceUser>, RError> {
         let _ = self.maybe_refresh_login().await?;
-        Ok(vec![])
+        let mut url = Url::from(self.config.hosts[0].clone());
+        url.set_path("/service-ids");
+        let resp = self.client.get(url).send().await?;
+        resp.json::<Vec<ServiceUser>>().await
     }
 
-    /// GET /service-users-id
-    pub async fn get_user(&mut self) -> Result<Credentials, RError> {
+    /// GET /service-useryah s-id
+    pub async fn get_user(&mut self, service_user_id: String) -> Result<ServiceUser, RError> {
         let _ = self.maybe_refresh_login().await?;
-        unimplemented!();
+        let mut url = Url::from(self.config.hosts[0].clone());
+        url.set_path(&format!("/service-users-id/{}", service_user_id));
+        let resp = self.client.get(url).send().await?;
+        resp.json::<ServiceUser>().await
     }
 
     /// POST /service-users-id
-    pub async fn create_user(&mut self) -> Result<Credentials, RError> {
+    pub async fn create_user(&mut self) -> Result<ServiceUser, RError> {
         let _ = self.maybe_refresh_login().await?;
         unimplemented!();
     }
 
     /// DELETE /service-user-id
-    pub async fn delete_user(&mut self) -> Result<Credentials, RError> {
+    pub async fn delete_user(&mut self, service_user_id: String) -> Result<ServiceUser, RError> {
         let _ = self.maybe_refresh_login().await?;
-        unimplemented!();
+        let mut url = Url::from(self.config.hosts[0].clone());
+        url.set_path(&format!("/service-users-id/{}", service_user_id));
+        let resp = self.client.delete(url).send().await?;
+        resp.json::<ServiceUser>().await
     }
 }
