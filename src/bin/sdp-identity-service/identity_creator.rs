@@ -94,13 +94,13 @@ impl IdentityCreator {
         &self,
         system: &mut sdp::System,
     ) -> Result<UserCredentialsRef, IdentityServiceError> {
-        let service_user = system.create_user().await.map_err(|e| {
+        let service_user = system.create_user(ServiceUser::new()).await.map_err(|e| {
             IdentityServiceError::from_service(e.to_string(), SERVICE_NAME.to_string())
         })?;
         self.create_user_credentials_ref(&service_user).await
     }
 
-    async fn run_identity_creator(
+    pub async fn run(
         self,
         system: &mut sdp::System,
         mut rx: Receiver<IdentityCreatorMessage>,

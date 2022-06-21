@@ -5,9 +5,9 @@ use log::{error, info};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
-use tokio::sync::mpsc::Receiver;
+use tokio::sync::mpsc::{Receiver, Sender};
 
-use crate::identity_creator::UserCredentialsRef;
+use crate::identity_creator::{IdentityCreatorMessage, UserCredentialsRef};
 pub use crate::sdp;
 
 use self::sdp::ServiceUser;
@@ -103,6 +103,7 @@ impl IdentityManager {
     async fn run_identity_manager(
         &mut self,
         mut receiver: Receiver<IdentityManagerProtocol>,
+        sender: Sender<IdentityCreatorMessage>,
     ) -> () {
         info!("Running Identity Manager ...");
         while let Some(msg) = receiver.recv().await {
@@ -125,6 +126,11 @@ impl IdentityManager {
                                         "New ServiceIdentity created for service with id {}",
                                         service_id
                                     );
+                                    if let Err(err) =
+                                        sender.send(IdentityCreatorMessage::CreateIdentity).await
+                                    {
+                                        error!("Error when sending IdentityCreatorMessage::CreateIdentity: {}", err);
+                                    }
                                 }
                                 Err(err) => {
                                     error!(
@@ -169,8 +175,12 @@ impl IdentityManager {
         }
     }
 
-    pub async fn run(&mut self, receiver: Receiver<IdentityManagerProtocol>) -> () {
+    pub async fn run(
+        &mut self,
+        receiver: Receiver<IdentityManagerProtocol>,
+        sender: Sender<IdentityCreatorMessage>,
+    ) -> () {
         self.initialize().await;
-        self.run_identity_manager(receiver).await;
+        self.run_identity_manager(receiver, sender).await;
     }
 }

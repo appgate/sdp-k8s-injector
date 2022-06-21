@@ -1,6 +1,7 @@
 use reqwest::header::HeaderMap;
 use reqwest::{Client, Error as RError, Url};
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
 #[derive(Deserialize, Serialize, Debug)]
 #[serde(rename_all = "camelCase")]
@@ -29,9 +30,9 @@ impl Login {
 #[serde(rename_all = "camelCase")]
 pub struct Credentials {
     pub username: String,
-    password: String,
-    provider_name: String,
-    device_id: Option<String>,
+    pub password: String,
+    pub provider_name: String,
+    pub device_id: Option<String>,
 }
 #[derive(Serialize, Deserialize, Debug)]
 pub struct ServiceUser {
@@ -40,19 +41,59 @@ pub struct ServiceUser {
     pub name: String,
     pub password: String,
     pub disabled: bool,
-    pub failed_login_attempts: u32,
-    pub lock_start: String,
+    pub failed_login_attempts: Option<u32>,
+    pub lock_start: Option<String>,
+}
+
+impl ServiceUser {
+    pub fn new() -> Self {
+        let uuid = Uuid::new_v4(); 
+        Self {
+            id: uuid.to_string(),
+            labels: vec![],
+            name: uuid.to_string(),
+            password: "123456".to_string(),
+            disabled: true,
+            failed_login_attempts: None,
+            lock_start: None,
+         }
+    }
 }
 
 #[derive(Clone)]
-struct SystemConfig {
-    hosts: Vec<Url>,
-    api_version: Option<String>,
-    credentials: Credentials,
+pub struct SystemConfig {
+    pub hosts: Vec<Url>,
+    pub api_version: Option<String>,
+    pub credentials: Option<Credentials>,
 }
 
-pub struct SystemBuilder {
-    config: SystemConfig,
+impl SystemConfig {
+    pub fn new(hosts: Vec<Url>) -> SystemConfig {
+        SystemConfig {
+            hosts: hosts,
+            api_version: None,
+            credentials: None,
+        }
+    }
+
+    pub fn with_api_version(&mut self, api_version: &str) -> &mut SystemConfig {
+        self.api_version = Some(api_version.to_string());
+        self
+    }
+
+    pub fn build(&mut self, credentials: Credentials) -> Result<System, String> {
+        let mut hm = HeaderMap::new();
+        self.credentials = Some(credentials);
+        Client::builder()
+            .default_headers(hm)
+            .build()
+            .map_err(|e| format!("Unable to create the client: {:?}", e))
+            .map(|c| System {
+                config: self.clone(),
+                client: c,
+                login: None,
+            })
+    }
 }
 
 pub struct System {
@@ -61,20 +102,6 @@ pub struct System {
     login: Option<Login>,
 }
 
-impl SystemBuilder {
-    fn build(&self, credentials: Credentials) -> Result<System, String> {
-        let mut hm = HeaderMap::new();
-        Client::builder()
-            .default_headers(hm)
-            .build()
-            .map_err(|e| format!("Unable to create the client: {:?}", e))
-            .map(|c| System {
-                config: self.config.clone(),
-                client: c,
-                login: None,
-            })
-    }
-}
 impl System {
     fn headers() -> HeaderMap {
         let mut hm = HeaderMap::new();
@@ -95,7 +122,9 @@ impl System {
 
     async fn maybe_refresh_login(&mut self) -> Result<&Login, RError> {
         if let Some(login) = self.login.as_ref().and_then(|l| l.has_expired().then(|| l)) {
-            let login = self.login(&self.config.credentials).await?;
+            let login = self
+                .login(&self.config.credentials.as_ref().unwrap())
+                .await?;
             self.login = Some(login);
         }
         Ok(self.login.as_ref().unwrap())
@@ -120,9 +149,12 @@ impl System {
     }
 
     /// POST /service-users-id
-    pub async fn create_user(&mut self) -> Result<ServiceUser, RError> {
+    pub async fn create_user(&mut self, service_user: ServiceUser) -> Result<ServiceUser, RError> {
         let _ = self.maybe_refresh_login().await?;
-        unimplemented!();
+        let mut url = Url::from(self.config.hosts[0].clone());
+        url.set_path(&format!("/service-users"));
+        let resp = self.client.post(url).json(&service_user).send().await?;
+        resp.json::<ServiceUser>().await
     }
 
     /// DELETE /service-user-id
