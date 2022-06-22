@@ -5,7 +5,7 @@ use kube::{
     runtime::watcher::{self, Event},
     Api, Client,
 };
-use log::{error, info};
+use log::{error, info, debug};
 use tokio::sync::mpsc::Sender;
 
 use crate::identity_manager::{IdentityManagerProtocol, ServiceCandidate};
@@ -30,16 +30,18 @@ impl<'a> DeploymentWatcher<Deployment> {
                 match res {
                     Ok(Event::Restarted(deployments)) => {
                         for deployment in deployments {
-                            info!("Found new service candidate: {}", deployment.service_id());
-                            let msg = IdentityManagerProtocol::RequestIdentity {
-                                service_candidate: deployment,
-                            };
-                            if let Err(err) = tx.send(msg).await {
-                                error!("Error requesting new ServiceIdentity: {}", err);
+                            if deployment.is_candidate() {
+                                info!("Found new service candidate: {}", deployment.service_id());
+                                let msg = IdentityManagerProtocol::RequestIdentity {
+                                    service_candidate: deployment,
+                                };
+                                if let Err(err) = tx.send(msg).await {
+                                    error!("Error requesting new ServiceIdentity: {}", err);
+                                }
                             }
                         }
                     }
-                    Ok(Event::Applied(deployment)) => {
+                    Ok(Event::Applied(deployment)) if deployment.is_candidate() => {
                         info!("Found new service candidate: {}", deployment.service_id());
                         if let Err(err) = tx
                             .send(IdentityManagerProtocol::RequestIdentity {
@@ -50,8 +52,14 @@ impl<'a> DeploymentWatcher<Deployment> {
                             error!("Error requesting new ServiceIdentity: {}", err);
                         }
                     }
-                    Ok(Event::Deleted(deployment)) => {
+                    Ok(Event::Applied(deployment)) => {
+                        debug!("Ignoring service not being candidate {}", deployment.service_id());
+                    }
+                    Ok(Event::Deleted(deployment)) if deployment.is_candidate() => {
                         info!("Deleted service candidate {}", deployment.service_id());
+                    }
+                    Ok(Event::Deleted(deployment)) => {
+                        debug!("Ignoring service not being candidate {}", deployment.service_id());
                     }
                     Err(err) => {
                         error!("Some error: {}", err);

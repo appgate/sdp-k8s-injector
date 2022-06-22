@@ -42,6 +42,7 @@ pub struct ServiceIdentitySpec {
 pub trait ServiceCandidate {
     fn name(&self) -> String;
     fn namespace(&self) -> String;
+    fn is_candidate(&self) -> bool;
     fn service_id(&self) -> String {
         format!("{}-{}", self.namespace(), self.name()).to_string()
     }
@@ -56,6 +57,10 @@ impl ServiceCandidate for ServiceIdentity {
     fn namespace(&self) -> String {
         self.spec.service_namespace.clone()
     }
+
+    fn is_candidate(&self) -> bool {
+        true
+    }
 }
 
 /// Deployment are the main source of ServiceCandidate
@@ -67,6 +72,10 @@ impl ServiceCandidate for Deployment {
 
     fn namespace(&self) -> String {
         ResourceExt::namespace(self).unwrap_or("default".to_string())
+    }
+
+    fn is_candidate(&self) -> bool {
+        ServiceCandidate::namespace(self) == "some-ns"
     }
 }
 
