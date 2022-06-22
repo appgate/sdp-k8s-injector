@@ -3,18 +3,18 @@ use k8s_openapi::api::apps::v1::Deployment;
 use kube::{
     api::ListParams,
     runtime::watcher::{self, Event},
-    Api, Client, ResourceExt,
+    Api, Client,
 };
 use log::{error, info};
 use tokio::sync::mpsc::Sender;
 
 use crate::identity_manager::{IdentityManagerProtocol, ServiceCandidate};
 
-pub struct DeploymentWatcher {
-    deployment_api: Api<Deployment>,
+pub struct DeploymentWatcher<D: ServiceCandidate> {
+    deployment_api: Api<D>,
 }
 
-impl<'a> DeploymentWatcher {
+impl<'a> DeploymentWatcher<Deployment> {
     pub fn new(client: Client) -> Self {
         let deployment_api: Api<Deployment> = Api::all(client);
         DeploymentWatcher {
@@ -22,7 +22,7 @@ impl<'a> DeploymentWatcher {
         }
     }
 
-    pub async fn watch_deployments(self, queue: Sender<IdentityManagerProtocol>) -> () {
+    pub async fn watch_deployments(self, queue: Sender<IdentityManagerProtocol<Deployment>>) -> () {
         info!("Starting Deployments watcher!");
         let tx = &queue;
         watcher::watcher(self.deployment_api, ListParams::default())
@@ -31,14 +31,11 @@ impl<'a> DeploymentWatcher {
                     Ok(Event::Restarted(deployments)) => {
                         for deployment in deployments {
                             info!("Found new service candidate: {}", deployment.service_id());
-                            if let Err(err) = tx
-                                .send(IdentityManagerProtocol::RequestIdentity {
-                                    service_name: deployment.name(),
-                                    service_ns: deployment.namespace().unwrap(),
-                                })
-                                .await
-                            {
-                                error!("Error requesting new ServiceIdentity")
+                            let msg = IdentityManagerProtocol::RequestIdentity {
+                                service_candidate: deployment,
+                            };
+                            if let Err(err) = tx.send(msg).await {
+                                error!("Error requesting new ServiceIdentity: {}", err);
                             }
                         }
                     }
@@ -46,12 +43,11 @@ impl<'a> DeploymentWatcher {
                         info!("Found new service candidate: {}", deployment.service_id());
                         if let Err(err) = tx
                             .send(IdentityManagerProtocol::RequestIdentity {
-                                service_name: deployment.name(),
-                                service_ns: deployment.namespace().unwrap(),
+                                service_candidate: deployment,
                             })
                             .await
                         {
-                            error!("Error requesting new ServiceIdentity")
+                            error!("Error requesting new ServiceIdentity: {}", err);
                         }
                     }
                     Ok(Event::Deleted(deployment)) => {

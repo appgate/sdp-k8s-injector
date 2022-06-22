@@ -1,4 +1,5 @@
 use http::Uri;
+use k8s_openapi::api::apps::v1::Deployment;
 use kube::{Client, Config, CustomResourceExt};
 use log::info;
 use reqwest::Url;
@@ -48,7 +49,7 @@ fn show_crds() {
 async fn main() -> () {
     env_logger::init();
     let command = args().nth(1);
-    let arguments = args().skip(2).collect::<Vec<String>>();
+    let _arguments = args().skip(2).collect::<Vec<String>>();
     match command.as_deref() {
         Some("crd") => {
             show_crds();
@@ -60,12 +61,11 @@ async fn main() -> () {
             let identity_creator_client = get_k8s_client().await;
             let mut identity_manager = IdentityManager::new(identity_manager_client);
             let identity_creator = IdentityCreator::new(identity_creator_client);
-            let (sender, mut receiver) = channel::<IdentityManagerProtocol>(50);
-            let (identity_creator_tx, mut identity_creator_rx) =
-                channel::<IdentityCreatorMessage>(50);
+            let (sender, receiver) = channel::<IdentityManagerProtocol<Deployment>>(50);
+            let (identity_creator_tx, identity_creator_rx) = channel::<IdentityCreatorMessage>(50);
             let sender2 = sender.clone();
             tokio::spawn(async move {
-                let mut deployment_watcher = DeploymentWatcher::new(deployment_watcher_client);
+                let deployment_watcher = DeploymentWatcher::new(deployment_watcher_client);
                 deployment_watcher.watch_deployments(sender).await;
             });
             tokio::spawn(async move {

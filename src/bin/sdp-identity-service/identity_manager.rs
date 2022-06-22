@@ -1,4 +1,4 @@
-use k8s_openapi::api::{apps::v1::Deployment, core::v1::Secret};
+use k8s_openapi::api::apps::v1::Deployment;
 use kube::api::{ListParams, PostParams};
 use kube::{Api, Client, CustomResource, ResourceExt};
 use log::{error, info};
@@ -7,11 +7,11 @@ use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
 use tokio::sync::mpsc::{Receiver, Sender};
 
-use crate::identity_creator::{IdentityCreatorMessage, UserCredentialsRef};
+use crate::identity_creator::{IdentityCreatorMessage, ServiceCredentialsRef};
 pub use crate::sdp;
 
-use self::sdp::ServiceUser;
-
+/// ServiceIdentity CRD
+/// This is the CRD where we store the credentials for the services
 #[derive(Debug, CustomResource, Serialize, Deserialize, Clone, JsonSchema)]
 #[kube(
     group = "injector.sdp.com",
@@ -19,58 +19,125 @@ use self::sdp::ServiceUser;
     kind = "ServiceIdentity",
     namespaced
 )]
+
+/// Spec for ServiceIdentity CRD
+/// This CRD defines the credentials and the labels used by a specific k8s service
+/// The credentials are stored in a k8s secret entity
+/// The labels in the service are used to determine what kind of access the service
+///   will have
+/// service_namespace + service_name indentify each service
 pub struct ServiceIdentitySpec {
-    service_identity: UserCredentialsRef,
+    service_crendetials_ref: ServiceCredentialsRef,
     service_name: String,
     service_namespace: String,
     labels: Vec<String>,
     disabled: bool,
 }
 
+/// Trait that defines entities that are candidates to be services
+/// Basically a service candidate needs to be able to define :
+///  - namespace
+///  - name
+/// and the combination of both needs to be unique
 pub trait ServiceCandidate {
-    fn service_id(&self) -> String;
+    fn name(&self) -> String;
+    fn namespace(&self) -> String;
+    fn service_id(&self) -> String {
+        format!("{}-{}", self.namespace(), self.name()).to_string()
+    }
 }
 
-fn derive_service_id(name: &str, namespace: &str) -> String {
-    format!("{}-{}", namespace, name).to_string()
-}
-
+/// ServiceIdentity is a ServiceCandidate by definition :D
 impl ServiceCandidate for ServiceIdentity {
-    fn service_id(&self) -> String {
-        derive_service_id(&self.spec.service_namespace, &self.spec.service_name)
+    fn name(&self) -> String {
+        self.spec.service_name.clone()
+    }
+
+    fn namespace(&self) -> String {
+        self.spec.service_namespace.clone()
     }
 }
 
+/// Deployment are the main source of ServiceCandidate
+/// Final ServiceIdentity are created from Deployments
 impl ServiceCandidate for Deployment {
-    fn service_id(&self) -> String {
-        let name = self.name();
-        let ns = self.namespace().unwrap_or("default".to_string());
-        derive_service_id(&name, &ns)
+    fn name(&self) -> String {
+        ResourceExt::name(self)
+    }
+
+    fn namespace(&self) -> String {
+        ResourceExt::namespace(self).unwrap_or("default".to_string())
     }
 }
 
-/// Messages exchanged between different components
-pub enum IdentityManagerProtocol {
-    /// Message used to request a new user
-    RequestIdentity {
-        service_name: String,
-        service_ns: String,
-    },
+/// Messages exchanged between the the IdentityCreator and IdentityManager
+pub enum IdentityManagerProtocol<D: ServiceCandidate> {
+    /// Message used to request a new ServiceIdentity for ServiceCandidate
+    RequestIdentity { service_candidate: D },
+    /// Message to notify that a new ServiceCredential have been created
+    /// IdentityCreator creates these ServiceCredentials
     IdentityCreated {
-        user_credentials_ref: UserCredentialsRef,
+        user_credentials_ref: ServiceCredentialsRef,
     },
 }
 
 pub enum IdentityMessageResponse {
     /// Message used to send a new user
-    NewIdentity(UserCredentialsRef),
+    NewIdentity(ServiceCredentialsRef),
     IdentityUnavailable,
 }
 
 pub struct IdentityManager {
-    pool: VecDeque<UserCredentialsRef>,
+    pool: VecDeque<ServiceCredentialsRef>,
     service_identity_api: Api<ServiceIdentity>,
     services: HashMap<String, ServiceIdentity>,
+}
+
+/// Trait that represents the pool of ServiceCredential entities
+/// We can pop and push ServiceCredential entities
+trait ServiceCredentialsPool {
+    fn pop(&mut self) -> Option<ServiceCredentialsRef>;
+    fn push(&mut self, user_credentials_ref: ServiceCredentialsRef) -> ();
+}
+
+/// Trait for ServiceIdentity provider
+/// This traits provides instances of To from instances of From
+trait ServiceIdentityProvider {
+    type From: ServiceCandidate;
+    type To: ServiceCandidate;
+    fn next_identity(&mut self, from: Self::From) -> Option<Self::To>;
+}
+
+impl ServiceCredentialsPool for IdentityManager {
+    fn pop(&mut self) -> Option<ServiceCredentialsRef> {
+        self.pool.pop_front()
+    }
+
+    fn push(&mut self, user_credentials_ref: ServiceCredentialsRef) -> () {
+        self.pool.push_back(user_credentials_ref)
+    }
+}
+
+impl ServiceIdentityProvider for IdentityManager {
+    type From = Deployment;
+    type To = ServiceIdentity;
+
+    fn next_identity(&mut self, from: Deployment) -> Option<ServiceIdentity> {
+        //let service_id = derive_service_id(name, namespace);
+        match self.services.get(&from.service_id()) {
+            None => self.pop().map(|service_crendetials_ref| {
+                let service_identity_spec = ServiceIdentitySpec {
+                    service_name: ServiceCandidate::name(&from),
+                    service_namespace: ServiceCandidate::name(&from),
+                    service_crendetials_ref: service_crendetials_ref,
+                    labels: vec![],
+                    disabled: false,
+                };
+                ServiceIdentity::new(&from.service_id(), service_identity_spec)
+            }),
+            Some(_) => None,
+        }
+    }
 }
 
 impl IdentityManager {
@@ -83,38 +150,18 @@ impl IdentityManager {
         }
     }
 
-    fn next_identity(&mut self, name: &String, namespace: &String) -> Option<ServiceIdentity> {
-        let service_id = derive_service_id(name, namespace);
-        match self.services.get(&service_id) {
-            None => self.pool.pop_front().map(|service_identity| {
-                let service_identity_spec = ServiceIdentitySpec {
-                    service_name: name.clone(),
-                    service_namespace: namespace.clone(),
-                    service_identity: service_identity,
-                    labels: vec![],
-                    disabled: false,
-                };
-                ServiceIdentity::new(&service_id, service_identity_spec)
-            }),
-            Some(c) => None,
-        }
-    }
-
     async fn run_identity_manager(
         &mut self,
-        mut receiver: Receiver<IdentityManagerProtocol>,
+        mut receiver: Receiver<IdentityManagerProtocol<Deployment>>,
         sender: Sender<IdentityCreatorMessage>,
     ) -> () {
         info!("Running Identity Manager ...");
         while let Some(msg) = receiver.recv().await {
             match msg {
-                IdentityManagerProtocol::RequestIdentity {
-                    service_name,
-                    service_ns,
-                } => {
-                    let service_id = derive_service_id(&service_name, &service_ns);
+                IdentityManagerProtocol::RequestIdentity { service_candidate } => {
+                    let service_id = service_candidate.service_id();
                     info!("New user requested for service {}", service_id);
-                    match self.next_identity(&service_name, &service_ns) {
+                    match self.next_identity(service_candidate) {
                         Some(identity) => {
                             match self
                                 .service_identity_api
@@ -163,7 +210,7 @@ impl IdentityManager {
                     .iter()
                     .map(|s| {
                         info!("Restoring service identity {}", s.service_id());
-                        self.services.insert(s.name(), s.clone());
+                        self.services.insert(ServiceCandidate::name(s), s.clone());
                         1
                     })
                     .sum();
@@ -177,10 +224,16 @@ impl IdentityManager {
 
     pub async fn run(
         &mut self,
-        receiver: Receiver<IdentityManagerProtocol>,
+        receiver: Receiver<IdentityManagerProtocol<Deployment>>,
         sender: Sender<IdentityCreatorMessage>,
     ) -> () {
         self.initialize().await;
         self.run_identity_manager(receiver, sender).await;
     }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn test_identity_manager_1() {}
 }

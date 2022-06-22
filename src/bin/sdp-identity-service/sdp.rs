@@ -47,7 +47,7 @@ pub struct ServiceUser {
 
 impl ServiceUser {
     pub fn new() -> Self {
-        let uuid = Uuid::new_v4(); 
+        let uuid = Uuid::new_v4();
         Self {
             id: uuid.to_string(),
             labels: vec![],
@@ -56,7 +56,7 @@ impl ServiceUser {
             disabled: true,
             failed_login_attempts: None,
             lock_start: None,
-         }
+        }
     }
 }
 

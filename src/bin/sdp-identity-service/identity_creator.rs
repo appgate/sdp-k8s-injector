@@ -1,5 +1,6 @@
 use json_patch::PatchOperation::Add;
 use json_patch::{AddOperation, Patch as JsonPatch};
+use k8s_openapi::api::apps::v1::Deployment;
 use k8s_openapi::api::core::v1::Secret;
 use kube::api::{Patch as KubePatch, PatchParams};
 use kube::{Api, Client};
@@ -18,14 +19,14 @@ const SDP_IDENTITY_MANAGER_SECRETS: &str = "sdp-identity-service-creds";
 const SERVICE_NAME: &str = "identity-creator";
 
 #[derive(Clone, JsonSchema, Debug, Serialize, Deserialize)]
-pub struct UserCredentialsRef {
+pub struct ServiceCredentialsRef {
     id: String,
     secret: String,
     user_field: String,
     password_field: String,
 }
 
-impl From<&ServiceUser> for UserCredentialsRef {
+impl From<&ServiceUser> for ServiceCredentialsRef {
     fn from(service_user: &ServiceUser) -> Self {
         let pw_field = format!("{}-pw", service_user.id);
         let user_field = format!("{}-user", service_user.id);
@@ -59,7 +60,7 @@ impl IdentityCreator {
     async fn create_user_credentials_ref(
         &self,
         service_user: &ServiceUser,
-    ) -> Result<UserCredentialsRef, IdentityServiceError> {
+    ) -> Result<ServiceCredentialsRef, IdentityServiceError> {
         let pw_field = format!("{}-pw", service_user.id);
         let user_field = format!("{}-user", service_user.id);
         let json_patch_user = Add(AddOperation {
@@ -87,13 +88,13 @@ impl IdentityCreator {
             .map_err(|e| {
                 IdentityServiceError::from_service(e.to_string(), SERVICE_NAME.to_string())
             })?;
-        Ok(UserCredentialsRef::from(service_user))
+        Ok(ServiceCredentialsRef::from(service_user))
     }
 
     async fn create_user(
         &self,
         system: &mut sdp::System,
-    ) -> Result<UserCredentialsRef, IdentityServiceError> {
+    ) -> Result<ServiceCredentialsRef, IdentityServiceError> {
         let service_user = system.create_user(ServiceUser::new()).await.map_err(|e| {
             IdentityServiceError::from_service(e.to_string(), SERVICE_NAME.to_string())
         })?;
@@ -104,7 +105,7 @@ impl IdentityCreator {
         self,
         system: &mut sdp::System,
         mut rx: Receiver<IdentityCreatorMessage>,
-        tx: Sender<IdentityManagerProtocol>,
+        tx: Sender<IdentityManagerProtocol<Deployment>>,
     ) -> () {
         while let Some(message) = rx.recv().await {
             match message {
