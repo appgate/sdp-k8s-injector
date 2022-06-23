@@ -1,13 +1,14 @@
 use k8s_openapi::api::apps::v1::Deployment;
 use kube::api::{ListParams, PostParams};
 use kube::{Api, Client, CustomResource, ResourceExt};
-use log::{error, info};
+use log::{error, info, warn};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
 use tokio::sync::mpsc::{Receiver, Sender};
 
-use crate::identity_creator::{IdentityCreatorMessage, ServiceCredentialsRef};
+use crate::deployment_watcher::DeploymentWatcherProtocol;
+use crate::identity_creator::{IdentityCreatorProtocol, ServiceCredentialsRef};
 pub use crate::sdp;
 
 /// ServiceIdentity CRD
@@ -80,14 +81,18 @@ impl ServiceCandidate for Deployment {
 }
 
 /// Messages exchanged between the the IdentityCreator and IdentityManager
+#[derive(Debug)]
 pub enum IdentityManagerProtocol<D: ServiceCandidate> {
     /// Message used to request a new ServiceIdentity for ServiceCandidate
-    RequestIdentity { service_candidate: D },
+    RequestIdentity {
+        service_candidate: D,
+    },
     /// Message to notify that a new ServiceCredential have been created
     /// IdentityCreator creates these ServiceCredentials
     IdentityCreated {
         user_credentials_ref: ServiceCredentialsRef,
     },
+    IdentityCreatorReady,
 }
 
 pub enum IdentityMessageResponse {
@@ -161,11 +166,12 @@ impl IdentityManager {
 
     async fn run_identity_manager(
         &mut self,
-        mut receiver: Receiver<IdentityManagerProtocol<Deployment>>,
-        sender: Sender<IdentityCreatorMessage>,
+        mut identity_manager_rx: Receiver<IdentityManagerProtocol<Deployment>>,
+        identity_creator_tx: Sender<IdentityCreatorProtocol>,
+        deployment_watcher_proto_tx: Sender<DeploymentWatcherProtocol>,
     ) -> () {
         info!("Running Identity Manager ...");
-        while let Some(msg) = receiver.recv().await {
+        while let Some(msg) = identity_manager_rx.recv().await {
             match msg {
                 IdentityManagerProtocol::RequestIdentity { service_candidate } => {
                     let service_id = service_candidate.service_id();
@@ -182,8 +188,9 @@ impl IdentityManager {
                                         "New ServiceIdentity created for service with id {}",
                                         service_id
                                     );
-                                    if let Err(err) =
-                                        sender.send(IdentityCreatorMessage::CreateIdentity).await
+                                    if let Err(err) = identity_creator_tx
+                                        .send(IdentityCreatorProtocol::CreateIdentity)
+                                        .await
                                     {
                                         error!("Error when sending IdentityCreatorMessage::CreateIdentity: {}", err);
                                     }
@@ -204,7 +211,22 @@ impl IdentityManager {
                 IdentityManagerProtocol::IdentityCreated {
                     user_credentials_ref,
                 } => {
-                    self.pool.push_back(user_credentials_ref);
+                    info!(
+                        "Push new UserCredentialRef with id {}",
+                        user_credentials_ref.id
+                    );
+                    self.push(user_credentials_ref);
+                }
+                IdentityManagerProtocol::IdentityCreatorReady => {
+                    info!("IdentityCreator is ready!");
+                    let msg = DeploymentWatcherProtocol::IdentityManagerReady;
+                    deployment_watcher_proto_tx
+                        .send(msg)
+                        .await
+                        .expect("Unable to notify DeploymentWatcher!");
+                }
+                _ => {
+                    warn!("Ignored message");
                 }
             }
         }
@@ -233,11 +255,17 @@ impl IdentityManager {
 
     pub async fn run(
         &mut self,
-        receiver: Receiver<IdentityManagerProtocol<Deployment>>,
-        sender: Sender<IdentityCreatorMessage>,
+        identity_manager_prot_rx: Receiver<IdentityManagerProtocol<Deployment>>,
+        identity_creater_proto_tx: Sender<IdentityCreatorProtocol>,
+        deployment_watcher_proto_tx: Sender<DeploymentWatcherProtocol>,
     ) -> () {
         self.initialize().await;
-        self.run_identity_manager(receiver, sender).await;
+        self.run_identity_manager(
+            identity_manager_prot_rx,
+            identity_creater_proto_tx,
+            deployment_watcher_proto_tx,
+        )
+        .await;
     }
 }
 

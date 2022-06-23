@@ -21,10 +21,10 @@ const SERVICE_NAME: &str = "identity-creator";
 
 #[derive(Clone, JsonSchema, Debug, Serialize, Deserialize)]
 pub struct ServiceCredentialsRef {
-    id: String,
-    secret: String,
-    user_field: String,
-    password_field: String,
+    pub id: String,
+    pub secret: String,
+    pub user_field: String,
+    pub password_field: String,
 }
 
 impl From<&ServiceUser> for ServiceCredentialsRef {
@@ -40,7 +40,7 @@ impl From<&ServiceUser> for ServiceCredentialsRef {
     }
 }
 
-pub enum IdentityCreatorMessage {
+pub enum IdentityCreatorProtocol {
     /// Message used to send a new user
     CreateIdentity,
     DeleteIdentity(String),
@@ -111,16 +111,17 @@ impl IdentityCreator {
     pub async fn initialize(
         &self,
         system: &mut sdp::System,
-        tx: Sender<IdentityManagerProtocol<Deployment>>,
+        identity_manager_proto_tx: Sender<IdentityManagerProtocol<Deployment>>,
     ) -> Result<(), IdentityServiceError> {
         let users = system.get_users().await.map_err(|e| {
             IdentityServiceError::new(e.to_string(), Some("IdentityCreator".to_string()))
         })?;
         let n_missing_users = 10 - users.len();
         info!("Creating {} credentials in system", n_missing_users);
-        for i in 0..n_missing_users {
+        for _i in 0..n_missing_users {
             let service_credentials_ref = self.create_user(system).await?;
-            tx.send(IdentityManagerProtocol::IdentityCreated {
+            info!("New credentials with id {} created, notifying IdentityManager", service_credentials_ref.id);
+            identity_manager_proto_tx.send(IdentityManagerProtocol::IdentityCreated {
                 user_credentials_ref: service_credentials_ref,
             })
             .await
@@ -134,22 +135,29 @@ impl IdentityCreator {
     pub async fn run(
         self,
         system: &mut sdp::System,
-        mut rx: Receiver<IdentityCreatorMessage>,
-        tx: Sender<IdentityManagerProtocol<Deployment>>,
+        mut identity_creator_proto_rx: Receiver<IdentityCreatorProtocol>,
+        identity_manager_proto_tx: Sender<IdentityManagerProtocol<Deployment>>,
     ) -> () {
         info!("Intializing IdentityCreator");
-        self.initialize(system, tx.clone())
+        self.initialize(system, identity_manager_proto_tx.clone())
             .await
             .expect("Error while initializing IdentityCreator");
-        while let Some(message) = rx.recv().await {
+
+        // Notify IdentityManager that we are ready
+        identity_manager_proto_tx.send(IdentityManagerProtocol::IdentityCreatorReady)
+            .await
+            .expect("Unable to notify IdentityManager");
+
+        while let Some(message) = identity_creator_proto_rx.recv().await {
             match message {
-                IdentityCreatorMessage::CreateIdentity => {
+                IdentityCreatorProtocol::CreateIdentity => {
                     match self.create_user(system).await {
                         Ok(user_credentials_ref) => {
+                            info!("New credentials with id {} created, notifying IdentityManager", user_credentials_ref.id);
                             let msg = IdentityManagerProtocol::IdentityCreated {
                                 user_credentials_ref: user_credentials_ref,
                             };
-                            if let Err(err) = tx.send(msg).await {
+                            if let Err(err) = identity_manager_proto_tx.send(msg).await {
                                 error!("Error notifying identity: {}", err);
                                 // TODO: Try later, identity is already created
                             }
@@ -159,7 +167,7 @@ impl IdentityCreator {
                         }
                     };
                 }
-                IdentityCreatorMessage::DeleteIdentity(id) => match system.delete_user(id).await {
+                IdentityCreatorProtocol::DeleteIdentity(id) => match system.delete_user(id).await {
                     Ok(_identity) => {
                         info!("identity deleted!");
                     }
