@@ -1,7 +1,8 @@
-use json_patch::PatchOperation::Add;
-use json_patch::{AddOperation, Patch as JsonPatch};
+use std::collections::BTreeMap;
+
 use k8s_openapi::api::apps::v1::Deployment;
 use k8s_openapi::api::core::v1::Secret;
+use k8s_openapi::ByteString;
 use kube::api::{Patch as KubePatch, PatchParams};
 use kube::{Api, Client};
 use log::{error, info};
@@ -63,20 +64,22 @@ impl IdentityCreator {
     ) -> Result<ServiceCredentialsRef, IdentityServiceError> {
         let pw_field = format!("{}-pw", service_user.id);
         let user_field = format!("{}-user", service_user.id);
-        let json_patch_user = Add(AddOperation {
-            path: format!("/data/{}", user_field),
-            value: serde_json::to_value(&service_user.name).map_err(|e| {
-                IdentityServiceError::from_service(e.to_string(), SERVICE_NAME.to_string())
-            })?,
-        });
-        let json_patch_pw = Add(AddOperation {
-            path: format!("/data/{}", pw_field),
-            value: serde_json::to_value(&service_user.password).map_err(|e| {
-                IdentityServiceError::from_service(e.to_string(), SERVICE_NAME.to_string())
-            })?,
-        });
-        let json_patch = JsonPatch(vec![json_patch_user, json_patch_pw]);
-        let patch = KubePatch::Json::<()>(json_patch);
+        let mut secret = Secret::default();
+        secret.data = Some(BTreeMap::from([
+            (
+                user_field,
+                ByteString(service_user.name.as_bytes().to_vec()),
+            ),
+            (
+                pw_field,
+                ByteString(service_user.password.as_bytes().to_vec()),
+            ),
+        ]));
+        info!(
+            "Creating user credentials in K8S secret for service_user: {}",
+            service_user.id
+        );
+        let patch = KubePatch::Merge(secret);
         let _ = self
             .secrets_api
             .patch(
@@ -86,7 +89,10 @@ impl IdentityCreator {
             )
             .await
             .map_err(|e| {
-                IdentityServiceError::from_service(e.to_string(), SERVICE_NAME.to_string())
+                IdentityServiceError::from_service(
+                    format!("Error patching secret: {}", e),
+                    SERVICE_NAME.to_string(),
+                )
             })?;
         Ok(ServiceCredentialsRef::from(service_user))
     }
@@ -95,10 +101,34 @@ impl IdentityCreator {
         &self,
         system: &mut sdp::System,
     ) -> Result<ServiceCredentialsRef, IdentityServiceError> {
-        let service_user = system.create_user(ServiceUser::new()).await.map_err(|e| {
+        let service_user = ServiceUser::new();
+        let _ = system.create_user(&service_user).await.map_err(|e| {
             IdentityServiceError::from_service(e.to_string(), SERVICE_NAME.to_string())
         })?;
         self.create_user_credentials_ref(&service_user).await
+    }
+
+    pub async fn initialize(
+        &self,
+        system: &mut sdp::System,
+        tx: Sender<IdentityManagerProtocol<Deployment>>,
+    ) -> Result<(), IdentityServiceError> {
+        let users = system.get_users().await.map_err(|e| {
+            IdentityServiceError::new(e.to_string(), Some("IdentityCreator".to_string()))
+        })?;
+        let n_missing_users = 10 - users.len();
+        info!("Creating {} credentials in system", n_missing_users);
+        for i in 0..n_missing_users {
+            let service_credentials_ref = self.create_user(system).await?;
+            tx.send(IdentityManagerProtocol::IdentityCreated {
+                user_credentials_ref: service_credentials_ref,
+            })
+            .await
+            .map_err(|e| {
+                IdentityServiceError::new(e.to_string(), Some("IdentityCreator".to_string()))
+            })?;
+        }
+        Ok(())
     }
 
     pub async fn run(
@@ -107,6 +137,10 @@ impl IdentityCreator {
         mut rx: Receiver<IdentityCreatorMessage>,
         tx: Sender<IdentityManagerProtocol<Deployment>>,
     ) -> () {
+        info!("Intializing IdentityCreator");
+        self.initialize(system, tx.clone())
+            .await
+            .expect("Error while initializing IdentityCreator");
         while let Some(message) = rx.recv().await {
             match message {
                 IdentityCreatorMessage::CreateIdentity => {

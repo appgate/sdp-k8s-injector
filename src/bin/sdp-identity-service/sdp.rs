@@ -1,7 +1,50 @@
+use std::collections::HashMap;
+use std::fmt::Display;
+use std::hash::Hash;
+use std::time::Duration;
+
+use http::header::{InvalidHeaderValue, ACCEPT};
+use http::{HeaderValue, StatusCode};
+use log::info;
 use reqwest::header::HeaderMap;
-use reqwest::{Client, Error as RError, Url};
+use reqwest::{Client, Error as RError, Response, Url};
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
+
+pub struct SDPClientError {
+    request_error: Option<RError>,
+    status_code: Option<reqwest::StatusCode>,
+    error_body: Option<String>,
+}
+
+impl Display for SDPClientError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.request_error.is_some() {
+            write!(
+                f,
+                "SDPClient error: {:?}",
+                self.request_error.as_ref().unwrap()
+            )
+        } else {
+            write!(
+                f,
+                "SDPClient error [{:?}]: {:?}",
+                self.status_code, self.error_body
+            )
+        }
+    }
+}
+
+impl From<RError> for SDPClientError {
+    fn from(error: RError) -> Self {
+        SDPClientError {
+            request_error: Some(error),
+            status_code: None,
+            error_body: None,
+        }
+    }
+}
 
 #[derive(Deserialize, Serialize, Debug)]
 #[serde(rename_all = "camelCase")]
@@ -13,6 +56,7 @@ pub struct LoginUser {
 
 type Token = String;
 
+/// Token we obtain after login in SDP system
 #[derive(Deserialize, Serialize, Debug)]
 pub struct Login {
     user: LoginUser,
@@ -32,27 +76,39 @@ pub struct Credentials {
     pub username: String,
     pub password: String,
     pub provider_name: String,
-    pub device_id: Option<String>,
+    pub device_id: String,
 }
+
 #[derive(Serialize, Deserialize, Debug)]
+pub struct ServiceUsers {
+    pub data: Vec<ServiceUser>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
 pub struct ServiceUser {
     pub id: String,
-    pub labels: Vec<String>,
     pub name: String,
+    pub labels: HashMap<String, String>,
+    #[serde(skip_deserializing)]
     pub password: String,
     pub disabled: bool,
+    #[serde(skip_serializing)]
     pub failed_login_attempts: Option<u32>,
+    #[serde(skip_serializing)]
     pub lock_start: Option<String>,
 }
 
 impl ServiceUser {
     pub fn new() -> Self {
-        let uuid = Uuid::new_v4();
+        let id = Uuid::new_v4();
+        let user_name = Uuid::new_v4();
+        let password = Uuid::new_v4();
         Self {
-            id: uuid.to_string(),
-            labels: vec![],
-            name: uuid.to_string(),
-            password: "123456".to_string(),
+            id: id.to_string(),
+            labels: HashMap::new(),
+            name: user_name.to_string(),
+            password: password.to_string(),
             disabled: true,
             failed_login_attempts: None,
             lock_start: None,
@@ -60,7 +116,7 @@ impl ServiceUser {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct SystemConfig {
     pub hosts: Vec<Url>,
     pub api_version: Option<String>,
@@ -76,93 +132,179 @@ impl SystemConfig {
         }
     }
 
+    fn headers(&self) -> Result<HeaderMap, InvalidHeaderValue> {
+        let mut hm = HeaderMap::new();
+        let api_version = self
+            .api_version
+            .as_ref()
+            .map(|v| v.as_str())
+            .unwrap_or("17");
+        let header_value = format!("application/vnd.appgate.peer-v{}+json", api_version);
+        hm.append(ACCEPT, HeaderValue::from_str(&header_value)?);
+        Ok(hm)
+    }
+
     pub fn with_api_version(&mut self, api_version: &str) -> &mut SystemConfig {
+        let api_version = self
+            .api_version
+            .as_ref()
+            .map(|v| v.as_str())
+            .unwrap_or("17");
         self.api_version = Some(api_version.to_string());
         self
     }
 
     pub fn build(&mut self, credentials: Credentials) -> Result<System, String> {
-        let mut hm = HeaderMap::new();
-        self.credentials = Some(credentials);
+        let hm = self
+            .headers()
+            .map_err(|e| format!("Unable to create SDP client: {}", e))?;
         Client::builder()
             .default_headers(hm)
+            .danger_accept_invalid_certs(true)
             .build()
-            .map_err(|e| format!("Unable to create the client: {:?}", e))
+            .map_err(|e| format!("Unable to create SDP client: {}", e))
             .map(|c| System {
-                config: self.clone(),
+                hosts: self.hosts.clone(),
+                credentials: credentials.clone(),
                 client: c,
                 login: None,
             })
     }
 }
 
+#[derive(Debug)]
 pub struct System {
-    config: SystemConfig,
+    hosts: Vec<Url>,
+    credentials: Credentials,
     client: Client,
     login: Option<Login>,
 }
 
-impl System {
-    fn headers() -> HeaderMap {
-        let mut hm = HeaderMap::new();
-        hm
+async fn error_for_status<D: DeserializeOwned>(response: Response) -> Result<D, SDPClientError> {
+    if response.status().is_client_error() || response.status().is_server_error() {
+        let status = response.status();
+        let body = response.text().await?;
+        Err(SDPClientError {
+            request_error: None,
+            status_code: Some(status),
+            error_body: Some(body),
+        })
+    } else {
+        Ok(response.json::<D>().await?)
     }
+}
 
+impl System {
     /// /login
     /// Remove the clone!
-    async fn login(&self, creds: &Credentials) -> Result<Login, RError> {
+    async fn login(&self) -> Result<Login, SDPClientError> {
+        let mut url = Url::from(self.hosts[0].clone());
+        url.set_path("/admin/login");
+        let credentials = &self.credentials;
         let resp = self
             .client
-            .post(self.config.hosts[0].clone())
-            .json(&creds)
+            .post(url.clone())
+            .json(credentials)
+            .timeout(Duration::from_secs(5))
             .send()
-            .await?;
-        resp.json::<Login>().await
+            .await
+            .map_err(SDPClientError::from)?;
+        error_for_status::<Login>(resp).await
     }
 
-    async fn maybe_refresh_login(&mut self) -> Result<&Login, RError> {
-        if let Some(login) = self.login.as_ref().and_then(|l| l.has_expired().then(|| l)) {
-            let login = self
-                .login(&self.config.credentials.as_ref().unwrap())
-                .await?;
+    async fn maybe_refresh_login(&mut self) -> Result<&Login, SDPClientError> {
+        if self
+            .login
+            .as_ref()
+            .and_then(|l| l.has_expired().then(|| l))
+            .is_some()
+            || self.login.is_none()
+        {
+            info!("Getting a new token!");
+            let login = self.login().await?;
             self.login = Some(login);
         }
         Ok(self.login.as_ref().unwrap())
     }
 
+    pub async fn get<D: DeserializeOwned>(&mut self, url: Url) -> Result<D, SDPClientError> {
+        let client = self.client.get(url);
+        let token = &self.maybe_refresh_login().await?.token;
+        let resp = client
+            .timeout(Duration::from_secs(5))
+            .bearer_auth(token)
+            .send()
+            .await?;
+        error_for_status(resp).await
+    }
+
+    pub async fn post<D: DeserializeOwned + Serialize>(
+        &mut self,
+        url: Url,
+        data: &D,
+    ) -> Result<D, SDPClientError> {
+        let client = self.client.post(url);
+        let token = &self.maybe_refresh_login().await?.token;
+        let resp = client
+            .timeout(Duration::from_secs(5))
+            .bearer_auth(token)
+            .json(&data)
+            .send()
+            .await?;
+        error_for_status(resp).await
+    }
+
+    pub async fn delete(&mut self, url: Url) -> Result<(), SDPClientError> {
+        let client = self.client.delete(url);
+        let token = &self.maybe_refresh_login().await?.token;
+        let resp = client
+            .timeout(Duration::from_secs(5))
+            .bearer_auth(token)
+            .send()
+            .await?;
+        error_for_status(resp).await
+    }
+
     /// GET /service-users
-    pub async fn get_users(&mut self) -> Result<Vec<ServiceUser>, RError> {
-        let _ = self.maybe_refresh_login().await?;
-        let mut url = Url::from(self.config.hosts[0].clone());
-        url.set_path("/service-ids");
-        let resp = self.client.get(url).send().await?;
-        resp.json::<Vec<ServiceUser>>().await
+    pub async fn get_users(&mut self) -> Result<Vec<ServiceUser>, SDPClientError> {
+        info!("Getting users");
+        let mut url = Url::from(self.hosts[0].clone());
+        url.set_path("/admin/service-users");
+        let service_users = self.get::<ServiceUsers>(url).await?;
+        Ok(service_users.data)
     }
 
     /// GET /service-useryah s-id
-    pub async fn get_user(&mut self, service_user_id: String) -> Result<ServiceUser, RError> {
+    pub async fn get_user(
+        &mut self,
+        service_user_id: String,
+    ) -> Result<ServiceUser, SDPClientError> {
+        info!("Getting user");
         let _ = self.maybe_refresh_login().await?;
-        let mut url = Url::from(self.config.hosts[0].clone());
-        url.set_path(&format!("/service-users-id/{}", service_user_id));
-        let resp = self.client.get(url).send().await?;
-        resp.json::<ServiceUser>().await
+        let mut url = Url::from(self.hosts[0].clone());
+        url.set_path(&format!("/admin/service-users-id/{}", service_user_id));
+        self.get(url).await
     }
 
     /// POST /service-users-id
-    pub async fn create_user(&mut self, service_user: ServiceUser) -> Result<ServiceUser, RError> {
-        let _ = self.maybe_refresh_login().await?;
-        let mut url = Url::from(self.config.hosts[0].clone());
-        url.set_path(&format!("/service-users"));
-        let resp = self.client.post(url).json(&service_user).send().await?;
-        resp.json::<ServiceUser>().await
+    pub async fn create_user(
+        &mut self,
+        service_user: &ServiceUser,
+    ) -> Result<ServiceUser, SDPClientError> {
+        let mut url = Url::from(self.hosts[0].clone());
+        url.set_path(&format!("/admin/service-users"));
+        info!(
+            "Creating new service user in SDP system: {}",
+            service_user.id
+        );
+        self.post::<ServiceUser>(url, service_user).await
     }
 
     /// DELETE /service-user-id
-    pub async fn delete_user(&mut self, service_user_id: String) -> Result<ServiceUser, RError> {
+    pub async fn delete_user(&mut self, service_user_id: String) -> Result<(), SDPClientError> {
         let _ = self.maybe_refresh_login().await?;
-        let mut url = Url::from(self.config.hosts[0].clone());
-        url.set_path(&format!("/service-users-id/{}", service_user_id));
-        let resp = self.client.delete(url).send().await?;
-        resp.json::<ServiceUser>().await
+        let mut url = Url::from(self.hosts[0].clone());
+        url.set_path(&format!("/admin/service-users-id/{}", service_user_id));
+        self.delete(url).await
     }
 }
