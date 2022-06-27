@@ -89,7 +89,10 @@ pub enum IdentityManagerProtocol<D: ServiceCandidate> {
     },
     /// Message to notify that a new ServiceCredential have been created
     /// IdentityCreator creates these ServiceCredentials
-    IdentityCreated {
+    NewServiceCredentials {
+        user_credentials_ref: ServiceCredentialsRef,
+    },
+    NewActiveServiceCredentials {
         user_credentials_ref: ServiceCredentialsRef,
     },
     IdentityCreatorReady,
@@ -208,7 +211,7 @@ impl IdentityManager {
                         }
                     };
                 }
-                IdentityManagerProtocol::IdentityCreated {
+                IdentityManagerProtocol::NewServiceCredentials {
                     user_credentials_ref,
                 } => {
                     info!(

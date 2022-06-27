@@ -1,4 +1,8 @@
+use k8s_openapi::api::apps::v1::Deployment;
 use std::fmt::Display;
+use tokio::sync::mpsc::error::SendError;
+
+use crate::identity_manager::IdentityManagerProtocol;
 
 #[derive(Debug)]
 pub struct IdentityServiceError {
@@ -40,6 +44,15 @@ impl Display for IdentityServiceError {
             )
         } else {
             write!(f, "IdentityService error: {}", self.error)
+        }
+    }
+}
+
+impl From<SendError<IdentityManagerProtocol<Deployment>>> for IdentityServiceError {
+    fn from(error: SendError<IdentityManagerProtocol<Deployment>>) -> Self {
+        IdentityServiceError {
+            who: None,
+            error: error.to_string(),
         }
     }
 }
