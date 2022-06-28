@@ -10,7 +10,7 @@ use tokio::sync::mpsc::channel;
 use crate::{
     deployment_watcher::{DeploymentWatcher, DeploymentWatcherProtocol},
     identity_creator::{IdentityCreator, IdentityCreatorProtocol},
-    identity_manager::{IdentityManager, IdentityManagerProtocol, ServiceIdentity},
+    identity_manager::{IdentityManagerProtocol, IdentityManagerRunner, ServiceIdentity},
     sdp::{Credentials, SystemConfig},
 };
 
@@ -72,7 +72,8 @@ async fn main() -> () {
             let identity_manager_client = get_k8s_client().await;
             let deployment_watcher_client = get_k8s_client().await;
             let identity_creator_client = get_k8s_client().await;
-            let mut identity_manager = IdentityManager::new(identity_manager_client);
+            let identity_manager_runner =
+                IdentityManagerRunner::kube_runner(identity_manager_client);
             let identity_creator =
                 IdentityCreator::new(identity_creator_client, CREDENTIALS_POOL_SIZE);
             let (identity_manager_proto_tx, identity_manager_proto_rx) =
@@ -109,7 +110,7 @@ async fn main() -> () {
                     )
                     .await;
             });
-            identity_manager
+            identity_manager_runner
                 .run(
                     identity_manager_proto_rx,
                     identity_manager_proto_tx_cp2,

@@ -1,10 +1,12 @@
+use futures::Future;
 use k8s_openapi::api::apps::v1::Deployment;
 use kube::api::{DeleteParams, ListParams, PostParams};
-use kube::{Api, Client, CustomResource, ResourceExt};
+use kube::{Api, Client, CustomResource, Error as KError, ResourceExt};
 use log::{error, info, warn};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::pin::Pin;
 use tokio::sync::mpsc::{Receiver, Sender};
 
 use crate::deployment_watcher::DeploymentWatcherProtocol;
@@ -112,7 +114,7 @@ pub enum IdentityMessageResponse {
     IdentityUnavailable,
 }
 
-pub struct IdentityManager {
+pub struct KubeIdentityManager {
     pool: VecDeque<ServiceCredentialsRef>,
     service_identity_api: Api<ServiceIdentity>,
     services: HashMap<String, ServiceIdentity>,
@@ -130,6 +132,7 @@ trait ServiceCredentialsPool {
 trait ServiceIdentityProvider {
     type From: ServiceCandidate;
     type To: ServiceCandidate;
+    fn register_identity(&mut self, from: Self::To) -> ();
     fn next_identity(&mut self, from: Self::From) -> Option<Self::To>;
     fn has_candidate(&self, from: &Self::From) -> bool;
     fn has_identity(&self, from: &Self::To) -> bool;
@@ -137,13 +140,29 @@ trait ServiceIdentityProvider {
     fn extra_identities<'a>(&self, services: &HashSet<String>) -> Vec<&Self::To> {
         self.identities()
             .iter()
-            .filter(|id| services.contains(&id.service_id()))
+            .filter(|id| !services.contains(&id.service_id()))
             .map(|id| *id)
             .collect()
     }
 }
 
-impl ServiceCredentialsPool for IdentityManager {
+/// This should not be needed once the GAT support is in stable
+/// https://blog.rust-lang.org/2021/08/03/GATs-stabilization-push.html
+trait ServiceIdentityAPI {
+    fn create<'a>(
+        &'a self,
+        identity: &'a ServiceIdentity,
+    ) -> Pin<Box<dyn Future<Output = Result<ServiceIdentity, KError>> + '_>>;
+    fn delete<'a>(
+        &'a self,
+        identity_name: &'a str,
+    ) -> Pin<Box<dyn Future<Output = Result<(), KError>> + '_>>;
+    fn list<'a>(
+        &'a self,
+    ) -> Pin<Box<dyn Future<Output = Result<Vec<ServiceIdentity>, KError>> + '_>>;
+}
+
+impl ServiceCredentialsPool for KubeIdentityManager {
     fn pop(&mut self) -> Option<ServiceCredentialsRef> {
         self.pool.pop_front()
     }
@@ -153,9 +172,13 @@ impl ServiceCredentialsPool for IdentityManager {
     }
 }
 
-impl ServiceIdentityProvider for IdentityManager {
+impl ServiceIdentityProvider for KubeIdentityManager {
     type From = Deployment;
     type To = ServiceIdentity;
+
+    fn register_identity(&mut self, identity: Self::To) -> () {
+        self.services.insert(identity.service_id(), identity);
+    }
 
     fn next_identity(&mut self, from: Deployment) -> Option<ServiceIdentity> {
         //let service_id = derive_service_id(name, namespace);
@@ -163,7 +186,7 @@ impl ServiceIdentityProvider for IdentityManager {
             None => self.pop().map(|service_crendetials_ref| {
                 let service_identity_spec = ServiceIdentitySpec {
                     service_name: ServiceCandidate::name(&from),
-                    service_namespace: ServiceCandidate::name(&from),
+                    service_namespace: ServiceCandidate::namespace(&from),
                     service_credentials: service_crendetials_ref,
                     labels: vec![],
                     disabled: false,
@@ -187,34 +210,68 @@ impl ServiceIdentityProvider for IdentityManager {
     }
 }
 
-impl IdentityManager {
-    pub fn new(client: Client) -> IdentityManager {
+impl ServiceIdentityAPI for KubeIdentityManager {
+    fn create<'a>(
+        &'a self,
+        identity: &'a ServiceIdentity,
+    ) -> Pin<Box<dyn Future<Output = Result<ServiceIdentity, KError>> + '_>> {
+        let fut = async move {
+            self.service_identity_api
+                .create(&PostParams::default(), identity)
+                .await
+        };
+        Box::pin(fut)
+    }
+
+    fn delete<'a>(
+        &'a self,
+        identity_name: &'a str,
+    ) -> Pin<Box<dyn Future<Output = Result<(), KError>> + '_>> {
+        let fut = async move {
+            self.service_identity_api
+                .delete(identity_name, &DeleteParams::default())
+                .await
+                .map(|_| ())
+        };
+        Box::pin(fut)
+    }
+
+    fn list<'a>(
+        &'a self,
+    ) -> Pin<Box<dyn Future<Output = Result<Vec<ServiceIdentity>, KError>> + '_>> {
+        let fut = async move {
+            self.service_identity_api
+                .list(&ListParams::default())
+                .await
+                .map(|xs| xs.items)
+        };
+        Box::pin(fut)
+    }
+}
+
+trait IdentityManager:
+    ServiceIdentityAPI
+    + ServiceIdentityProvider<From = Deployment, To = ServiceIdentity>
+    + ServiceCredentialsPool
+{
+}
+
+impl IdentityManager for KubeIdentityManager {}
+
+pub struct IdentityManagerRunner(Box<dyn IdentityManager>);
+
+impl IdentityManagerRunner {
+    pub fn kube_runner(client: Client) -> IdentityManagerRunner {
         let service_identity_api: Api<ServiceIdentity> = Api::namespaced(client, "sdp-system");
-        IdentityManager {
+        IdentityManagerRunner(Box::new(KubeIdentityManager {
             pool: VecDeque::with_capacity(30),
             service_identity_api: service_identity_api,
             services: HashMap::new(),
-        }
-    }
-
-    async fn create_service_identity(
-        &self,
-        identity: &ServiceIdentity,
-    ) -> Result<ServiceIdentity, kube::Error> {
-        self.service_identity_api
-            .create(&PostParams::default(), &identity)
-            .await
-    }
-
-    async fn delete_service_identity(&self, identity_name: &str) -> Result<(), kube::Error> {
-        self.service_identity_api
-            .delete(identity_name, &DeleteParams::default())
-            .await
-            .map(|_| ())
+        }))
     }
 
     async fn run_identity_manager(
-        &mut self,
+        im: &mut Box<dyn IdentityManager>,
         mut identity_manager_rx: Receiver<IdentityManagerProtocol<Deployment, ServiceIdentity>>,
         identity_manager_tx: Sender<IdentityManagerProtocol<Deployment, ServiceIdentity>>,
         identity_creator_tx: Sender<IdentityCreatorProtocol>,
@@ -227,10 +284,7 @@ impl IdentityManager {
         while let Some(msg) = identity_manager_rx.recv().await {
             match msg {
                 IdentityManagerProtocol::DeleteServiceIdentity { service_identity } => {
-                    match self
-                        .delete_service_identity(&ServiceCandidate::name(&service_identity))
-                        .await
-                    {
+                    match im.delete(&service_identity.service_id()).await {
                         Ok(_) => {
                             info!(
                                 "New ServiceIdentity deleted for service with id {}",
@@ -261,8 +315,8 @@ impl IdentityManager {
                 IdentityManagerProtocol::RequestServiceIdentity { service_candidate } => {
                     let service_id = service_candidate.service_id();
                     info!("New user requested for service {}", service_id);
-                    match self.next_identity(service_candidate) {
-                        Some(identity) => match self.create_service_identity(&identity).await {
+                    match im.next_identity(service_candidate) {
+                        Some(identity) => match im.create(&identity).await {
                             Ok(_) => {
                                 info!(
                                     "New ServiceIdentity created for service with id {}",
@@ -288,7 +342,7 @@ impl IdentityManager {
                     };
                 }
                 IdentityManagerProtocol::FoundServiceIdentity { service_candidate } => {
-                    if self.has_candidate(&service_candidate) {
+                    if im.has_candidate(&service_candidate) {
                         info!(
                             "Found already registered ServiceCandidate in K8S cluster with id: {}",
                             service_candidate.service_id()
@@ -309,7 +363,10 @@ impl IdentityManager {
                 IdentityManagerProtocol::DeploymentWatcherReady if identity_creator_ready => {
                     info!("IdentityCreator and DeploymentWatcher are ready!");
                     info!("Validating ServiceCandidates agains ServiceCredentials");
-                    for identity in self.extra_identities(&existing_service_candidates) {
+                    let xs = im.extra_identities(&existing_service_candidates);
+                    warn!("XS: {:?}", xs);
+                    warn!("CS: {:?}", existing_service_candidates);
+                    for identity in im.extra_identities(&existing_service_candidates) {
                         identity_manager_tx
                             .send(IdentityManagerProtocol::DeleteServiceIdentity {
                                 service_identity: identity.clone(),
@@ -329,7 +386,7 @@ impl IdentityManager {
                         user_credentials_ref.id
                     );
                     // Got new fresh credentials, add them to the pool
-                    self.push(user_credentials_ref);
+                    im.push(user_credentials_ref);
                 }
                 IdentityManagerProtocol::IdentityCreatorReady if !deployment_watcher_ready => {
                     info!("IdentityCreator is ready!");
@@ -352,16 +409,16 @@ impl IdentityManager {
     }
 
     /// Load all the current ServiceIdentity
-    async fn initialize(&mut self) -> () {
+    async fn initialize(im: &mut Box<dyn IdentityManager>) -> () {
         info!("Initializing Identity Manager ...");
-        match self.service_identity_api.list(&ListParams::default()).await {
+        match im.list().await {
             Ok(xs) => {
                 info!("Restoring previous service identities");
                 let n: u32 = xs
                     .iter()
                     .map(|s| {
                         info!("Restoring service identity {}", s.service_id());
-                        self.services.insert(ServiceCandidate::name(s), s.clone());
+                        im.register_identity(s.clone());
                         1
                     })
                     .sum();
@@ -374,14 +431,16 @@ impl IdentityManager {
     }
 
     pub async fn run(
-        &mut self,
+        mut self,
         identity_manager_prot_rx: Receiver<IdentityManagerProtocol<Deployment, ServiceIdentity>>,
         identity_manager_prot_tx: Sender<IdentityManagerProtocol<Deployment, ServiceIdentity>>,
         identity_creater_proto_tx: Sender<IdentityCreatorProtocol>,
         deployment_watcher_proto_tx: Sender<DeploymentWatcherProtocol>,
     ) -> () {
-        self.initialize().await;
-        self.run_identity_manager(
+        let im = &mut self.0;
+        IdentityManagerRunner::initialize(im).await;
+        IdentityManagerRunner::run_identity_manager(
+            im,
             identity_manager_prot_rx,
             identity_manager_prot_tx,
             identity_creater_proto_tx,
