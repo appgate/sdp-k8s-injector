@@ -12,7 +12,7 @@ use tokio::sync::mpsc::{Receiver, Sender};
 
 use crate::errors::IdentityServiceError;
 use crate::{
-    identity_manager::IdentityManagerProtocol,
+    identity_manager::{IdentityManagerProtocol, ServiceIdentity},
     sdp::{self, ServiceUser},
 };
 
@@ -50,12 +50,16 @@ pub enum IdentityCreatorProtocol {
 
 pub struct IdentityCreator {
     secrets_api: Api<Secret>,
+    credentials_pool_size: usize,
 }
 
 impl IdentityCreator {
-    pub fn new(client: Client) -> IdentityCreator {
+    pub fn new(client: Client, credentials_pool_size: usize) -> IdentityCreator {
         let secrets_api: Api<Secret> = Api::namespaced(client, "sdp-system");
-        IdentityCreator { secrets_api }
+        IdentityCreator {
+            secrets_api,
+            credentials_pool_size,
+        }
     }
 
     async fn exists_user_crendentials_ref(&self, service_user: &ServiceUser) -> (bool, bool) {
@@ -139,12 +143,16 @@ impl IdentityCreator {
     pub async fn initialize(
         &self,
         system: &mut sdp::System,
-        identity_manager_proto_tx: Sender<IdentityManagerProtocol<Deployment>>,
+        identity_manager_proto_tx: Sender<IdentityManagerProtocol<Deployment, ServiceIdentity>>,
     ) -> Result<(), IdentityServiceError> {
         let users = system.get_users().await.map_err(|e| {
             IdentityServiceError::new(e.to_string(), Some("IdentityCreator".to_string()))
         })?;
-        let n_missing_users = 10 - users.len();
+        let n_users = users.len();
+        let mut n_missing_users = 0;
+        if n_users <= self.credentials_pool_size {
+            n_missing_users = self.credentials_pool_size - n_users;
+        }
         for user in users {
             let service_credentials_ref = self.create_user_credentials_ref(&user).await.unwrap();
             if user.disabled {
@@ -190,7 +198,7 @@ impl IdentityCreator {
         self,
         system: &mut sdp::System,
         mut identity_creator_proto_rx: Receiver<IdentityCreatorProtocol>,
-        identity_manager_proto_tx: Sender<IdentityManagerProtocol<Deployment>>,
+        identity_manager_proto_tx: Sender<IdentityManagerProtocol<Deployment, ServiceIdentity>>,
     ) -> () {
         info!("Intializing IdentityCreator");
         self.initialize(system, identity_manager_proto_tx.clone())

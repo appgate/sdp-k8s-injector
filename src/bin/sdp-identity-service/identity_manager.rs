@@ -1,10 +1,10 @@
 use k8s_openapi::api::apps::v1::Deployment;
-use kube::api::{ListParams, PostParams};
+use kube::api::{DeleteParams, ListParams, PostParams};
 use kube::{Api, Client, CustomResource, ResourceExt};
 use log::{error, info, warn};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use tokio::sync::mpsc::{Receiver, Sender};
 
 use crate::deployment_watcher::DeploymentWatcherProtocol;
@@ -28,7 +28,7 @@ pub use crate::sdp;
 ///   will have
 /// service_namespace + service_name indentify each service
 pub struct ServiceIdentitySpec {
-    service_crendetials_ref: ServiceCredentialsRef,
+    service_credentials: ServiceCredentialsRef,
     service_name: String,
     service_namespace: String,
     labels: Vec<String>,
@@ -76,16 +76,23 @@ impl ServiceCandidate for Deployment {
     }
 
     fn is_candidate(&self) -> bool {
-        ServiceCandidate::namespace(self) == "some-ns"
+        ResourceExt::namespace(self) == Some("some-ns".to_string())
+        //self.annotations().get("sdp-injector").map(|v| v.eq("true")).unwrap_or(false)
     }
 }
 
 /// Messages exchanged between the the IdentityCreator and IdentityManager
 #[derive(Debug)]
-pub enum IdentityManagerProtocol<D: ServiceCandidate> {
+pub enum IdentityManagerProtocol<From: ServiceCandidate, To: ServiceCandidate> {
     /// Message used to request a new ServiceIdentity for ServiceCandidate
-    RequestIdentity {
-        service_candidate: D,
+    RequestServiceIdentity {
+        service_candidate: From,
+    },
+    DeleteServiceIdentity {
+        service_identity: To,
+    },
+    FoundServiceIdentity {
+        service_candidate: From,
     },
     /// Message to notify that a new ServiceCredential have been created
     /// IdentityCreator creates these ServiceCredentials
@@ -96,6 +103,7 @@ pub enum IdentityManagerProtocol<D: ServiceCandidate> {
         user_credentials_ref: ServiceCredentialsRef,
     },
     IdentityCreatorReady,
+    DeploymentWatcherReady,
 }
 
 pub enum IdentityMessageResponse {
@@ -123,6 +131,16 @@ trait ServiceIdentityProvider {
     type From: ServiceCandidate;
     type To: ServiceCandidate;
     fn next_identity(&mut self, from: Self::From) -> Option<Self::To>;
+    fn has_candidate(&self, from: &Self::From) -> bool;
+    fn has_identity(&self, from: &Self::To) -> bool;
+    fn identities(&self) -> Vec<&Self::To>;
+    fn extra_identities<'a>(&self, services: &HashSet<String>) -> Vec<&Self::To> {
+        self.identities()
+            .iter()
+            .filter(|id| services.contains(&id.service_id()))
+            .map(|id| *id)
+            .collect()
+    }
 }
 
 impl ServiceCredentialsPool for IdentityManager {
@@ -146,7 +164,7 @@ impl ServiceIdentityProvider for IdentityManager {
                 let service_identity_spec = ServiceIdentitySpec {
                     service_name: ServiceCandidate::name(&from),
                     service_namespace: ServiceCandidate::name(&from),
-                    service_crendetials_ref: service_crendetials_ref,
+                    service_credentials: service_crendetials_ref,
                     labels: vec![],
                     disabled: false,
                 };
@@ -154,6 +172,18 @@ impl ServiceIdentityProvider for IdentityManager {
             }),
             Some(_) => None,
         }
+    }
+
+    fn has_candidate(&self, candidate: &Self::From) -> bool {
+        self.services.contains_key(&candidate.service_id())
+    }
+
+    fn has_identity(&self, identity: &Self::To) -> bool {
+        self.services.contains_key(&identity.service_id())
+    }
+
+    fn identities(&self) -> Vec<&Self::To> {
+        self.services.values().collect()
     }
 }
 
@@ -167,49 +197,129 @@ impl IdentityManager {
         }
     }
 
+    async fn create_service_identity(
+        &self,
+        identity: &ServiceIdentity,
+    ) -> Result<ServiceIdentity, kube::Error> {
+        self.service_identity_api
+            .create(&PostParams::default(), &identity)
+            .await
+    }
+
+    async fn delete_service_identity(&self, identity_name: &str) -> Result<(), kube::Error> {
+        self.service_identity_api
+            .delete(identity_name, &DeleteParams::default())
+            .await
+            .map(|_| ())
+    }
+
     async fn run_identity_manager(
         &mut self,
-        mut identity_manager_rx: Receiver<IdentityManagerProtocol<Deployment>>,
+        mut identity_manager_rx: Receiver<IdentityManagerProtocol<Deployment, ServiceIdentity>>,
+        identity_manager_tx: Sender<IdentityManagerProtocol<Deployment, ServiceIdentity>>,
         identity_creator_tx: Sender<IdentityCreatorProtocol>,
         deployment_watcher_proto_tx: Sender<DeploymentWatcherProtocol>,
     ) -> () {
         info!("Running Identity Manager ...");
+        let mut deployment_watcher_ready = false;
+        let mut identity_creator_ready = false;
+        let mut existing_service_candidates: HashSet<String> = HashSet::new();
         while let Some(msg) = identity_manager_rx.recv().await {
             match msg {
-                IdentityManagerProtocol::RequestIdentity { service_candidate } => {
+                IdentityManagerProtocol::DeleteServiceIdentity { service_identity } => {
+                    match self
+                        .delete_service_identity(&ServiceCandidate::name(&service_identity))
+                        .await
+                    {
+                        Ok(_) => {
+                            info!(
+                                "New ServiceIdentity deleted for service with id {}",
+                                service_identity.service_id()
+                            );
+                            info!("Asking for deletion of IdentityCredential from SDP system");
+                            if let Err(err) = identity_creator_tx
+                                .send(IdentityCreatorProtocol::DeleteIdentity(
+                                    service_identity.spec.service_credentials.id,
+                                ))
+                                .await
+                            {
+                                error!(
+                                    "Error when sending event to delete IdentityCredential: {}",
+                                    err
+                                );
+                            }
+                        }
+                        Err(err) => {
+                            error!(
+                                "Error deleting ServiceIdentity for service with id {}: {}",
+                                service_identity.service_id(),
+                                err
+                            );
+                        }
+                    }
+                }
+                IdentityManagerProtocol::RequestServiceIdentity { service_candidate } => {
                     let service_id = service_candidate.service_id();
                     info!("New user requested for service {}", service_id);
                     match self.next_identity(service_candidate) {
-                        Some(identity) => {
-                            match self
-                                .service_identity_api
-                                .create(&PostParams::default(), &identity)
-                                .await
-                            {
-                                Ok(_) => {
-                                    info!(
-                                        "New ServiceIdentity created for service with id {}",
-                                        service_id
-                                    );
-                                    if let Err(err) = identity_creator_tx
-                                        .send(IdentityCreatorProtocol::CreateIdentity)
-                                        .await
-                                    {
-                                        error!("Error when sending IdentityCreatorMessage::CreateIdentity: {}", err);
-                                    }
-                                }
-                                Err(err) => {
-                                    error!(
-                                        "Error creating ServiceIdentity for service with id {}: {}",
-                                        service_id, err
-                                    );
+                        Some(identity) => match self.create_service_identity(&identity).await {
+                            Ok(_) => {
+                                info!(
+                                    "New ServiceIdentity created for service with id {}",
+                                    service_id
+                                );
+                                if let Err(err) = identity_creator_tx
+                                    .send(IdentityCreatorProtocol::CreateIdentity)
+                                    .await
+                                {
+                                    error!("Error when sending IdentityCreatorMessage::CreateIdentity: {}", err);
                                 }
                             }
-                        }
+                            Err(err) => {
+                                error!(
+                                    "Error creating ServiceIdentity for service with id {}: {}",
+                                    service_id, err
+                                );
+                            }
+                        },
                         None => {
                             error!("Unable to assign service identity for service {}. Identities pool seems to be empty!", service_id);
                         }
                     };
+                }
+                IdentityManagerProtocol::FoundServiceIdentity { service_candidate } => {
+                    if self.has_candidate(&service_candidate) {
+                        info!(
+                            "Found already registered ServiceCandidate in K8S cluster with id: {}",
+                            service_candidate.service_id()
+                        );
+                    } else {
+                        info!("Found not registered ServiceCandidate in K8S cluster with id: {}, registering it",
+                         service_candidate.service_id());
+                        identity_manager_tx
+                            .send(IdentityManagerProtocol::RequestServiceIdentity {
+                                service_candidate: service_candidate.clone(),
+                            })
+                            .await
+                            .expect("Error requesting new ServiceIdentity");
+                    }
+                    existing_service_candidates.insert(service_candidate.service_id());
+                }
+
+                IdentityManagerProtocol::DeploymentWatcherReady if identity_creator_ready => {
+                    info!("IdentityCreator and DeploymentWatcher are ready!");
+                    info!("Validating ServiceCandidates agains ServiceCredentials");
+                    for identity in self.extra_identities(&existing_service_candidates) {
+                        identity_manager_tx
+                            .send(IdentityManagerProtocol::DeleteServiceIdentity {
+                                service_identity: identity.clone(),
+                            })
+                            .await
+                            .expect("Error requesting new ServiceIdentity");
+                    }
+                }
+                IdentityManagerProtocol::DeploymentWatcherReady => {
+                    panic!("DeploymentWatcher is ready but IdentityCreator is not. This should not happen!")
                 }
                 IdentityManagerProtocol::NewServiceCredentials {
                     user_credentials_ref,
@@ -218,15 +328,21 @@ impl IdentityManager {
                         "Push new UserCredentialRef with id {}",
                         user_credentials_ref.id
                     );
+                    // Got new fresh credentials, add them to the pool
                     self.push(user_credentials_ref);
                 }
-                IdentityManagerProtocol::IdentityCreatorReady => {
+                IdentityManagerProtocol::IdentityCreatorReady if !deployment_watcher_ready => {
                     info!("IdentityCreator is ready!");
-                    let msg = DeploymentWatcherProtocol::IdentityManagerReady;
+                    identity_creator_ready = true;
+                    deployment_watcher_ready = true;
                     deployment_watcher_proto_tx
-                        .send(msg)
+                        .send(DeploymentWatcherProtocol::IdentityManagerReady)
                         .await
                         .expect("Unable to notify DeploymentWatcher!");
+                }
+                IdentityManagerProtocol::IdentityCreatorReady => {
+                    info!("IdentityCreator event ignored");
+                    identity_creator_ready = true;
                 }
                 _ => {
                     warn!("Ignored message");
@@ -235,6 +351,7 @@ impl IdentityManager {
         }
     }
 
+    /// Load all the current ServiceIdentity
     async fn initialize(&mut self) -> () {
         info!("Initializing Identity Manager ...");
         match self.service_identity_api.list(&ListParams::default()).await {
@@ -258,13 +375,15 @@ impl IdentityManager {
 
     pub async fn run(
         &mut self,
-        identity_manager_prot_rx: Receiver<IdentityManagerProtocol<Deployment>>,
+        identity_manager_prot_rx: Receiver<IdentityManagerProtocol<Deployment, ServiceIdentity>>,
+        identity_manager_prot_tx: Sender<IdentityManagerProtocol<Deployment, ServiceIdentity>>,
         identity_creater_proto_tx: Sender<IdentityCreatorProtocol>,
         deployment_watcher_proto_tx: Sender<DeploymentWatcherProtocol>,
     ) -> () {
         self.initialize().await;
         self.run_identity_manager(
             identity_manager_prot_rx,
+            identity_manager_prot_tx,
             identity_creater_proto_tx,
             deployment_watcher_proto_tx,
         )

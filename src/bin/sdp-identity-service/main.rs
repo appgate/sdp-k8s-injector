@@ -24,6 +24,7 @@ const SDP_K8S_HOST_ENV: &str = "SDP_K8S_HOST";
 const SDP_K8S_HOST_DEFAULT: &str = "kubernetes.default.svc";
 const SDP_K8S_NO_VERIFY_ENV: &str = "SDP_K8S_NO_VERIFY";
 const SDP_SYSTEM_HOSTS: &str = "SDP_SYSTEM_HOSTS";
+const CREDENTIALS_POOL_SIZE: usize = 10;
 
 async fn get_k8s_client() -> Client {
     let mut k8s_host = String::from("https://");
@@ -72,10 +73,12 @@ async fn main() -> () {
             let deployment_watcher_client = get_k8s_client().await;
             let identity_creator_client = get_k8s_client().await;
             let mut identity_manager = IdentityManager::new(identity_manager_client);
-            let identity_creator = IdentityCreator::new(identity_creator_client);
+            let identity_creator =
+                IdentityCreator::new(identity_creator_client, CREDENTIALS_POOL_SIZE);
             let (identity_manager_proto_tx, identity_manager_proto_rx) =
-                channel::<IdentityManagerProtocol<Deployment>>(50);
+                channel::<IdentityManagerProtocol<Deployment, ServiceIdentity>>(50);
             let identity_manager_proto_tx_cp = identity_manager_proto_tx.clone();
+            let identity_manager_proto_tx_cp2 = identity_manager_proto_tx.clone();
             let (identity_creator_proto_tx, identity_creator_proto_rx) =
                 channel::<IdentityCreatorProtocol>(50);
             let (deployment_watched_proto_tx, deployment_watcher_proto_rx) =
@@ -109,6 +112,7 @@ async fn main() -> () {
             identity_manager
                 .run(
                     identity_manager_proto_rx,
+                    identity_manager_proto_tx_cp2,
                     identity_creator_proto_tx,
                     deployment_watched_proto_tx,
                 )

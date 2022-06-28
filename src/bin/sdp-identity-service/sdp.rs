@@ -1,10 +1,9 @@
 use std::collections::HashMap;
 use std::fmt::Display;
-use std::hash::Hash;
 use std::time::Duration;
 
 use http::header::{InvalidHeaderValue, ACCEPT};
-use http::{HeaderValue, StatusCode};
+use http::HeaderValue;
 use log::info;
 use reqwest::header::HeaderMap;
 use reqwest::{Client, Error as RError, Response, Url};

@@ -8,7 +8,7 @@ use kube::{
 use log::{debug, error, info, warn};
 use tokio::sync::mpsc::{Receiver, Sender};
 
-use crate::identity_manager::{IdentityManagerProtocol, ServiceCandidate};
+use crate::identity_manager::{IdentityManagerProtocol, ServiceCandidate, ServiceIdentity};
 
 #[derive(Debug)]
 pub enum DeploymentWatcherProtocol {
@@ -30,18 +30,21 @@ impl<'a> DeploymentWatcher<Deployment> {
     pub async fn initialize(&self, mut queue: Receiver<DeploymentWatcherProtocol>) -> () {
         info!("Waiting for IdentityManager to be ready!");
         while let Some(msg) = queue.recv().await {
-            if let DeploymentWatcherProtocol::IdentityManagerReady = msg {
-                info!("IdentityManager is ready, starting DeploymentWatcher!");
-                break;
-            } else {
-                warn!("Ignore message, waiting for IdentityManager to be ready!");
+            match msg {
+                DeploymentWatcherProtocol::IdentityManagerReady => {
+                    info!("IdentityManager is ready, starting DeploymentWatcher!");
+                    break;
+                }
+                _ => {
+                    warn!("Ignore message, waiting for IdentityManager to be ready!");
+                }
             }
         }
     }
 
     pub async fn watch_deployments(
         &self,
-        queue: Sender<IdentityManagerProtocol<Deployment>>,
+        queue: Sender<IdentityManagerProtocol<Deployment, ServiceIdentity>>,
     ) -> () {
         info!("Starting Deployments watcher!");
         let tx = &queue;
@@ -51,20 +54,26 @@ impl<'a> DeploymentWatcher<Deployment> {
                     Ok(Event::Restarted(deployments)) => {
                         for deployment in deployments {
                             if deployment.is_candidate() {
-                                info!("Found new service candidate: {}", deployment.service_id());
-                                let msg = IdentityManagerProtocol::RequestIdentity {
+                                info!("Found service candidate: {}", deployment.service_id());
+                                let msg = IdentityManagerProtocol::FoundServiceIdentity {
                                     service_candidate: deployment,
                                 };
                                 if let Err(err) = tx.send(msg).await {
-                                    error!("Error requesting new ServiceIdentity: {}", err);
+                                    error!("Error reporting found ServiceIdentity: {}", err);
                                 }
                             }
                         }
+                        if let Err(err) = tx
+                            .send(IdentityManagerProtocol::DeploymentWatcherReady)
+                            .await
+                        {
+                            error!("Error reporting  {}", err);
+                        }
                     }
                     Ok(Event::Applied(deployment)) if deployment.is_candidate() => {
-                        info!("Found new service candidate: {}", deployment.service_id());
+                        info!("New service candidate: {}", deployment.service_id());
                         if let Err(err) = tx
-                            .send(IdentityManagerProtocol::RequestIdentity {
+                            .send(IdentityManagerProtocol::RequestServiceIdentity {
                                 service_candidate: deployment,
                             })
                             .await
@@ -98,7 +107,7 @@ impl<'a> DeploymentWatcher<Deployment> {
     pub async fn run(
         &self,
         receiver: Receiver<DeploymentWatcherProtocol>,
-        sender: Sender<IdentityManagerProtocol<Deployment>>,
+        sender: Sender<IdentityManagerProtocol<Deployment, ServiceIdentity>>,
     ) -> () {
         self.initialize(receiver).await;
         self.watch_deployments(sender).await;
