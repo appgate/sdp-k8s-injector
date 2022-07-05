@@ -19,7 +19,7 @@ use crate::{
 const SDP_IDENTITY_MANAGER_SECRETS: &str = "sdp-identity-service-creds";
 const SERVICE_NAME: &str = "identity-creator";
 
-#[derive(Clone, JsonSchema, Debug, Serialize, Deserialize)]
+#[derive(Clone, JsonSchema, Debug, Serialize, Deserialize, PartialEq)]
 pub struct ServiceCredentialsRef {
     pub id: String,
     pub secret: String,
@@ -153,13 +153,16 @@ impl IdentityCreator {
         if n_users <= self.credentials_pool_size {
             n_missing_users = self.credentials_pool_size - n_users;
         }
+        // Notify ServiceIdentityManager about the actual credentials created in appgate
+        // This could be actived credentials or deactivated ones.
         for user in users {
             let service_credentials_ref = self.create_user_credentials_ref(&user).await.unwrap();
             if user.disabled {
                 info!("Found a fresh service user with id {}, using it", &user.id);
                 identity_manager_proto_tx
-                    .send(IdentityManagerProtocol::NewServiceCredentials {
+                    .send(IdentityManagerProtocol::FoundServiceCredentials {
                         user_credentials_ref: service_credentials_ref,
+                        activated: false,
                     })
                     .await?;
             } else {
@@ -167,14 +170,15 @@ impl IdentityCreator {
                     "Found an already activated service user with id {}, using it",
                     &user.id
                 );
-                //service_credentials_ref = ;
                 identity_manager_proto_tx
-                    .send(IdentityManagerProtocol::NewActiveServiceCredentials {
+                    .send(IdentityManagerProtocol::FoundServiceCredentials {
                         user_credentials_ref: service_credentials_ref,
+                        activated: true,
                     })
                     .await?;
             }
         }
+        // Create needed credentials until we reach the desired number of credentials pool
         info!("Creating {} credentials in system", n_missing_users);
         for _i in 0..n_missing_users {
             let service_credentials_ref = self.create_user(system).await?;
@@ -183,8 +187,9 @@ impl IdentityCreator {
                 service_credentials_ref.id
             );
             identity_manager_proto_tx
-                .send(IdentityManagerProtocol::NewServiceCredentials {
+                .send(IdentityManagerProtocol::FoundServiceCredentials {
                     user_credentials_ref: service_credentials_ref,
+                    activated: false,
                 })
                 .await
                 .map_err(|e| {
@@ -220,8 +225,9 @@ impl IdentityCreator {
                                 "New credentials with id {} created, notifying IdentityManager",
                                 user_credentials_ref.id
                             );
-                            let msg = IdentityManagerProtocol::NewServiceCredentials {
+                            let msg = IdentityManagerProtocol::FoundServiceCredentials {
                                 user_credentials_ref: user_credentials_ref,
+                                activated: false,
                             };
                             if let Err(err) = identity_manager_proto_tx.send(msg).await {
                                 error!("Error notifying identity: {}", err);

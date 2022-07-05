@@ -6,6 +6,7 @@ use log::{error, info, warn};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::fmt;
 use std::pin::Pin;
 use tokio::sync::mpsc::{Receiver, Sender};
 
@@ -15,7 +16,7 @@ pub use crate::sdp;
 
 /// ServiceIdentity CRD
 /// This is the CRD where we store the credentials for the services
-#[derive(Debug, CustomResource, Serialize, Deserialize, Clone, JsonSchema)]
+#[derive(Debug, CustomResource, Serialize, Deserialize, Clone, JsonSchema, PartialEq)]
 #[kube(
     group = "injector.sdp.com",
     version = "v1",
@@ -51,6 +52,48 @@ pub trait ServiceCandidate {
     }
 }
 
+/// Trait that represents the pool of ServiceCredential entities
+/// We can pop and push ServiceCredential entities
+trait ServiceCredentialsPool {
+    fn pop(&mut self) -> Option<ServiceCredentialsRef>;
+    fn push(&mut self, user_credentials_ref: ServiceCredentialsRef) -> ();
+}
+
+/// Trait for ServiceIdentity provider
+/// This traits provides instances of To from instances of From
+trait ServiceIdentityProvider {
+    type From: ServiceCandidate + Send;
+    type To: ServiceCandidate + Send;
+    fn register_identity(&mut self, from: Self::To) -> ();
+    fn next_identity(&mut self, from: &Self::From) -> Option<Self::To>;
+    fn has_candidate(&self, from: &Self::From) -> bool;
+    fn has_identity(&self, from: &Self::To) -> bool;
+    fn identities(&self) -> Vec<&Self::To>;
+    fn extra_identities<'a>(&self, services: &HashSet<String>) -> Vec<&Self::To> {
+        self.identities()
+            .iter()
+            .filter(|id| !services.contains(&id.service_id()))
+            .map(|id| *id)
+            .collect()
+    }
+}
+
+/// This should not be needed once the GAT support is in stable
+/// https://blog.rust-lang.org/2021/08/03/GATs-stabilization-push.html
+trait ServiceIdentityAPI {
+    fn create<'a>(
+        &'a self,
+        identity: &'a ServiceIdentity,
+    ) -> Pin<Box<dyn Future<Output = Result<ServiceIdentity, KError>> + Send + '_>>;
+    fn delete<'a>(
+        &'a self,
+        identity_name: &'a str,
+    ) -> Pin<Box<dyn Future<Output = Result<(), KError>> + Send + '_>>;
+    fn list<'a>(
+        &'a self,
+    ) -> Pin<Box<dyn Future<Output = Result<Vec<ServiceIdentity>, KError>> + Send + '_>>;
+}
+
 /// ServiceIdentity is a ServiceCandidate by definition :D
 impl ServiceCandidate for ServiceIdentity {
     fn name(&self) -> String {
@@ -83,6 +126,16 @@ impl ServiceCandidate for Deployment {
     }
 }
 
+trait HasCredentials {
+    fn credentials(self) -> ServiceCredentialsRef;
+}
+
+impl HasCredentials for ServiceIdentity {
+    fn credentials(self) -> ServiceCredentialsRef {
+        self.spec.service_credentials
+    }
+}
+
 /// Messages exchanged between the the IdentityCreator and IdentityManager
 #[derive(Debug)]
 pub enum IdentityManagerProtocol<From: ServiceCandidate, To: ServiceCandidate> {
@@ -98,14 +151,13 @@ pub enum IdentityManagerProtocol<From: ServiceCandidate, To: ServiceCandidate> {
     },
     /// Message to notify that a new ServiceCredential have been created
     /// IdentityCreator creates these ServiceCredentials
-    NewServiceCredentials {
+    FoundServiceCredentials {
         user_credentials_ref: ServiceCredentialsRef,
-    },
-    NewActiveServiceCredentials {
-        user_credentials_ref: ServiceCredentialsRef,
+        activated: bool,
     },
     IdentityCreatorReady,
     DeploymentWatcherReady,
+    IdentityManagerInitialized,
 }
 
 pub enum IdentityMessageResponse {
@@ -114,55 +166,13 @@ pub enum IdentityMessageResponse {
     IdentityUnavailable,
 }
 
-pub struct KubeIdentityManager {
+#[derive(Default)]
+struct IdentityManagerPool {
     pool: VecDeque<ServiceCredentialsRef>,
-    service_identity_api: Api<ServiceIdentity>,
     services: HashMap<String, ServiceIdentity>,
 }
 
-/// Trait that represents the pool of ServiceCredential entities
-/// We can pop and push ServiceCredential entities
-trait ServiceCredentialsPool {
-    fn pop(&mut self) -> Option<ServiceCredentialsRef>;
-    fn push(&mut self, user_credentials_ref: ServiceCredentialsRef) -> ();
-}
-
-/// Trait for ServiceIdentity provider
-/// This traits provides instances of To from instances of From
-trait ServiceIdentityProvider {
-    type From: ServiceCandidate;
-    type To: ServiceCandidate;
-    fn register_identity(&mut self, from: Self::To) -> ();
-    fn next_identity(&mut self, from: Self::From) -> Option<Self::To>;
-    fn has_candidate(&self, from: &Self::From) -> bool;
-    fn has_identity(&self, from: &Self::To) -> bool;
-    fn identities(&self) -> Vec<&Self::To>;
-    fn extra_identities<'a>(&self, services: &HashSet<String>) -> Vec<&Self::To> {
-        self.identities()
-            .iter()
-            .filter(|id| !services.contains(&id.service_id()))
-            .map(|id| *id)
-            .collect()
-    }
-}
-
-/// This should not be needed once the GAT support is in stable
-/// https://blog.rust-lang.org/2021/08/03/GATs-stabilization-push.html
-trait ServiceIdentityAPI {
-    fn create<'a>(
-        &'a self,
-        identity: &'a ServiceIdentity,
-    ) -> Pin<Box<dyn Future<Output = Result<ServiceIdentity, KError>> + '_>>;
-    fn delete<'a>(
-        &'a self,
-        identity_name: &'a str,
-    ) -> Pin<Box<dyn Future<Output = Result<(), KError>> + '_>>;
-    fn list<'a>(
-        &'a self,
-    ) -> Pin<Box<dyn Future<Output = Result<Vec<ServiceIdentity>, KError>> + '_>>;
-}
-
-impl ServiceCredentialsPool for KubeIdentityManager {
+impl ServiceCredentialsPool for IdentityManagerPool {
     fn pop(&mut self) -> Option<ServiceCredentialsRef> {
         self.pool.pop_front()
     }
@@ -172,7 +182,7 @@ impl ServiceCredentialsPool for KubeIdentityManager {
     }
 }
 
-impl ServiceIdentityProvider for KubeIdentityManager {
+impl ServiceIdentityProvider for IdentityManagerPool {
     type From = Deployment;
     type To = ServiceIdentity;
 
@@ -180,24 +190,39 @@ impl ServiceIdentityProvider for KubeIdentityManager {
         self.services.insert(identity.service_id(), identity);
     }
 
-    fn next_identity(&mut self, from: Deployment) -> Option<ServiceIdentity> {
-        //let service_id = derive_service_id(name, namespace);
-        match self.services.get(&from.service_id()) {
-            None => self.pop().map(|service_crendetials_ref| {
-                let service_identity_spec = ServiceIdentitySpec {
-                    service_name: ServiceCandidate::name(&from),
-                    service_namespace: ServiceCandidate::namespace(&from),
-                    service_credentials: service_crendetials_ref,
-                    labels: vec![],
-                    disabled: false,
-                };
-                ServiceIdentity::new(&from.service_id(), service_identity_spec)
-            }),
-            Some(_) => None,
-        }
+    fn next_identity(&mut self, from: &Self::From) -> Option<Self::To> {
+        let service_id = from.service_id();
+        self.services.get(&from.service_id())
+            .map(|i| i.clone())
+            .or_else(|| {
+                if let Some(id) = self.pop().map(|service_crendetials_ref| {
+                    let service_identity_spec = ServiceIdentitySpec {
+                        service_name: ServiceCandidate::name(from),
+                        service_namespace: ServiceCandidate::namespace(from),
+                        service_credentials: service_crendetials_ref,
+                        labels: vec![],
+                        disabled: false,
+                    };
+                    ServiceIdentity::new(&from.service_id(), service_identity_spec)
+                }) {
+                    info!(
+                        "Service candidate {} is not registered, registering with a new identity",
+                        service_id
+                    );
+                    self.register_identity(id.clone());
+                    Some(id)
+                } else {
+                    error!("Unable to get a new identity for service candidate {}, is the identities pool empty?", service_id);
+                    None
+                }
+        })
     }
 
     fn has_candidate(&self, candidate: &Self::From) -> bool {
+        println!("IFD: {}", &candidate.service_id());
+        for (s, v) in &self.services {
+            println!(" - {} => {}", &s, &v.service_id());
+        }
         self.services.contains_key(&candidate.service_id())
     }
 
@@ -210,11 +235,51 @@ impl ServiceIdentityProvider for KubeIdentityManager {
     }
 }
 
+pub struct KubeIdentityManager {
+    pool: IdentityManagerPool,
+    service_identity_api: Api<ServiceIdentity>,
+}
+
+impl ServiceCredentialsPool for KubeIdentityManager {
+    fn pop(&mut self) -> Option<ServiceCredentialsRef> {
+        self.pool.pop()
+    }
+
+    fn push(&mut self, user_credentials_ref: ServiceCredentialsRef) -> () {
+        self.pool.push(user_credentials_ref)
+    }
+}
+
+impl ServiceIdentityProvider for KubeIdentityManager {
+    type From = Deployment;
+    type To = ServiceIdentity;
+
+    fn register_identity(&mut self, identity: Self::To) -> () {
+        self.pool.register_identity(identity);
+    }
+
+    fn next_identity(&mut self, from: &Self::From) -> Option<Self::To> {
+        self.pool.next_identity(from)
+    }
+
+    fn has_candidate(&self, candidate: &Self::From) -> bool {
+        self.pool.has_candidate(candidate)
+    }
+
+    fn has_identity(&self, identity: &Self::To) -> bool {
+        self.pool.has_identity(identity)
+    }
+
+    fn identities(&self) -> Vec<&Self::To> {
+        self.pool.identities()
+    }
+}
+
 impl ServiceIdentityAPI for KubeIdentityManager {
     fn create<'a>(
         &'a self,
         identity: &'a ServiceIdentity,
-    ) -> Pin<Box<dyn Future<Output = Result<ServiceIdentity, KError>> + '_>> {
+    ) -> Pin<Box<dyn Future<Output = Result<ServiceIdentity, KError>> + Send + '_>> {
         let fut = async move {
             self.service_identity_api
                 .create(&PostParams::default(), identity)
@@ -226,7 +291,7 @@ impl ServiceIdentityAPI for KubeIdentityManager {
     fn delete<'a>(
         &'a self,
         identity_name: &'a str,
-    ) -> Pin<Box<dyn Future<Output = Result<(), KError>> + '_>> {
+    ) -> Pin<Box<dyn Future<Output = Result<(), KError>> + Send + '_>> {
         let fut = async move {
             self.service_identity_api
                 .delete(identity_name, &DeleteParams::default())
@@ -238,7 +303,7 @@ impl ServiceIdentityAPI for KubeIdentityManager {
 
     fn list<'a>(
         &'a self,
-    ) -> Pin<Box<dyn Future<Output = Result<Vec<ServiceIdentity>, KError>> + '_>> {
+    ) -> Pin<Box<dyn Future<Output = Result<Vec<ServiceIdentity>, KError>> + Send + '_>> {
         let fut = async move {
             self.service_identity_api
                 .list(&ListParams::default())
@@ -249,31 +314,35 @@ impl ServiceIdentityAPI for KubeIdentityManager {
     }
 }
 
-trait IdentityManager:
-    ServiceIdentityAPI
-    + ServiceIdentityProvider<From = Deployment, To = ServiceIdentity>
-    + ServiceCredentialsPool
+trait IdentityManager<From: ServiceCandidate + Send + Sync, To: ServiceCandidate + Send + Sync>:
+    ServiceIdentityAPI + ServiceIdentityProvider<From = From, To = To> + ServiceCredentialsPool
 {
 }
 
-impl IdentityManager for KubeIdentityManager {}
+impl IdentityManager<Deployment, ServiceIdentity> for KubeIdentityManager {}
 
-pub struct IdentityManagerRunner(Box<dyn IdentityManager>);
+pub struct IdentityManagerRunner<From: ServiceCandidate + Send, To: ServiceCandidate + Send> {
+    im: Box<dyn IdentityManager<From, To> + Send + Sync>,
+}
 
-impl IdentityManagerRunner {
-    pub fn kube_runner(client: Client) -> IdentityManagerRunner {
+impl IdentityManagerRunner<Deployment, ServiceIdentity> {
+    pub fn kube_runner(client: Client) -> IdentityManagerRunner<Deployment, ServiceIdentity> {
         let service_identity_api: Api<ServiceIdentity> = Api::namespaced(client, "sdp-system");
-        IdentityManagerRunner(Box::new(KubeIdentityManager {
-            pool: VecDeque::with_capacity(30),
-            service_identity_api: service_identity_api,
-            services: HashMap::new(),
-        }))
+        IdentityManagerRunner {
+            im: Box::new(KubeIdentityManager {
+                pool: IdentityManagerPool {
+                    pool: VecDeque::with_capacity(30),
+                    services: HashMap::new(),
+                },
+                service_identity_api: service_identity_api,
+            }),
+        }
     }
 
-    async fn run_identity_manager(
-        im: &mut Box<dyn IdentityManager>,
-        mut identity_manager_rx: Receiver<IdentityManagerProtocol<Deployment, ServiceIdentity>>,
-        identity_manager_tx: Sender<IdentityManagerProtocol<Deployment, ServiceIdentity>>,
+    async fn run_identity_manager<F: ServiceCandidate + Clone + fmt::Debug + Send>(
+        im: &mut Box<dyn IdentityManager<F, ServiceIdentity> + Send + Sync>,
+        mut identity_manager_rx: Receiver<IdentityManagerProtocol<F, ServiceIdentity>>,
+        identity_manager_tx: Sender<IdentityManagerProtocol<F, ServiceIdentity>>,
         identity_creator_tx: Sender<IdentityCreatorProtocol>,
         deployment_watcher_proto_tx: Sender<DeploymentWatcherProtocol>,
     ) -> () {
@@ -293,7 +362,7 @@ impl IdentityManagerRunner {
                             info!("Asking for deletion of IdentityCredential from SDP system");
                             if let Err(err) = identity_creator_tx
                                 .send(IdentityCreatorProtocol::DeleteIdentity(
-                                    service_identity.spec.service_credentials.id,
+                                    service_identity.credentials().id,
                                 ))
                                 .await
                             {
@@ -315,7 +384,7 @@ impl IdentityManagerRunner {
                 IdentityManagerProtocol::RequestServiceIdentity { service_candidate } => {
                     let service_id = service_candidate.service_id();
                     info!("New user requested for service {}", service_id);
-                    match im.next_identity(service_candidate) {
+                    match im.next_identity(&service_candidate) {
                         Some(identity) => match im.create(&identity).await {
                             Ok(_) => {
                                 info!(
@@ -349,7 +418,7 @@ impl IdentityManagerRunner {
                         );
                     } else {
                         info!("Found not registered ServiceCandidate in K8S cluster with id: {}, registering it",
-                         service_candidate.service_id());
+                            service_candidate.service_id());
                         identity_manager_tx
                             .send(IdentityManagerProtocol::RequestServiceIdentity {
                                 service_candidate: service_candidate.clone(),
@@ -362,24 +431,26 @@ impl IdentityManagerRunner {
 
                 IdentityManagerProtocol::DeploymentWatcherReady if identity_creator_ready => {
                     info!("IdentityCreator and DeploymentWatcher are ready!");
-                    info!("Validating ServiceCandidates agains ServiceCredentials");
-                    let xs = im.extra_identities(&existing_service_candidates);
-                    warn!("XS: {:?}", xs);
-                    warn!("CS: {:?}", existing_service_candidates);
+                    info!("Syncing with current ServiceIdentities");
                     for identity in im.extra_identities(&existing_service_candidates) {
+                        info!(
+                            "Deleting extra ServiceIdentity for service {}",
+                            identity.service_id()
+                        );
                         identity_manager_tx
                             .send(IdentityManagerProtocol::DeleteServiceIdentity {
                                 service_identity: identity.clone(),
                             })
                             .await
-                            .expect("Error requesting new ServiceIdentity");
+                            .expect("Error requesting deletiong of ServiceIdentity");
                     }
                 }
                 IdentityManagerProtocol::DeploymentWatcherReady => {
                     panic!("DeploymentWatcher is ready but IdentityCreator is not. This should not happen!")
                 }
-                IdentityManagerProtocol::NewServiceCredentials {
+                IdentityManagerProtocol::FoundServiceCredentials {
                     user_credentials_ref,
+                    activated: _,
                 } => {
                     info!(
                         "Push new UserCredentialRef with id {}",
@@ -409,7 +480,9 @@ impl IdentityManagerRunner {
     }
 
     /// Load all the current ServiceIdentity
-    async fn initialize(im: &mut Box<dyn IdentityManager>) -> () {
+    async fn initialize<F: ServiceCandidate + Send>(
+        im: &mut Box<dyn IdentityManager<F, ServiceIdentity> + Send + Sync>,
+    ) -> () {
         info!("Initializing Identity Manager ...");
         match im.list().await {
             Ok(xs) => {
@@ -436,11 +509,19 @@ impl IdentityManagerRunner {
         identity_manager_prot_tx: Sender<IdentityManagerProtocol<Deployment, ServiceIdentity>>,
         identity_creater_proto_tx: Sender<IdentityCreatorProtocol>,
         deployment_watcher_proto_tx: Sender<DeploymentWatcherProtocol>,
+        external_watcher: Option<Sender<IdentityManagerProtocol<Deployment, ServiceIdentity>>>,
     ) -> () {
-        let im = &mut self.0;
-        IdentityManagerRunner::initialize(im).await;
+        IdentityManagerRunner::initialize(&mut self.im).await;
+        if let Some(watcher) = external_watcher {
+            if let Err(err) = watcher
+                .send(IdentityManagerProtocol::IdentityManagerInitialized)
+                .await
+            {
+                error!("Error notifying external watcher: {}", err)
+            }
+        }
         IdentityManagerRunner::run_identity_manager(
-            im,
+            &mut self.im,
             identity_manager_prot_rx,
             identity_manager_prot_tx,
             identity_creater_proto_tx,
@@ -452,6 +533,416 @@ impl IdentityManagerRunner {
 
 #[cfg(test)]
 mod tests {
+    use std::{
+        collections::HashSet,
+        future,
+        pin::Pin,
+        sync::{Arc, Mutex},
+    };
+
+    use futures::Future;
+    use k8s_openapi::api::apps::v1::Deployment;
+    use kube::{core::object::HasSpec, error::Error as KError};
+    use tokio::sync::mpsc::channel;
+
+    use crate::{
+        deployment_watcher::DeploymentWatcherProtocol,
+        identity_creator::{IdentityCreatorProtocol, ServiceCredentialsRef},
+        identity_manager::IdentityManagerProtocol,
+    };
+
+    use super::{
+        IdentityManager, IdentityManagerPool, IdentityManagerRunner, ServiceCandidate,
+        ServiceCredentialsPool, ServiceIdentity, ServiceIdentityAPI, ServiceIdentityProvider,
+        ServiceIdentitySpec,
+    };
+
+    macro_rules! deployment {
+        ($name:literal, $namespace:literal) => {{
+            let mut d = Deployment::default();
+            d.metadata.name = Some($name.to_string());
+            d.metadata.namespace = Some($namespace.to_string());
+            d
+        }};
+    }
+
+    macro_rules! identity_service {
+        ($n:tt) => {
+            ServiceIdentity::new(
+                concat!(stringify!(id), $n),
+                ServiceIdentitySpec {
+                    service_credentials: ServiceCredentialsRef {
+                        id: concat!(stringify!(id), $n).to_string(),
+                        secret: concat!(stringify!(secret), $n).to_string(),
+                        user_field: concat!(stringify!(field), $n).to_string(),
+                        password_field: concat!(stringify!(password), $n).to_string(),
+                    },
+                    service_name: concat!(stringify!(srv), $n).to_string(),
+                    service_namespace: concat!(stringify!(ns), $n).to_string(),
+                    labels: vec![],
+                    disabled: false,
+                },
+            )
+        };
+    }
+
+    macro_rules! test_identity_manager {
+        (($watcher_rx:ident, $counters:ident) => $e:expr) => {
+            let (identity_manager_proto_tx, identity_manager_proto_rx) =
+                channel::<IdentityManagerProtocol<Deployment, ServiceIdentity>>(10);
+            let (identity_creator_proto_tx, _) = channel::<IdentityCreatorProtocol>(10);
+            let (deployment_watched_proto_tx, _) = channel::<DeploymentWatcherProtocol>(10);
+            let (watcher_tx, mut $watcher_rx) =
+                channel::<IdentityManagerProtocol<Deployment, ServiceIdentity>>(10);
+            let im = new_test_identity_manager();
+            let $counters = im.api_counters.clone();
+            tokio::spawn(async move {
+                let im_runner = new_test_identity_runner(im);
+                im_runner
+                    .run(
+                        identity_manager_proto_rx,
+                        identity_manager_proto_tx,
+                        identity_creator_proto_tx,
+                        deployment_watched_proto_tx,
+                        Some(watcher_tx),
+                    )
+                    .await
+            });
+            $e
+        };
+    }
+
+    macro_rules! test_service_identity_provider {
+        ($im:ident($vs:expr) => $e:expr) => {
+            let mut $im = new_test_identity_manager();
+            assert_eq!($im.identities().len(), 0);
+            // register new identities
+            for i in $vs.clone() {
+                $im.register_identity(i);
+            }
+            $e
+        };
+        ($im:ident => $e:expr) => {
+            let vs = vec![
+                identity_service!(1),
+                identity_service!(2),
+                identity_service!(3),
+                identity_service!(4),
+            ];
+            test_service_identity_provider! {
+                $im(vs) => $e
+            }
+        };
+    }
+
+    #[derive(Default)]
+    struct APICounters {
+        delete_calls: usize,
+        create_calls: usize,
+        list_calls: usize,
+    }
+
+    #[derive(Default)]
+    struct TestIdentityManager {
+        pool: IdentityManagerPool,
+        api_counters: Arc<Mutex<APICounters>>,
+    }
+
+    impl TestIdentityManager {
+        fn reset_counters(&self) -> () {
+            let mut api_counters = self.api_counters.lock().unwrap();
+            api_counters.delete_calls = 0;
+            api_counters.create_calls = 0;
+            api_counters.list_calls = 0;
+        }
+    }
+
+    impl IdentityManager<Deployment, ServiceIdentity> for TestIdentityManager {}
+
+    impl ServiceIdentityProvider for TestIdentityManager {
+        type From = Deployment;
+        type To = ServiceIdentity;
+
+        fn register_identity(&mut self, identity: Self::To) -> () {
+            self.pool.register_identity(identity);
+        }
+
+        fn next_identity(&mut self, from: &Self::From) -> Option<Self::To> {
+            self.pool.next_identity(from)
+        }
+
+        fn has_candidate(&self, candidate: &Self::From) -> bool {
+            self.pool.has_candidate(candidate)
+        }
+
+        fn has_identity(&self, identity: &Self::To) -> bool {
+            self.pool.has_identity(identity)
+        }
+
+        fn identities(&self) -> Vec<&Self::To> {
+            self.pool.identities()
+        }
+    }
+
+    impl ServiceCredentialsPool for TestIdentityManager {
+        fn pop(&mut self) -> Option<ServiceCredentialsRef> {
+            self.pool.pop()
+        }
+
+        fn push(&mut self, user_credentials_ref: ServiceCredentialsRef) -> () {
+            self.pool.push(user_credentials_ref)
+        }
+    }
+
+    impl ServiceIdentityAPI for TestIdentityManager {
+        fn create<'a>(
+            &'a self,
+            identity: &'a ServiceIdentity,
+        ) -> Pin<Box<dyn Future<Output = Result<ServiceIdentity, KError>> + Send + '_>> {
+            self.api_counters.lock().unwrap().create_calls += 1;
+            Box::pin(future::ready(Ok(identity.clone())))
+        }
+
+        fn delete<'a>(
+            &'a self,
+            _: &'a str,
+        ) -> Pin<Box<dyn Future<Output = Result<(), KError>> + Send + '_>> {
+            self.api_counters.lock().unwrap().delete_calls += 1;
+            Box::pin(future::ready(Ok(())))
+        }
+
+        fn list<'a>(
+            &'a self,
+        ) -> Pin<Box<dyn Future<Output = Result<Vec<ServiceIdentity>, KError>> + Send + '_>>
+        {
+            self.api_counters.lock().unwrap().list_calls += 1;
+            Box::pin(future::ready(Ok(vec![])))
+        }
+    }
+
+    fn new_test_identity_manager() -> Box<TestIdentityManager> {
+        Box::new(TestIdentityManager::default())
+    }
+
+    fn new_test_identity_runner(
+        im: Box<TestIdentityManager>,
+    ) -> IdentityManagerRunner<Deployment, ServiceIdentity> {
+        IdentityManagerRunner {
+            im: im as Box<dyn IdentityManager<Deployment, ServiceIdentity> + Send + Sync>,
+        }
+    }
+
     #[test]
-    fn test_identity_manager_1() {}
+    #[should_panic]
+    fn test_service_identity_provider_candidates_panic() {
+        test_service_identity_provider! {
+            im => {
+                im.has_candidate(&Deployment::default());
+            }
+        }
+    }
+
+    #[test]
+    fn test_service_identity_provider_candidates() {
+        let d1 = deployment!("dep1", "ns1");
+        let d2 = deployment!("srv1", "ns1");
+        test_service_identity_provider! {
+            im => {
+                assert!(! im.has_candidate(&d1));
+                assert!(im.has_candidate(&d2));
+            }
+        }
+    }
+
+    #[test]
+    fn test_service_identity_provider_identities() {
+        let identities = vec![
+            identity_service!(1),
+            identity_service!(2),
+            identity_service!(3),
+            identity_service!(4),
+        ];
+        test_service_identity_provider! {
+            im(identities) => {
+                assert_eq!(im.identities().len(), 4);
+                assert!(im.has_identity(&identity_service!(1)));
+                assert!(im.has_identity(&identity_service!(4)));
+                assert!(! im.has_identity(&identity_service!(0)));
+                let mut is0: Vec<ServiceIdentity> = im.identities().iter().map(|&i| i.clone()).collect();
+                let sorted_is0 = is0.sort_by(|a, b| a.spec().service_name.partial_cmp(&b.spec().service_name).unwrap());
+                let mut is1: Vec<ServiceIdentity> = identities.iter().map(|i| i.clone()).collect();
+                let sorted_is1 = is1.sort_by(|a, b| a.spec().service_name.partial_cmp(&b.spec().service_name).unwrap());
+                assert_eq!(sorted_is0, sorted_is1);
+            }
+        }
+    }
+
+    fn check_service_identity(
+        si: Option<ServiceIdentity>,
+        c: &ServiceCredentialsRef,
+        service_name: &str,
+        service_ns: &str,
+    ) -> () {
+        assert!(si.is_some());
+        let si_spec = si.unwrap();
+        assert_eq!(si_spec.spec().service_name, service_name);
+        assert_eq!(si_spec.spec().service_namespace, service_ns);
+        assert_eq!(si_spec.spec().service_credentials.id, c.id);
+    }
+
+    #[test]
+    fn test_service_identity_provider_next_identity() {
+        let id3 = identity_service!(1);
+        let identities = vec![id3.clone()];
+        let d1 = deployment!("srv2", "ns2");
+        let d2 = deployment!("srv1", "ns2");
+        let d3 = deployment!("srv1", "ns1");
+        let d4 = deployment!("srv3", "ns1");
+
+        test_service_identity_provider! {
+            im(identities) => {
+                // service not registered but we don't have any credentials so we can not create
+                // new identities for it.
+                assert_eq!(im.identities().len(), 1);
+                assert!(im.next_identity(&d1).is_none());
+                assert!(im.next_identity(&d2).is_none());
+
+                // service already registered, we just return the credentials we have for it
+                let d3_id = im.next_identity(&d3);
+                check_service_identity(d3_id, &id3.spec().service_credentials, "srv1", "ns1");
+            }
+        }
+
+        test_service_identity_provider! {
+            im(identities) => {
+                let c1 = ServiceCredentialsRef {
+                    id: "uuid1".to_string(),
+                    secret: "secret".to_string(),
+                    user_field: "user_field1".to_string(),
+                    password_field: "password_field1".to_string(),
+                };
+                let c2 = ServiceCredentialsRef {
+                    id: "uuid2".to_string(),
+                    secret: "secret".to_string(),
+                    user_field: "user_field2".to_string(),
+                    password_field: "password_field2".to_string(),
+                };
+                // push some credentials
+                im.push(c1.clone());
+                im.push(c2.clone());
+
+                assert_eq!(im.identities().len(), 1);
+
+                // ask for a new service identity, we can create it because we have creds
+                let d1_id = im.next_identity(&d1);
+                check_service_identity(d1_id, &c1, "srv2", "ns2");
+
+                // service identity already registered
+                let d3_id = im.next_identity(&d3);
+                assert_eq!(d3_id.unwrap().spec(), id3.spec());
+
+                // ask for a new service identity, we can create it because we have creds
+                let d2_id = im.next_identity(&d2);
+                check_service_identity(d2_id, &c2, "srv1", "ns2");
+
+                // service not registered but we don't have any credentials so we can not create
+                // new identities for it.
+                assert!(im.next_identity(&d4).is_none());
+
+                // We can still get the service identoties we have registered
+                let d1_id = im.next_identity(&d1);
+                check_service_identity(d1_id, &c1, "srv2", "ns2");
+                let d2_id = im.next_identity(&d2);
+                check_service_identity(d2_id, &c2, "srv1", "ns2");
+
+                // We have created 2 ServiceIdentity instances on K8S
+                assert_eq!(im.api_counters.lock().unwrap().create_calls, 2);
+            }
+        }
+    }
+
+    fn extra_identities_tuple<'a>(
+        im: &'a TestIdentityManager,
+        services: &HashSet<String>,
+    ) -> Vec<(&'a str, &'a str, &'a str)> {
+        let mut xs: Vec<(&str, &str, &str)> = im
+            .extra_identities(services)
+            .iter()
+            .map(|si| {
+                let spec = si.spec();
+                (
+                    spec.service_namespace.as_str(),
+                    spec.service_name.as_str(),
+                    spec.service_credentials.id.as_str(),
+                )
+            })
+            .collect();
+        xs.sort();
+        xs
+    }
+
+    #[test]
+    fn test_service_identity_provider_extras_identities() {
+        test_service_identity_provider! {
+            im => {
+                let mut identities = im.identities();
+                identities.sort_by(|a, b| a.name().as_str().partial_cmp(b.name().as_str()).unwrap());
+
+                // 4 services registered but none found on start,
+                let xs = extra_identities_tuple(&im, &HashSet::new());
+                assert_eq!(xs.len(), 4);
+                assert_eq!(xs, vec![
+                    ("ns1", "srv1", "id1"),
+                    ("ns2", "srv2", "id2"),
+                    ("ns3", "srv3", "id3"),
+                    ("ns4", "srv4", "id4"),
+                ]);
+
+                // 4 services registered and only 1 on start
+                let xs = extra_identities_tuple(&im, &HashSet::from(
+                    [identities[0].service_id()]
+                ));
+                assert_eq!(xs.len(), 3);
+                assert_eq!(xs, vec![
+                    ("ns2", "srv2", "id2"),
+                    ("ns3", "srv3", "id3"),
+                    ("ns4", "srv4", "id4"),
+                ]);
+
+                // 4 services registered and all 4 on start
+                let xs: Vec<(&str, &str, &str)> = extra_identities_tuple(&im, &HashSet::from(
+                    [
+                        identities[0].service_id(),
+                        identities[1].service_id(),
+                        identities[2].service_id(),
+                        identities[3].service_id(),
+                    ]
+                ));
+                assert_eq!(xs.len(), 0);
+                assert_eq!(xs, vec![]);
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn test_identity_manager_initialization() {
+        test_identity_manager! {
+            (watcher_rx, counters) => {
+                if let Some(_) = watcher_rx.recv().await {
+                    assert_eq!(counters.lock().unwrap().list_calls, 1);
+                }
+            }
+        };
+    }
+
+    #[tokio::test]
+    async fn test_identity_manager_ask_for_new_credentials() {
+        test_identity_manager! {
+            (watcher_rx, counters) => {
+                if let Some(_) = watcher_rx.recv().await {
+                    assert_eq!(counters.lock().unwrap().list_calls, 1);
+                }
+            }
+        };
+    }
 }

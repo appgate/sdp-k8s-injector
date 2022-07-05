@@ -116,6 +116,7 @@ async fn main() -> () {
                     identity_manager_proto_tx_cp2,
                     identity_creator_proto_tx,
                     deployment_watched_proto_tx,
+                    None,
                 )
                 .await;
         }
