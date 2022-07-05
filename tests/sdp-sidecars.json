@@ -62,6 +62,11 @@
 	"runAsGroup": 101,
 	"runAsUser": 100,
 	"runAsNonRoot": true
+        "runAsNonRoot": true,
+        "capabilities": {
+          "add": [
+             "NET_BIND_SERVICE"
+           ]
       },
       "volumeMounts": [
 	{
