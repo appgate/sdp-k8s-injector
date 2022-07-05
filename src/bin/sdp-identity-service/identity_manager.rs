@@ -127,12 +127,12 @@ impl ServiceCandidate for Deployment {
 }
 
 trait HasCredentials {
-    fn credentials(self) -> ServiceCredentialsRef;
+    fn credentials<'a>(&'a self) -> &'a ServiceCredentialsRef;
 }
 
 impl HasCredentials for ServiceIdentity {
-    fn credentials(self) -> ServiceCredentialsRef {
-        self.spec.service_credentials
+    fn credentials<'a>(&'a self) -> &'a ServiceCredentialsRef {
+        &self.spec.service_credentials
     }
 }
 
@@ -362,7 +362,7 @@ impl IdentityManagerRunner<Deployment, ServiceIdentity> {
                             info!("Asking for deletion of IdentityCredential from SDP system");
                             if let Err(err) = identity_creator_tx
                                 .send(IdentityCreatorProtocol::DeleteIdentity(
-                                    service_identity.credentials().id,
+                                    service_identity.credentials().id.clone(),
                                 ))
                                 .await
                             {
