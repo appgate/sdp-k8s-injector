@@ -389,7 +389,10 @@ impl IdentityManagerRunner<Deployment, ServiceIdentity> {
                                 "New ServiceIdentity deleted for service with id {}",
                                 service_identity.service_id()
                             );
-                            info!("Asking for deletion of IdentityCredential from SDP system");
+                            info!(
+                                "Asking for deletion of IdentityCredential {} from SDP system",
+                                service_identity.credentials().id
+                            );
                             if let Err(err) = identity_creator_tx
                                 .send(IdentityCreatorProtocol::DeleteIdentity(
                                     service_identity.credentials().id.clone(),

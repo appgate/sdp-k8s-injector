@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 
+use json_patch::{PatchOperation, RemoveOperation};
 use k8s_openapi::api::apps::v1::Deployment;
 use k8s_openapi::api::core::v1::Secret;
 use k8s_openapi::ByteString;
@@ -81,6 +82,58 @@ impl IdentityCreator {
         }
     }
 
+    async fn delete_user_credentials_ref(
+        &self,
+        service_user_id: &String,
+    ) -> Result<(), IdentityServiceError> {
+        let pw_field = format!("{}-pw", service_user_id);
+        let user_field = format!("{}-user", service_user_id);
+        let (exists_pw, exist_user) = self.exists_user_crendentials_ref(service_user_id).await;
+        let mut patch_operations: Vec<PatchOperation> = Vec::new();
+        if exist_user {
+            patch_operations.push(PatchOperation::Remove(RemoveOperation {
+                path: format!("/data/{}", user_field),
+            }));
+        } else {
+            info!(
+                "User field in UserCredentials {} not found, ignoring it",
+                service_user_id
+            );
+        }
+        if exists_pw {
+            patch_operations.push(PatchOperation::Remove(RemoveOperation {
+                path: format!("/data/{}", pw_field),
+            }));
+        } else {
+            info!(
+                "Password field in UserCredentials{} not found, ignoring it",
+                service_user_id
+            );
+        }
+        if patch_operations.len() > 0 {
+            info!(
+                "Deleting UserCredentials {} from K8S secret",
+                service_user_id
+            );
+            let patch: KubePatch<Secret> = KubePatch::Json(json_patch::Patch(patch_operations));
+            let _ = self
+                .secrets_api
+                .patch(
+                    SDP_IDENTITY_MANAGER_SECRETS,
+                    &PatchParams::default(),
+                    &patch,
+                )
+                .await
+                .map_err(|e| {
+                    IdentityServiceError::from_service(
+                        format!("Error patching secret: {}", e),
+                        SERVICE_NAME.to_string(),
+                    )
+                })?;
+        }
+        Ok(())
+    }
+
     async fn create_user_credentials_ref(
         &self,
         service_user: &ServiceUser,
@@ -88,17 +141,23 @@ impl IdentityCreator {
         let pw_field = format!("{}-pw", service_user.id);
         let user_field = format!("{}-user", service_user.id);
         let mut secret = Secret::default();
-        let (exists_pw, exist_user) = self.exists_user_crendentials_ref(&service_user).await;
+        let (exists_pw, exist_user) = self.exists_user_crendentials_ref(&service_user.id).await;
         let mut data = BTreeMap::new();
         if !exist_user {
-            info!("Create user entry for ServiceUser {}", service_user.id);
+            info!(
+                "Create user entry in UserCredentials for ServiceUser {}",
+                service_user.id
+            );
             data.insert(
                 user_field,
                 ByteString(service_user.name.as_bytes().to_vec()),
             );
         }
         if !exists_pw {
-            info!("Create pasword entry for ServiceUser {}", service_user.id);
+            info!(
+                "Create pasword entry in UserCredentials for ServiceUser {}",
+                service_user.id
+            );
 
             data.insert(
                 pw_field,
@@ -139,6 +198,21 @@ impl IdentityCreator {
             IdentityServiceError::from_service(e.to_string(), SERVICE_NAME.to_string())
         })?;
         self.create_user_credentials_ref(&service_user).await
+    }
+
+    async fn delete_user(
+        &self,
+        system: &mut sdp::System,
+        service_user_id: &String,
+    ) -> Result<(), IdentityServiceError> {
+        info!("Deleting ServiceUser with id {}", service_user_id);
+        let _ = system
+            .delete_user(service_user_id.clone())
+            .await
+            .map_err(|e| {
+                IdentityServiceError::from_service(e.to_string(), SERVICE_NAME.to_string())
+            })?;
+        self.delete_user_credentials_ref(service_user_id).await
     }
 
     pub async fn initialize(
@@ -247,14 +321,18 @@ impl IdentityCreator {
                         }
                     };
                 }
-                IdentityCreatorProtocol::DeleteIdentity(id) => match system.delete_user(id).await {
-                    Ok(_identity) => {
-                        info!("identity deleted!");
+                IdentityCreatorProtocol::DeleteIdentity(identity_id) => {
+                    info!(
+                        "Deleting ServiceUser/UserCredentials with id {}",
+                        identity_id
+                    );
+                    if let Err(err) = self.delete_user(system, &identity_id).await {
+                        error!(
+                            "Error deleting ServiceUser/UserCredentials with id {}: {}",
+                            identity_id, err
+                        )
                     }
-                    Err(err) => {
-                        error!("Unable to delete identity: {}", err);
-                    }
-                },
+                }
                 msg => warn!("Ignoring message: {:?}", msg),
             }
         }
