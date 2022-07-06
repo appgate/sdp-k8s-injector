@@ -5,7 +5,7 @@ use k8s_openapi::api::core::v1::Secret;
 use k8s_openapi::ByteString;
 use kube::api::{Patch as KubePatch, PatchParams};
 use kube::{Api, Client};
-use log::{error, info};
+use log::{error, info, warn};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc::{Receiver, Sender};
@@ -42,8 +42,9 @@ impl From<&ServiceUser> for ServiceCredentialsRef {
 
 trait ServiceCredentialsRefOps {}
 
+#[derive(Debug)]
 pub enum IdentityCreatorProtocol {
-    /// Message used to send a new user
+    StartService,
     CreateIdentity,
     DeleteIdentity(String),
 }
@@ -205,10 +206,23 @@ impl IdentityCreator {
         mut identity_creator_proto_rx: Receiver<IdentityCreatorProtocol>,
         identity_manager_proto_tx: Sender<IdentityManagerProtocol<Deployment, ServiceIdentity>>,
     ) -> () {
+        info!("Started IdentityCreator, waiting commands from IdentityManager");
+        while let Some(msg) = identity_creator_proto_rx.recv().await {
+            match msg {
+                IdentityCreatorProtocol::StartService => todo!(),
+                msg => warn!(
+                    "IdentityCreator is still dormant, ignoring message {:?}",
+                    msg
+                ),
+            }
+        }
         info!("Intializing IdentityCreator");
-        self.initialize(system, identity_manager_proto_tx.clone())
-            .await
-            .expect("Error while initializing IdentityCreator");
+        self.initialize(
+            system,
+            identity_manager_proto_tx.clone(),
+        )
+        .await
+        .expect("Error while initializing IdentityCreator");
 
         // Notify IdentityManager that we are ready
         identity_manager_proto_tx
@@ -247,6 +261,7 @@ impl IdentityCreator {
                         error!("Unable to delete identity: {}", err);
                     }
                 },
+                msg => warn!("Ignoring message: {:?}", msg),
             }
         }
     }

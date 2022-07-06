@@ -325,6 +325,16 @@ pub struct IdentityManagerRunner<From: ServiceCandidate + Send, To: ServiceCandi
     im: Box<dyn IdentityManager<From, To> + Send + Sync>,
 }
 
+/// Load all the current ServiceIdentity
+/// Flow between services is:
+/// - IM collects all ServiceIdentity defined
+/// - IM asks IC to collect current ServiceCredentialsRef
+/// - IC notifies IM with defined ServiceCredentialsRef (active and not active)
+/// - IM cleans up extra ServiceCredentialsRef (credentials active in system without a ServiceIdentrity)
+/// - IM cleans up ServiceIdentities that dont have valid ServiceCredentialsRef
+/// - IM asks DW to start
+/// - DW sends the list of all CandidateServices (Deployments)
+/// - IM creates ServiceIDentity for those CandidateServices that need it and dont have one.
 impl IdentityManagerRunner<Deployment, ServiceIdentity> {
     pub fn kube_runner(client: Client) -> IdentityManagerRunner<Deployment, ServiceIdentity> {
         let service_identity_api: Api<ServiceIdentity> = Api::namespaced(client, "sdp-system");
@@ -479,7 +489,6 @@ impl IdentityManagerRunner<Deployment, ServiceIdentity> {
         }
     }
 
-    /// Load all the current ServiceIdentity
     async fn initialize<F: ServiceCandidate + Send>(
         im: &mut Box<dyn IdentityManager<F, ServiceIdentity> + Send + Sync>,
     ) -> () {
@@ -519,6 +528,13 @@ impl IdentityManagerRunner<Deployment, ServiceIdentity> {
             {
                 error!("Error notifying external watcher: {}", err)
             }
+        }
+        // Ask IC to start
+        if let Err(err) = identity_creater_proto_tx
+            .send(IdentityCreatorProtocol::StartService)
+            .await
+        {
+            error!("Error notifying external watcher: {}", err)
         }
         IdentityManagerRunner::run_identity_manager(
             &mut self.im,
