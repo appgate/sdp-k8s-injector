@@ -64,9 +64,9 @@ impl IdentityCreator {
         }
     }
 
-    async fn exists_user_crendentials_ref(&self, service_user: &ServiceUser) -> (bool, bool) {
-        let pw_field = format!("{}-pw", service_user.id);
-        let user_field = format!("{}-user", service_user.id);
+    async fn exists_user_crendentials_ref(&self, service_user_id: &String) -> (bool, bool) {
+        let pw_field = format!("{}-pw", service_user_id);
+        let user_field = format!("{}-user", service_user_id);
         if let Ok(secret) = self.secrets_api.get(SDP_IDENTITY_MANAGER_SECRETS).await {
             secret
                 .data
@@ -167,7 +167,7 @@ impl IdentityCreator {
         if data.len() > 0 {
             secret.data = Some(data);
             info!(
-                "Creating user credentials in K8S secret for service_user: {}",
+                "Creating UserCredentials in K8S secret for ServiceUer: {}",
                 service_user.id
             );
             let patch = KubePatch::Merge(secret);

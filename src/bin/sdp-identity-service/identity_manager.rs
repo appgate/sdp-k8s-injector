@@ -505,7 +505,7 @@ impl IdentityManagerRunner<Deployment, ServiceIdentity> {
                     activated,
                 } if activated => {
                     info!(
-                        "Found activated User Credentials with id {}",
+                        "Found activated UserCredentials with id {}",
                         user_credentials_ref.id
                     );
                     existing_activated_credentials.insert(user_credentials_ref.id.clone());
@@ -514,25 +514,25 @@ impl IdentityManagerRunner<Deployment, ServiceIdentity> {
                 IdentityManagerProtocol::IdentityCreatorReady if !deployment_watcher_ready => {
                     info!("IdentityCreator is ready");
 
-                    info!("Cleaning up obsolete User Credentials");
+                    info!("Syncing UserCredentials");
                     // Delete active credentials not in use by any service
                     for user_credentials_id in
                         im.extra_user_credentials(&existing_activated_credentials)
                     {
-                        info!("Deleting active credentia {}", &user_credentials_id);
+                        info!("UserCredentials {} are active but not used by any IdentityService, deleteing it", &user_credentials_id);
                         identity_creator_tx
                             .send(IdentityCreatorProtocol::DeleteIdentity(
                                 user_credentials_id.clone(),
                             ))
                             .await
-                            .expect("Unable to delete obsolete credentials!");
+                            .expect("Unable to delete obsolete UserCredentials");
                     }
 
-                    info!("Cleaning up obsolete Identity Services");
+                    info!("Syncing IdentityServices");
                     // Delete Identity Services holding not active credentials
                     for identity_service in im.orphan_identities(&existing_activated_credentials) {
                         info!(
-                            "Deleting Identity Service {}",
+                            "IdentityService {} has UserCredentials not active, deleting it",
                             identity_service.service_id()
                         );
                         identity_manager_tx
