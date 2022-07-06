@@ -66,7 +66,8 @@ trait ServiceCredentialsPool {
 trait ServiceIdentityProvider {
     type From: ServiceCandidate + Send;
     type To: ServiceCandidate + HasCredentials + Send;
-    fn register_identity(&mut self, from: Self::To) -> ();
+    fn register_identity(&mut self, to: Self::To) -> ();
+    fn unregister_identity(&mut self, to: &Self::To) -> Option<Self::To>;
     fn next_identity(&mut self, from: &Self::From) -> Option<Self::To>;
     fn identity(&self, from: &Self::From) -> Option<&Self::To>;
     fn identities(&self) -> Vec<&Self::To>;
@@ -212,8 +213,12 @@ impl ServiceIdentityProvider for IdentityManagerPool {
     type From = Deployment;
     type To = ServiceIdentity;
 
-    fn register_identity(&mut self, identity: Self::To) -> () {
-        self.services.insert(identity.service_id(), identity);
+    fn register_identity(&mut self, to: Self::To) -> () {
+        self.services.insert(to.service_id(), to);
+    }
+
+    fn unregister_identity(&mut self, to: &Self::To) -> Option<Self::To> {
+        self.services.remove(&to.service_id())
     }
 
     fn next_identity(&mut self, from: &Self::From) -> Option<Self::To> {
@@ -278,6 +283,10 @@ impl ServiceIdentityProvider for KubeIdentityManager {
 
     fn register_identity(&mut self, identity: Self::To) -> () {
         self.pool.register_identity(identity);
+    }
+
+    fn unregister_identity(&mut self, to: &Self::To) -> Option<Self::To> {
+        self.pool.unregister_identity(to)
     }
 
     fn next_identity(&mut self, from: &Self::From) -> Option<Self::To> {
@@ -383,12 +392,22 @@ impl IdentityManagerRunner<Deployment, ServiceIdentity> {
         while let Some(msg) = identity_manager_rx.recv().await {
             match msg {
                 IdentityManagerProtocol::DeleteServiceIdentity { service_identity } => {
+                    info!(
+                        "Deleting ServiceIdentity with id {}",
+                        service_identity.service_id()
+                    );
                     match im.delete(&service_identity.service_id()).await {
                         Ok(_) => {
                             info!(
-                                "New ServiceIdentity deleted for service with id {}",
+                                "Deregistering ServiceIdentity with id {}",
                                 service_identity.service_id()
                             );
+                            if let None = im.unregister_identity(&service_identity) {
+                                warn!(
+                                    "ServiceIdentity with id {} was not registered",
+                                    service_identity.service_id()
+                                );
+                            }
                             info!(
                                 "Asking for deletion of IdentityCredential {} from SDP system",
                                 service_identity.credentials().id
@@ -755,6 +774,10 @@ mod tests {
 
         fn register_identity(&mut self, identity: Self::To) -> () {
             self.pool.register_identity(identity);
+        }
+
+        fn unregister_identity(&mut self, to: &Self::To) -> Option<Self::To> {
+            self.pool.register_identity(to)
         }
 
         fn next_identity(&mut self, from: &Self::From) -> Option<Self::To> {
