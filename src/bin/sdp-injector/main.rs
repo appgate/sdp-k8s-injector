@@ -38,7 +38,7 @@ const SDP_ANNOTATION_CLIENT_CONFIG: &str = "sdp-injector-client-config";
 const SDP_ANNOTATION_CLIENT_SECRETS: &str = "sdp-injector-client-secrets";
 const SDP_DEFAULT_CLIENT_CONFIG: &str = "sdp-injector-client-config";
 const SDP_DEFAULT_CLIENT_SECRETS: &str = "sdp-injector-client-secrets";
-const SDP_DNS_SERVICE_NAMES: [&str; 2] = ["kube-dns", "coredns"];
+const SDP_DNS_SERVICE_NAMES: [&str; 3] = ["kube-dns", "coredns", "rke2-coredns-rke2-coredns"];
 
 macro_rules! env_var {
     (value :: $env_name:expr => $value:expr) => {{
