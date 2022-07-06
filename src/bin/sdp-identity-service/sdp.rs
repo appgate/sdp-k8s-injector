@@ -3,8 +3,8 @@ use std::fmt::Display;
 use std::time::Duration;
 
 use http::header::{InvalidHeaderValue, ACCEPT};
-use http::HeaderValue;
-use log::info;
+use http::{HeaderValue, StatusCode};
+use log::{debug, info};
 use reqwest::header::HeaderMap;
 use reqwest::{Client, Error as RError, Response, Url};
 use serde::de::DeserializeOwned;
@@ -179,7 +179,14 @@ pub struct System {
     login: Option<Login>,
 }
 
-async fn error_for_status<D: DeserializeOwned>(response: Response) -> Result<D, SDPClientError> {
+pub enum ResponseData<D> {
+    NoContent,
+    Entity(D),
+}
+
+async fn error_for_status<D: DeserializeOwned>(
+    response: Response,
+) -> Result<ResponseData<D>, SDPClientError> {
     if response.status().is_client_error() || response.status().is_server_error() {
         let status = response.status();
         let body = response.text().await?;
@@ -188,8 +195,10 @@ async fn error_for_status<D: DeserializeOwned>(response: Response) -> Result<D, 
             status_code: Some(status),
             error_body: Some(body),
         })
+    } else if response.status() == StatusCode::NO_CONTENT {
+        Ok(ResponseData::NoContent)
     } else {
-        Ok(response.json::<D>().await?)
+        Ok(ResponseData::Entity(response.json::<D>().await?))
     }
 }
 
@@ -208,7 +217,14 @@ impl System {
             .send()
             .await
             .map_err(SDPClientError::from)?;
-        error_for_status::<Login>(resp).await
+        match error_for_status::<Login>(resp).await? {
+            ResponseData::NoContent => Err(SDPClientError {
+                request_error: None,
+                status_code: Some(StatusCode::NO_CONTENT),
+                error_body: Some("Expected Login instance, found nothing!".to_string()),
+            }),
+            ResponseData::Entity(login) => Ok(login),
+        }
     }
 
     async fn maybe_refresh_login(&mut self) -> Result<&Login, SDPClientError> {
@@ -234,7 +250,14 @@ impl System {
             .bearer_auth(token)
             .send()
             .await?;
-        error_for_status(resp).await
+        match error_for_status::<D>(resp).await? {
+            ResponseData::NoContent => Err(SDPClientError {
+                request_error: None,
+                status_code: Some(StatusCode::NO_CONTENT),
+                error_body: Some("Expected instance instance, found nothing!".to_string()),
+            }),
+            ResponseData::Entity(data) => Ok(data),
+        }
     }
 
     pub async fn post<D: DeserializeOwned + Serialize>(
@@ -250,7 +273,14 @@ impl System {
             .json(&data)
             .send()
             .await?;
-        error_for_status(resp).await
+        match error_for_status::<D>(resp).await? {
+            ResponseData::NoContent => Err(SDPClientError {
+                request_error: None,
+                status_code: Some(StatusCode::NO_CONTENT),
+                error_body: Some("Expected instance instance, found nothing!".to_string()),
+            }),
+            ResponseData::Entity(data) => Ok(data),
+        }
     }
 
     pub async fn delete(&mut self, url: Url) -> Result<(), SDPClientError> {
@@ -261,7 +291,9 @@ impl System {
             .bearer_auth(token)
             .send()
             .await?;
-        error_for_status(resp).await
+        match error_for_status::<Option<()>>(resp).await? {
+            _ => Ok(()),
+        }
     }
 
     /// GET /service-users
@@ -273,7 +305,7 @@ impl System {
         Ok(service_users.data)
     }
 
-    /// GET /service-useryah s-id
+    /// GET /service-users/id
     pub async fn get_user(
         &mut self,
         service_user_id: String,
@@ -285,7 +317,7 @@ impl System {
         self.get(url).await
     }
 
-    /// POST /service-users-id
+    /// POST /service-users/id
     pub async fn create_user(
         &mut self,
         service_user: &ServiceUser,
@@ -293,17 +325,17 @@ impl System {
         let mut url = Url::from(self.hosts[0].clone());
         url.set_path(&format!("/admin/service-users"));
         info!(
-            "Creating new service user in SDP system: {}",
+            "Creating new ServiceUser in SDP system: {}",
             service_user.id
         );
         self.post::<ServiceUser>(url, service_user).await
     }
 
-    /// DELETE /service-user-id
+    /// DELETE /service-users/id
     pub async fn delete_user(&mut self, service_user_id: String) -> Result<(), SDPClientError> {
         let _ = self.maybe_refresh_login().await?;
         let mut url = Url::from(self.hosts[0].clone());
-        url.set_path(&format!("/admin/service-users-id/{}", service_user_id));
+        url.set_path(&format!("/admin/service-users/{}", service_user_id));
         self.delete(url).await
     }
 }
