@@ -66,8 +66,7 @@ trait ServiceIdentityProvider {
     type To: ServiceCandidate + Send;
     fn register_identity(&mut self, from: Self::To) -> ();
     fn next_identity(&mut self, from: &Self::From) -> Option<Self::To>;
-    fn has_candidate(&self, from: &Self::From) -> bool;
-    fn has_identity(&self, from: &Self::To) -> bool;
+    fn identity(&self, from: &Self::From) -> Option<&Self::To>;
     fn identities(&self) -> Vec<&Self::To>;
     fn extra_identities<'a>(&self, services: &HashSet<String>) -> Vec<&Self::To> {
         self.identities()
@@ -218,16 +217,8 @@ impl ServiceIdentityProvider for IdentityManagerPool {
         })
     }
 
-    fn has_candidate(&self, candidate: &Self::From) -> bool {
-        println!("IFD: {}", &candidate.service_id());
-        for (s, v) in &self.services {
-            println!(" - {} => {}", &s, &v.service_id());
-        }
-        self.services.contains_key(&candidate.service_id())
-    }
-
-    fn has_identity(&self, identity: &Self::To) -> bool {
-        self.services.contains_key(&identity.service_id())
+    fn identity(&self, from: &Self::From) -> Option<&Self::To> {
+        self.services.get(&from.service_id())
     }
 
     fn identities(&self) -> Vec<&Self::To> {
@@ -262,12 +253,8 @@ impl ServiceIdentityProvider for KubeIdentityManager {
         self.pool.next_identity(from)
     }
 
-    fn has_candidate(&self, candidate: &Self::From) -> bool {
-        self.pool.has_candidate(candidate)
-    }
-
-    fn has_identity(&self, identity: &Self::To) -> bool {
-        self.pool.has_identity(identity)
+    fn identity(&self, from: &Self::From) -> Option<&Self::To> {
+        self.pool.identity(&from)
     }
 
     fn identities(&self) -> Vec<&Self::To> {
@@ -360,6 +347,7 @@ impl IdentityManagerRunner<Deployment, ServiceIdentity> {
         let mut deployment_watcher_ready = false;
         let mut identity_creator_ready = false;
         let mut existing_service_candidates: HashSet<String> = HashSet::new();
+        let mut existing_service_crendentials: HashSet<String> = HashSet::new();
         while let Some(msg) = identity_manager_rx.recv().await {
             match msg {
                 IdentityManagerProtocol::DeleteServiceIdentity { service_identity } => {
@@ -421,10 +409,10 @@ impl IdentityManagerRunner<Deployment, ServiceIdentity> {
                     };
                 }
                 IdentityManagerProtocol::FoundServiceIdentity { service_candidate } => {
-                    if im.has_candidate(&service_candidate) {
+                    if let Some(service_identity) = im.identity(&service_candidate) {
                         info!(
                             "Found already registered ServiceCandidate in K8S cluster with id: {}",
-                            service_candidate.service_id()
+                            service_identity.service_id()
                         );
                     } else {
                         info!("Found not registered ServiceCandidate in K8S cluster with id: {}, registering it",
@@ -458,6 +446,7 @@ impl IdentityManagerRunner<Deployment, ServiceIdentity> {
                 IdentityManagerProtocol::DeploymentWatcherReady => {
                     panic!("DeploymentWatcher is ready but IdentityCreator is not. This should not happen!")
                 }
+                // Event sent by Identity Creator when recovering ServiceCredentialsRef during initialization
                 IdentityManagerProtocol::FoundServiceCredentials {
                     user_credentials_ref,
                     activated: _,
@@ -492,14 +481,14 @@ impl IdentityManagerRunner<Deployment, ServiceIdentity> {
     async fn initialize<F: ServiceCandidate + Send>(
         im: &mut Box<dyn IdentityManager<F, ServiceIdentity> + Send + Sync>,
     ) -> () {
-        info!("Initializing Identity Manager ...");
+        info!("Initializing Identity Manager service");
         match im.list().await {
             Ok(xs) => {
-                info!("Restoring previous service identities");
+                info!("Restoring previous Service Identity instances");
                 let n: u32 = xs
                     .iter()
                     .map(|s| {
-                        info!("Restoring service identity {}", s.service_id());
+                        info!("Restoring Service Ideantity {}", s.service_id());
                         im.register_identity(s.clone());
                         1
                     })
@@ -520,6 +509,7 @@ impl IdentityManagerRunner<Deployment, ServiceIdentity> {
         deployment_watcher_proto_tx: Sender<DeploymentWatcherProtocol>,
         external_watcher: Option<Sender<IdentityManagerProtocol<Deployment, ServiceIdentity>>>,
     ) -> () {
+        info!("Starting Identity Manager service");
         IdentityManagerRunner::initialize(&mut self.im).await;
         if let Some(watcher) = external_watcher {
             if let Err(err) = watcher
@@ -529,13 +519,14 @@ impl IdentityManagerRunner<Deployment, ServiceIdentity> {
                 error!("Error notifying external watcher: {}", err)
             }
         }
-        // Ask IC to start
+        // Ask Identity Creator to awake
         if let Err(err) = identity_creater_proto_tx
             .send(IdentityCreatorProtocol::StartService)
             .await
         {
-            error!("Error notifying external watcher: {}", err)
+            error!("Error awakening Identity Creator: {}", err)
         }
+        // We are not ready to process events
         IdentityManagerRunner::run_identity_manager(
             &mut self.im,
             identity_manager_prot_rx,
@@ -687,12 +678,8 @@ mod tests {
             self.pool.next_identity(from)
         }
 
-        fn has_candidate(&self, candidate: &Self::From) -> bool {
-            self.pool.has_candidate(candidate)
-        }
-
-        fn has_identity(&self, identity: &Self::To) -> bool {
-            self.pool.has_identity(identity)
+        fn identity(&self, from: &Self::From) -> Option<&Self::To> {
+            self.pool.identity(from)
         }
 
         fn identities(&self) -> Vec<&Self::To> {
@@ -753,19 +740,7 @@ mod tests {
     fn test_service_identity_provider_candidates_panic() {
         test_service_identity_provider! {
             im => {
-                im.has_candidate(&Deployment::default());
-            }
-        }
-    }
-
-    #[test]
-    fn test_service_identity_provider_candidates() {
-        let d1 = deployment!("dep1", "ns1");
-        let d2 = deployment!("srv1", "ns1");
-        test_service_identity_provider! {
-            im => {
-                assert!(! im.has_candidate(&d1));
-                assert!(im.has_candidate(&d2));
+                im.identity(&Deployment::default());
             }
         }
     }
@@ -778,12 +753,13 @@ mod tests {
             identity_service!(3),
             identity_service!(4),
         ];
+        let d1 = deployment!("dep1", "ns1");
+        let d2 = deployment!("srv1", "ns1");
         test_service_identity_provider! {
             im(identities) => {
                 assert_eq!(im.identities().len(), 4);
-                assert!(im.has_identity(&identity_service!(1)));
-                assert!(im.has_identity(&identity_service!(4)));
-                assert!(! im.has_identity(&identity_service!(0)));
+                assert!(im.identity(&d1).is_none());
+                assert!(im.identity(&d2).is_some());
                 let mut is0: Vec<ServiceIdentity> = im.identities().iter().map(|&i| i.clone()).collect();
                 let sorted_is0 = is0.sort_by(|a, b| a.spec().service_name.partial_cmp(&b.spec().service_name).unwrap());
                 let mut is1: Vec<ServiceIdentity> = identities.iter().map(|i| i.clone()).collect();
