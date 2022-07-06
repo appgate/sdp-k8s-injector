@@ -218,7 +218,7 @@ impl ServiceIdentityProvider for IdentityManagerPool {
 
     fn next_identity(&mut self, from: &Self::From) -> Option<Self::To> {
         let service_id = from.service_id();
-        self.services.get(&from.service_id())
+        self.services.get(&service_id)
             .map(|i| i.clone())
             .or_else(|| {
                 if let Some(id) = self.pop().map(|service_crendetials_ref| {
@@ -229,10 +229,10 @@ impl ServiceIdentityProvider for IdentityManagerPool {
                         labels: vec![],
                         disabled: false,
                     };
-                    ServiceIdentity::new(&from.service_id(), service_identity_spec)
+                    ServiceIdentity::new(&service_id, service_identity_spec)
                 }) {
                     info!(
-                        "Service candidate {} is not registered, registering with a new identity",
+                        "ServiceCandidate {} has not ServiceIdentities registered, registering one for it",
                         service_id
                     );
                     self.register_identity(id.clone());
@@ -413,7 +413,10 @@ impl IdentityManagerRunner<Deployment, ServiceIdentity> {
                 }
                 IdentityManagerProtocol::RequestServiceIdentity { service_candidate } => {
                     let service_id = service_candidate.service_id();
-                    info!("New user requested for service {}", service_id);
+                    info!(
+                        "New ServiceIdentity requested for ServiceCandidate {}",
+                        service_id
+                    );
                     match im.next_identity(&service_candidate) {
                         Some(identity) => match im.create(&identity).await {
                             Ok(_) => {
@@ -507,12 +510,13 @@ impl IdentityManagerRunner<Deployment, ServiceIdentity> {
                 // Identity Creator finished the initialization
                 IdentityManagerProtocol::IdentityCreatorReady if !deployment_watcher_ready => {
                     info!("IdentityCreator is ready");
-                    info!("Cleaning up obsolete User Credentials");
 
+                    info!("Cleaning up obsolete User Credentials");
                     // Delete active credentials not in use by any service
                     for user_credentials_id in
                         im.extra_user_credentials(&existing_activated_credentials)
                     {
+                        info!("Deleting active credentia {}", &user_credentials_id);
                         identity_creator_tx
                             .send(IdentityCreatorProtocol::DeleteIdentity(
                                 user_credentials_id.clone(),
@@ -521,8 +525,13 @@ impl IdentityManagerRunner<Deployment, ServiceIdentity> {
                             .expect("Unable to delete obsolete credentials!");
                     }
 
+                    info!("Cleaning up obsolete Identity Services");
                     // Delete Identity Services holding not active credentials
                     for identity_service in im.orphan_identities(&existing_activated_credentials) {
+                        info!(
+                            "Deleting Identity Service {}",
+                            identity_service.service_id()
+                        );
                         identity_manager_tx
                             .send(IdentityManagerProtocol::DeleteServiceIdentity {
                                 service_identity: identity_service.clone(),
