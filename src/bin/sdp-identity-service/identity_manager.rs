@@ -58,6 +58,7 @@ pub trait ServiceCandidate {
 trait ServiceCredentialsPool {
     fn pop(&mut self) -> Option<ServiceCredentialsRef>;
     fn push(&mut self, user_credentials_ref: ServiceCredentialsRef) -> ();
+    fn needs_new_credentials(&self) -> bool;
 }
 
 /// Trait for ServiceIdentity provider
@@ -201,6 +202,10 @@ impl ServiceCredentialsPool for IdentityManagerPool {
     fn push(&mut self, user_credentials_ref: ServiceCredentialsRef) -> () {
         self.pool.push_back(user_credentials_ref)
     }
+
+    fn needs_new_credentials(&self) -> bool {
+        self.pool.len() < 10
+    }
 }
 
 impl ServiceIdentityProvider for IdentityManagerPool {
@@ -260,6 +265,10 @@ impl ServiceCredentialsPool for KubeIdentityManager {
 
     fn push(&mut self, user_credentials_ref: ServiceCredentialsRef) -> () {
         self.pool.push(user_credentials_ref)
+    }
+
+    fn needs_new_credentials(&self) -> bool {
+        self.pool.needs_new_credentials()
     }
 }
 
@@ -412,11 +421,14 @@ impl IdentityManagerRunner<Deployment, ServiceIdentity> {
                                     "New ServiceIdentity created for service with id {}",
                                     service_id
                                 );
-                                if let Err(err) = identity_creator_tx
-                                    .send(IdentityCreatorProtocol::CreateIdentity)
-                                    .await
-                                {
-                                    error!("Error when sending IdentityCreatorMessage::CreateIdentity: {}", err);
+                                if im.needs_new_credentials() {
+                                    info!("Requesting new UserCredentials to add to the pool");
+                                    if let Err(err) = identity_creator_tx
+                                        .send(IdentityCreatorProtocol::CreateIdentity)
+                                        .await
+                                    {
+                                        error!("Error when sending IdentityCreatorMessage::CreateIdentity: {}", err);
+                                    }
                                 }
                             }
                             Err(err) => {
@@ -753,6 +765,10 @@ mod tests {
 
         fn push(&mut self, user_credentials_ref: ServiceCredentialsRef) -> () {
             self.pool.push(user_credentials_ref)
+        }
+
+        fn needs_new_credentials(&self) -> bool {
+            self.pool.needs_new_credentials()
         }
     }
 
