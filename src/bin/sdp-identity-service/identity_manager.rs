@@ -7,6 +7,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fmt;
+use std::iter::FromIterator;
 use std::pin::Pin;
 use tokio::sync::mpsc::{Receiver, Sender};
 
@@ -63,7 +64,7 @@ trait ServiceCredentialsPool {
 /// This traits provides instances of To from instances of From
 trait ServiceIdentityProvider {
     type From: ServiceCandidate + Send;
-    type To: ServiceCandidate + Send;
+    type To: ServiceCandidate + HasCredentials + Send;
     fn register_identity(&mut self, from: Self::To) -> ();
     fn next_identity(&mut self, from: &Self::From) -> Option<Self::To>;
     fn identity(&self, from: &Self::From) -> Option<&Self::To>;
@@ -73,6 +74,27 @@ trait ServiceIdentityProvider {
             .iter()
             .filter(|id| !services.contains(&id.service_id()))
             .map(|id| *id)
+            .collect()
+    }
+    fn extra_user_credentials<'a>(
+        &self,
+        activated_credentials: &'a HashSet<String>,
+    ) -> Vec<&'a String> {
+        let current_activated_credentials = HashSet::<String>::from_iter(
+            self.identities().iter().map(|i| i.credentials().id.clone()),
+        );
+        // Compute activated credentials not registered in any Self::To
+        activated_credentials
+            .into_iter()
+            .filter(|c| !current_activated_credentials.contains(c.clone()))
+            .collect()
+    }
+
+    fn orphan_identities<'a>(&self, activated_credentials: &'a HashSet<String>) -> Vec<&Self::To> {
+        self.identities()
+            .iter()
+            .filter(|i| !activated_credentials.contains(&i.credentials().id))
+            .map(|i| *i)
             .collect()
     }
 }
@@ -145,12 +167,12 @@ pub enum IdentityManagerProtocol<From: ServiceCandidate, To: ServiceCandidate> {
     DeleteServiceIdentity {
         service_identity: To,
     },
-    FoundServiceIdentity {
+    FoundServiceCandidate {
         service_candidate: From,
     },
     /// Message to notify that a new ServiceCredential have been created
     /// IdentityCreator creates these ServiceCredentials
-    FoundServiceCredentials {
+    FoundUserCredentials {
         user_credentials_ref: ServiceCredentialsRef,
         activated: bool,
     },
@@ -343,11 +365,12 @@ impl IdentityManagerRunner<Deployment, ServiceIdentity> {
         identity_creator_tx: Sender<IdentityCreatorProtocol>,
         deployment_watcher_proto_tx: Sender<DeploymentWatcherProtocol>,
     ) -> () {
-        info!("Running Identity Manager ...");
+        info!("Running Identity Manager main loop");
         let mut deployment_watcher_ready = false;
         let mut identity_creator_ready = false;
         let mut existing_service_candidates: HashSet<String> = HashSet::new();
-        let mut existing_service_crendentials: HashSet<String> = HashSet::new();
+        let mut existing_activated_credentials: HashSet<String> = HashSet::new();
+        let mut existing_deactivated_credentials: HashSet<String> = HashSet::new();
         while let Some(msg) = identity_manager_rx.recv().await {
             match msg {
                 IdentityManagerProtocol::DeleteServiceIdentity { service_identity } => {
@@ -408,7 +431,7 @@ impl IdentityManagerRunner<Deployment, ServiceIdentity> {
                         }
                     };
                 }
-                IdentityManagerProtocol::FoundServiceIdentity { service_candidate } => {
+                IdentityManagerProtocol::FoundServiceCandidate { service_candidate } => {
                     if let Some(service_identity) = im.identity(&service_candidate) {
                         info!(
                             "Found already registered ServiceCandidate in K8S cluster with id: {}",
@@ -446,20 +469,56 @@ impl IdentityManagerRunner<Deployment, ServiceIdentity> {
                 IdentityManagerProtocol::DeploymentWatcherReady => {
                     panic!("DeploymentWatcher is ready but IdentityCreator is not. This should not happen!")
                 }
-                // Event sent by Identity Creator when recovering ServiceCredentialsRef during initialization
-                IdentityManagerProtocol::FoundServiceCredentials {
+                // Identity Creator notifies about fresh, unactivated User Credentials
+                IdentityManagerProtocol::FoundUserCredentials {
                     user_credentials_ref,
-                    activated: _,
-                } => {
+                    activated,
+                } if !activated => {
                     info!(
-                        "Push new UserCredentialRef with id {}",
+                        "Push fresh UserCredentialRef with id {}",
                         user_credentials_ref.id
                     );
-                    // Got new fresh credentials, add them to the pool
+                    existing_deactivated_credentials.insert(user_credentials_ref.id.clone());
                     im.push(user_credentials_ref);
                 }
+                // Identity Creator notifies about already activated User Credentials
+                IdentityManagerProtocol::FoundUserCredentials {
+                    user_credentials_ref,
+                    activated,
+                } if activated => {
+                    info!(
+                        "Found activated User Credentials with id {}",
+                        user_credentials_ref.id
+                    );
+                    existing_activated_credentials.insert(user_credentials_ref.id.clone());
+                }
+                // Identity Creator finished the initialization
                 IdentityManagerProtocol::IdentityCreatorReady if !deployment_watcher_ready => {
-                    info!("IdentityCreator is ready!");
+                    info!("IdentityCreator is ready");
+                    info!("Cleaning up obsolete User Credentials");
+
+                    // Delete active credentials not in use by any service
+                    for user_credentials_id in
+                        im.extra_user_credentials(&existing_activated_credentials)
+                    {
+                        identity_creator_tx
+                            .send(IdentityCreatorProtocol::DeleteIdentity(
+                                user_credentials_id.clone(),
+                            ))
+                            .await
+                            .expect("Unable to delete obsolete credentials!");
+                    }
+
+                    // Delete Identity Services holding not active credentials
+                    for identity_service in im.orphan_identities(&existing_activated_credentials) {
+                        identity_manager_tx
+                            .send(IdentityManagerProtocol::DeleteServiceIdentity {
+                                service_identity: identity_service.clone(),
+                            })
+                            .await
+                            .expect("Error requesting deletiong of ServiceIdentity");
+                    }
+
                     identity_creator_ready = true;
                     deployment_watcher_ready = true;
                     deployment_watcher_proto_tx

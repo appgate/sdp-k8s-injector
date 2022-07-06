@@ -55,7 +55,7 @@ impl<'a> DeploymentWatcher<Deployment> {
                         for deployment in deployments {
                             if deployment.is_candidate() {
                                 info!("Found service candidate: {}", deployment.service_id());
-                                let msg = IdentityManagerProtocol::FoundServiceIdentity {
+                                let msg = IdentityManagerProtocol::FoundServiceCandidate {
                                     service_candidate: deployment,
                                 };
                                 if let Err(err) = tx.send(msg).await {

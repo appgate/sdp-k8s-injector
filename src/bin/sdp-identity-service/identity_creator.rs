@@ -98,7 +98,7 @@ impl IdentityCreator {
             );
         }
         if !exists_pw {
-            info!("Create user entry for ServiceUser {}", service_user.id);
+            info!("Create pasword entry for ServiceUser {}", service_user.id);
 
             data.insert(
                 pw_field,
@@ -149,7 +149,7 @@ impl IdentityCreator {
         let users = system.get_users().await.map_err(|e| {
             IdentityServiceError::new(e.to_string(), Some("IdentityCreator".to_string()))
         })?;
-        let n_users = users.len();
+        let n_users = users.iter().filter(|u| u.disabled).count();
         let mut n_missing_users = 0;
         if n_users <= self.credentials_pool_size {
             n_missing_users = self.credentials_pool_size - n_users;
@@ -160,25 +160,19 @@ impl IdentityCreator {
             let service_credentials_ref = self.create_user_credentials_ref(&user).await.unwrap();
             if user.disabled {
                 info!("Found a fresh service user with id {}, using it", &user.id);
-                identity_manager_proto_tx
-                    .send(IdentityManagerProtocol::FoundServiceCredentials {
-                        user_credentials_ref: service_credentials_ref,
-                        activated: false,
-                    })
-                    .await?;
             } else {
                 info!(
                     "Found an already activated service user with id {}, using it",
                     &user.id
                 );
-                identity_manager_proto_tx
-                    .send(IdentityManagerProtocol::FoundServiceCredentials {
-                        user_credentials_ref: service_credentials_ref,
-                        activated: true,
-                    })
-                    .await?;
             }
+            let msg = IdentityManagerProtocol::FoundUserCredentials {
+                user_credentials_ref: service_credentials_ref,
+                activated: !user.disabled,
+            };
+            identity_manager_proto_tx.send(msg).await?;
         }
+
         // Create needed credentials until we reach the desired number of credentials pool
         info!("Creating {} credentials in system", n_missing_users);
         for _i in 0..n_missing_users {
@@ -188,7 +182,7 @@ impl IdentityCreator {
                 service_credentials_ref.id
             );
             identity_manager_proto_tx
-                .send(IdentityManagerProtocol::FoundServiceCredentials {
+                .send(IdentityManagerProtocol::FoundUserCredentials {
                     user_credentials_ref: service_credentials_ref,
                     activated: false,
                 })
@@ -206,10 +200,13 @@ impl IdentityCreator {
         mut identity_creator_proto_rx: Receiver<IdentityCreatorProtocol>,
         identity_manager_proto_tx: Sender<IdentityManagerProtocol<Deployment, ServiceIdentity>>,
     ) -> () {
-        info!("Started IdentityCreator, waiting commands from IdentityManager");
+        info!("Starting dormant Identity Creator service, waiting commands from Identity Manager service");
         while let Some(msg) = identity_creator_proto_rx.recv().await {
             match msg {
-                IdentityCreatorProtocol::StartService => todo!(),
+                IdentityCreatorProtocol::StartService => {
+                    info!("Identity Creator awake! Ready to process messages");
+                    break;
+                }
                 msg => warn!(
                     "IdentityCreator is still dormant, ignoring message {:?}",
                     msg
@@ -217,12 +214,9 @@ impl IdentityCreator {
             }
         }
         info!("Intializing IdentityCreator");
-        self.initialize(
-            system,
-            identity_manager_proto_tx.clone(),
-        )
-        .await
-        .expect("Error while initializing IdentityCreator");
+        self.initialize(system, identity_manager_proto_tx.clone())
+            .await
+            .expect("Error while initializing IdentityCreator");
 
         // Notify IdentityManager that we are ready
         identity_manager_proto_tx
@@ -239,7 +233,7 @@ impl IdentityCreator {
                                 "New credentials with id {} created, notifying IdentityManager",
                                 user_credentials_ref.id
                             );
-                            let msg = IdentityManagerProtocol::FoundServiceCredentials {
+                            let msg = IdentityManagerProtocol::FoundUserCredentials {
                                 user_credentials_ref: user_credentials_ref,
                                 activated: false,
                             };
