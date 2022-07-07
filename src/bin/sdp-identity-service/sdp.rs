@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use http::header::{InvalidHeaderValue, ACCEPT};
 use http::{HeaderValue, StatusCode};
-use log::{debug, info};
+use log::info;
 use reqwest::header::HeaderMap;
 use reqwest::{Client, Error as RError, Response, Url};
 use serde::de::DeserializeOwned;
@@ -254,7 +254,7 @@ impl System {
             ResponseData::NoContent => Err(SDPClientError {
                 request_error: None,
                 status_code: Some(StatusCode::NO_CONTENT),
-                error_body: Some("Expected instance instance, found nothing!".to_string()),
+                error_body: Some("Expected instance, found nothing!".to_string()),
             }),
             ResponseData::Entity(data) => Ok(data),
         }
@@ -277,7 +277,7 @@ impl System {
             ResponseData::NoContent => Err(SDPClientError {
                 request_error: None,
                 status_code: Some(StatusCode::NO_CONTENT),
-                error_body: Some("Expected instance instance, found nothing!".to_string()),
+                error_body: Some("Expected instance, found nothing!".to_string()),
             }),
             ResponseData::Entity(data) => Ok(data),
         }
