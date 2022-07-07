@@ -176,7 +176,7 @@ impl IdentityCreator {
         }
         if !exists_pw {
             info!(
-                "Create pasword entry in UserCredentials for ServiceUser {}",
+                "Create password entry in UserCredentials for ServiceUser {}",
                 service_user.id
             );
             let password = service_user
