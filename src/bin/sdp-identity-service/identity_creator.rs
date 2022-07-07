@@ -274,23 +274,44 @@ impl IdentityCreator {
         for user in users {
             let (user_field_exists, passwd_field_exists) =
                 self.exists_user_crendentials_ref(&user.id).await;
-            let service_credentials_ref = self
-                .create_user_credentials_ref(&user, user_field_exists, passwd_field_exists)
-                .await
-                .unwrap();
-            if user.disabled {
-                info!("Found a fresh service user with id {}, using it", &user.id);
-            } else {
+
+            // When recovering users from controller we never get the password so if for some reason it's not
+            // saved in the cluster we can not recover that user.
+            // When this happens we need to delete the user (from appgate and whatever info we have about it
+            // in the cluster)
+            if !passwd_field_exists {
                 info!(
-                    "Found an already activated service user with id {}, using it",
-                    &user.id
+                    "ServiceUser {} [{}] missing password field in storage, deleting it.",
+                    user.name, user.id
                 );
+                if let Err(err) = self
+                    .delete_user(system, &user.id, user_field_exists, passwd_field_exists)
+                    .await
+                {
+                    error!(
+                        "Error removing ServiceUser with id {} [{}]: {}",
+                        user.name, user.id, err
+                    );
+                }
+            } else {
+                let service_credentials_ref = self
+                    .create_user_credentials_ref(&user, user_field_exists, passwd_field_exists)
+                    .await
+                    .unwrap();
+                if user.disabled {
+                    info!("Found a fresh service user with id {}, using it", &user.id);
+                } else {
+                    info!(
+                        "Found an already activated service user with id {}, using it",
+                        &user.id
+                    );
+                }
+                let msg = IdentityManagerProtocol::FoundUserCredentials {
+                    user_credentials_ref: service_credentials_ref,
+                    activated: !user.disabled,
+                };
+                identity_manager_proto_tx.send(msg).await?;
             }
-            let msg = IdentityManagerProtocol::FoundUserCredentials {
-                user_credentials_ref: service_credentials_ref,
-                activated: !user.disabled,
-            };
-            identity_manager_proto_tx.send(msg).await?;
         }
 
         // Create needed credentials until we reach the desired number of credentials pool
