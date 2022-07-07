@@ -66,7 +66,7 @@ trait ServiceCredentialsPool {
 /// This traits provides instances of To from instances of From
 trait ServiceIdentityProvider {
     type From: ServiceCandidate + Send;
-    type To: ServiceCandidate + HasCredentials + Send;
+    type To: ServiceCandidate + HasCredentials + HasCredentials + Send;
     fn register_identity(&mut self, to: Self::To) -> ();
     fn unregister_identity(&mut self, to: &Self::To) -> Option<Self::To>;
     fn next_identity(&mut self, from: &Self::From) -> Option<Self::To>;
