@@ -100,6 +100,10 @@ impl IdentityCreator {
                 })
                 .unwrap_or((false, false))
         } else {
+            error!(
+                "Error getting UserCredentialRef with id {}",
+                service_user_id
+            );
             (false, false)
         }
     }
@@ -107,12 +111,13 @@ impl IdentityCreator {
     async fn delete_user_credentials_ref(
         &self,
         service_user_id: &String,
+        user_field_exists: bool,
+        passwd_field_exists: bool,
     ) -> Result<(), IdentityServiceError> {
         let pw_field = format!("{}-pw", service_user_id);
         let user_field = format!("{}-user", service_user_id);
-        let (exists_pw, exist_user) = self.exists_user_crendentials_ref(service_user_id).await;
         let mut patch_operations: Vec<PatchOperation> = Vec::new();
-        if exist_user {
+        if user_field_exists {
             patch_operations.push(PatchOperation::Remove(RemoveOperation {
                 path: format!("/data/{}", user_field),
             }));
@@ -122,7 +127,7 @@ impl IdentityCreator {
                 service_user_id
             );
         }
-        if exists_pw {
+        if passwd_field_exists {
             patch_operations.push(PatchOperation::Remove(RemoveOperation {
                 path: format!("/data/{}", pw_field),
             }));
@@ -159,13 +164,14 @@ impl IdentityCreator {
     async fn create_user_credentials_ref(
         &self,
         service_user: &ServiceUser,
+        user_field_exists: bool,
+        passwd_field_exists: bool,
     ) -> Result<ServiceCredentialsRef, IdentityServiceError> {
         let pw_field = format!("{}-pw", service_user.id);
         let user_field = format!("{}-user", service_user.id);
         let mut secret = Secret::default();
-        let (exists_pw, exist_user) = self.exists_user_crendentials_ref(&service_user.id).await;
         let mut data = BTreeMap::new();
-        if !exist_user {
+        if !user_field_exists {
             info!(
                 "Create user entry in UserCredentials for ServiceUser {}",
                 service_user.id
@@ -175,7 +181,7 @@ impl IdentityCreator {
                 ByteString(service_user.name.as_bytes().to_vec()),
             );
         }
-        if !exists_pw {
+        if !passwd_field_exists {
             info!(
                 "Create password entry in UserCredentials for ServiceUser {}",
                 service_user.id
@@ -222,16 +228,22 @@ impl IdentityCreator {
         system: &mut sdp::System,
     ) -> Result<ServiceCredentialsRef, IdentityServiceError> {
         let service_user = ServiceUser::new();
+        let (user_field_exists, passwd_field_exists) =
+            self.exists_user_crendentials_ref(&service_user.id).await;
+        info!("Deleting ServiceUser with id {}", service_user.id);
         let _ = system.create_user(&service_user).await.map_err(|e| {
             IdentityServiceError::from_service(e.to_string(), SERVICE_NAME.to_string())
         })?;
-        self.create_user_credentials_ref(&service_user).await
+        self.create_user_credentials_ref(&service_user, user_field_exists, passwd_field_exists)
+            .await
     }
 
     async fn delete_user(
         &self,
         system: &mut sdp::System,
         service_user_id: &String,
+        user_field_exists: bool,
+        passwd_field_exists: bool,
     ) -> Result<(), IdentityServiceError> {
         info!("Deleting ServiceUser with id {}", service_user_id);
         let _ = system
@@ -240,7 +252,8 @@ impl IdentityCreator {
             .map_err(|e| {
                 IdentityServiceError::from_service(e.to_string(), SERVICE_NAME.to_string())
             })?;
-        self.delete_user_credentials_ref(service_user_id).await
+        self.delete_user_credentials_ref(service_user_id, user_field_exists, passwd_field_exists)
+            .await
     }
 
     pub async fn initialize(
@@ -259,7 +272,12 @@ impl IdentityCreator {
         // Notify ServiceIdentityManager about the actual credentials created in appgate
         // This could be actived credentials or deactivated ones.
         for user in users {
-            let service_credentials_ref = self.create_user_credentials_ref(&user).await.unwrap();
+            let (user_field_exists, passwd_field_exists) =
+                self.exists_user_crendentials_ref(&user.id).await;
+            let service_credentials_ref = self
+                .create_user_credentials_ref(&user, user_field_exists, passwd_field_exists)
+                .await
+                .unwrap();
             if user.disabled {
                 info!("Found a fresh service user with id {}, using it", &user.id);
             } else {
@@ -354,7 +372,12 @@ impl IdentityCreator {
                         "Deleting ServiceUser/UserCredentials with id {}",
                         identity_id
                     );
-                    if let Err(err) = self.delete_user(system, &identity_id).await {
+                    let (user_field_exists, passwd_field_exists) =
+                        self.exists_user_crendentials_ref(&identity_id).await;
+                    if let Err(err) = self
+                        .delete_user(system, &identity_id, user_field_exists, passwd_field_exists)
+                        .await
+                    {
                         error!(
                             "Error deleting ServiceUser/UserCredentials with id {}: {}",
                             identity_id, err
