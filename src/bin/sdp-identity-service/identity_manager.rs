@@ -667,7 +667,7 @@ impl IdentityManagerRunner<Deployment, ServiceIdentity> {
 #[cfg(test)]
 mod tests {
     use std::{
-        collections::HashSet,
+        collections::{HashSet, HashMap},
         future,
         pin::Pin,
         sync::{Arc, Mutex},
@@ -706,13 +706,14 @@ mod tests {
                 ServiceIdentitySpec {
                     service_credentials: ServiceCredentialsRef {
                         id: concat!(stringify!(id), $n).to_string(),
+                        name: concat!(stringify!(name), $n).to_string(),
                         secret: concat!(stringify!(secret), $n).to_string(),
                         user_field: concat!(stringify!(field), $n).to_string(),
                         password_field: concat!(stringify!(password), $n).to_string(),
                     },
                     service_name: concat!(stringify!(srv), $n).to_string(),
                     service_namespace: concat!(stringify!(ns), $n).to_string(),
-                    labels: vec![],
+                    labels: HashMap::new(),
                     disabled: false,
                 },
             )
@@ -797,11 +798,11 @@ mod tests {
         type To = ServiceIdentity;
 
         fn register_identity(&mut self, identity: Self::To) -> () {
-            self.pool.register_identity(identity);
+            self.pool.register_identity(identity)
         }
 
         fn unregister_identity(&mut self, to: &Self::To) -> Option<Self::To> {
-            self.pool.register_identity(to)
+            self.pool.unregister_identity(to)
         }
 
         fn next_identity(&mut self, from: &Self::From) -> Option<Self::To> {
@@ -943,12 +944,14 @@ mod tests {
             im(identities) => {
                 let c1 = ServiceCredentialsRef {
                     id: "uuid1".to_string(),
+                    name: "name1".to_string(),
                     secret: "secret".to_string(),
                     user_field: "user_field1".to_string(),
                     password_field: "password_field1".to_string(),
                 };
                 let c2 = ServiceCredentialsRef {
                     id: "uuid2".to_string(),
+                    name: "name2".to_string(),
                     secret: "secret".to_string(),
                     user_field: "user_field2".to_string(),
                     password_field: "password_field2".to_string(),
