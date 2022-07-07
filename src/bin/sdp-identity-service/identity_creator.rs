@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 
 use json_patch::{PatchOperation, RemoveOperation};
 use k8s_openapi::api::apps::v1::Deployment;
@@ -23,6 +23,7 @@ const SERVICE_NAME: &str = "identity-creator";
 #[derive(Clone, JsonSchema, Debug, Serialize, Deserialize, PartialEq)]
 pub struct ServiceCredentialsRef {
     pub id: String,
+    pub name: String,
     pub secret: String,
     pub user_field: String,
     pub password_field: String,
@@ -34,9 +35,24 @@ impl From<&ServiceUser> for ServiceCredentialsRef {
         let user_field = format!("{}-user", service_user.id);
         Self {
             id: service_user.id.clone(),
+            name: service_user.name.clone(),
             secret: SDP_IDENTITY_MANAGER_SECRETS.to_string(),
             user_field: user_field,
             password_field: pw_field,
+        }
+    }
+}
+
+impl From<ServiceCredentialsRef> for ServiceUser {
+    fn from(credentials: ServiceCredentialsRef) -> Self {
+        ServiceUser {
+            id: credentials.id,
+            name: credentials.name,
+            labels: HashMap::new(),
+            password: None,
+            disabled: true,
+            failed_login_attempts: None,
+            lock_start: None,
         }
     }
 }
@@ -47,6 +63,11 @@ trait ServiceCredentialsRefOps {}
 pub enum IdentityCreatorProtocol {
     StartService,
     CreateIdentity,
+    ModifyIdentity {
+        service_credentials: ServiceCredentialsRef,
+        labels: HashMap<String, String>,
+        active: bool,
+    },
     DeleteIdentity(String),
 }
 
@@ -158,11 +179,17 @@ impl IdentityCreator {
                 "Create pasword entry in UserCredentials for ServiceUser {}",
                 service_user.id
             );
-
-            data.insert(
-                pw_field,
-                ByteString(service_user.password.as_bytes().to_vec()),
-            );
+            let password = service_user
+                .password
+                .as_ref()
+                .ok_or(IdentityServiceError::new(
+                    format!(
+                        "Password in ServiceUser with id {} not defined",
+                        service_user.id
+                    ),
+                    Some("IdentityCreator".to_string()),
+                ))?;
+            data.insert(pw_field, ByteString(password.as_bytes().to_vec()));
         }
         if data.len() > 0 {
             secret.data = Some(data);
@@ -331,6 +358,21 @@ impl IdentityCreator {
                             "Error deleting ServiceUser/UserCredentials with id {}: {}",
                             identity_id, err
                         )
+                    }
+                }
+                IdentityCreatorProtocol::ModifyIdentity {
+                    service_credentials,
+                    labels,
+                    active,
+                } => {
+                    let mut service_user = ServiceUser::from(service_credentials);
+                    service_user.labels = labels;
+                    service_user.disabled = !active;
+                    if let Err(err) = system.modify_user(&service_user).await {
+                        error!(
+                            "Unable to modify ServiceUser with id {} [active: {}]: {}",
+                            service_user.id, active, err
+                        );
                     }
                 }
                 msg => warn!("Ignoring message: {:?}", msg),

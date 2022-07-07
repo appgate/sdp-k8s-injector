@@ -35,7 +35,7 @@ pub struct ServiceIdentitySpec {
     service_credentials: ServiceCredentialsRef,
     service_name: String,
     service_namespace: String,
-    labels: Vec<String>,
+    labels: HashMap<String, String>,
     disabled: bool,
 }
 
@@ -47,6 +47,7 @@ pub struct ServiceIdentitySpec {
 pub trait ServiceCandidate {
     fn name(&self) -> String;
     fn namespace(&self) -> String;
+    fn labels(&self) -> HashMap<String, String>;
     fn is_candidate(&self) -> bool;
     fn service_id(&self) -> String {
         format!("{}-{}", self.namespace(), self.name()).to_string()
@@ -123,6 +124,10 @@ impl ServiceCandidate for ServiceIdentity {
         self.spec.service_name.clone()
     }
 
+    fn labels(&self) -> HashMap<String, String> {
+        self.spec.labels.clone()
+    }
+
     fn namespace(&self) -> String {
         self.spec.service_namespace.clone()
     }
@@ -143,8 +148,15 @@ impl ServiceCandidate for Deployment {
         ResourceExt::namespace(self).unwrap_or("default".to_string())
     }
 
+    fn labels(&self) -> HashMap<String, String> {
+        HashMap::from([
+            ("namespace".to_string(), ServiceCandidate::namespace(self)),
+            ("name".to_string(), ServiceCandidate::name(self)),
+        ])
+    }
+
     fn is_candidate(&self) -> bool {
-        ResourceExt::namespace(self) == Some("some-ns".to_string())
+        ResourceExt::namespace(self) == Some("purple-devops".to_string())
         //self.annotations().get("sdp-injector").map(|v| v.eq("true")).unwrap_or(false)
     }
 }
@@ -231,7 +243,7 @@ impl ServiceIdentityProvider for IdentityManagerPool {
                         service_name: ServiceCandidate::name(from),
                         service_namespace: ServiceCandidate::namespace(from),
                         service_credentials: service_crendetials_ref,
-                        labels: vec![],
+                        labels: ServiceCandidate::labels(from),
                         disabled: false,
                     };
                     ServiceIdentity::new(&service_id, service_identity_spec)
@@ -441,7 +453,7 @@ impl IdentityManagerRunner<Deployment, ServiceIdentity> {
                     );
                     match im.next_identity(&service_candidate) {
                         Some(identity) => match im.create(&identity).await {
-                            Ok(_) => {
+                            Ok(service_identity) => {
                                 info!(
                                     "New ServiceIdentity created for service with id {}",
                                     service_id
@@ -454,6 +466,17 @@ impl IdentityManagerRunner<Deployment, ServiceIdentity> {
                                     {
                                         error!("Error when sending IdentityCreatorMessage::CreateIdentity: {}", err);
                                     }
+                                }
+                                if let Err(err) = identity_creator_tx
+                                    .send(IdentityCreatorProtocol::ModifyIdentity {
+                                        service_credentials: service_identity.credentials().clone(),
+                                        labels: identity.spec.labels,
+                                        active: true,
+                                    })
+                                    .await
+                                {
+                                    error!("Error updating ServiceUser in UserCredentials with id {} for service {}: {}",
+                                    service_identity.credentials().id, service_identity.service_id(), err);
                                 }
                             }
                             Err(err) => {

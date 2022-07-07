@@ -90,7 +90,7 @@ pub struct ServiceUser {
     pub name: String,
     pub labels: HashMap<String, String>,
     #[serde(skip_deserializing)]
-    pub password: String,
+    pub password: Option<String>,
     pub disabled: bool,
     #[serde(skip_serializing)]
     pub failed_login_attempts: Option<u32>,
@@ -107,7 +107,7 @@ impl ServiceUser {
             id: id.to_string(),
             labels: HashMap::new(),
             name: user_name.to_string(),
-            password: password.to_string(),
+            password: Some(password.to_string()),
             disabled: true,
             failed_login_attempts: None,
             lock_start: None,
@@ -296,6 +296,29 @@ impl System {
         }
     }
 
+    pub async fn put<D: DeserializeOwned + Serialize>(
+        &mut self,
+        url: Url,
+        data: &D,
+    ) -> Result<D, SDPClientError> {
+        let client = self.client.put(url);
+        let token = &self.maybe_refresh_login().await?.token;
+        let resp = client
+            .timeout(Duration::from_secs(5))
+            .bearer_auth(token)
+            .json(&data)
+            .send()
+            .await?;
+        match error_for_status::<D>(resp).await? {
+            ResponseData::NoContent => Err(SDPClientError {
+                request_error: None,
+                status_code: Some(StatusCode::NO_CONTENT),
+                error_body: Some("Expected instance, found nothing!".to_string()),
+            }),
+            ResponseData::Entity(data) => Ok(data),
+        }
+    }
+
     /// GET /service-users
     pub async fn get_users(&mut self) -> Result<Vec<ServiceUser>, SDPClientError> {
         info!("Getting users");
@@ -329,6 +352,20 @@ impl System {
             service_user.id
         );
         self.post::<ServiceUser>(url, service_user).await
+    }
+
+    /// POST /service-users/id
+    pub async fn modify_user(
+        &mut self,
+        service_user: &ServiceUser,
+    ) -> Result<ServiceUser, SDPClientError> {
+        let mut url = Url::from(self.hosts[0].clone());
+        url.set_path(&format!("/admin/service-users"));
+        info!(
+            "Creating new ServiceUser in SDP system: {}",
+            service_user.id
+        );
+        self.put::<ServiceUser>(url, service_user).await
     }
 
     /// DELETE /service-users/id
