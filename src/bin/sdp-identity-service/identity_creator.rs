@@ -65,6 +65,7 @@ pub enum IdentityCreatorProtocol {
     CreateIdentity,
     ModifyIdentity {
         service_credentials: ServiceCredentialsRef,
+        name: String,
         labels: HashMap<String, String>,
         active: bool,
     },
@@ -362,10 +363,12 @@ impl IdentityCreator {
                 }
                 IdentityCreatorProtocol::ModifyIdentity {
                     service_credentials,
+                    name,
                     labels,
                     active,
                 } => {
                     let mut service_user = ServiceUser::from(service_credentials);
+                    service_user.name = name;
                     service_user.labels = labels;
                     service_user.disabled = !active;
                     if let Err(err) = system.modify_user(&service_user).await {

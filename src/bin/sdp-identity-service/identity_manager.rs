@@ -470,6 +470,7 @@ impl IdentityManagerRunner<Deployment, ServiceIdentity> {
                                 if let Err(err) = identity_creator_tx
                                     .send(IdentityCreatorProtocol::ModifyIdentity {
                                         service_credentials: service_identity.credentials().clone(),
+                                        name: identity.service_id(),
                                         labels: identity.spec.labels,
                                         active: true,
                                     })
