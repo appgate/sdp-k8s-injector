@@ -22,6 +22,12 @@ pub mod sdp;
 
 const SDP_K8S_HOST_ENV: &str = "SDP_K8S_HOST";
 const SDP_K8S_HOST_DEFAULT: &str = "kubernetes.default.svc";
+const SDP_K8S_USERNAME_ENV: &str = "SDP_K8S_USERNAME";
+const SDP_K8S_USERNAME_DEFAULT: &str = "admin";
+const SDP_K8S_PASSWORD_ENV: &str = "SDP_K8S_PASSWORD";
+const SDP_K8S_PASSWORD_DEFAULT: &str = "admin";
+const SDP_K8S_PROVIDER_ENV: &str = "SDP_K8S_PROVIDER";
+const SDP_K8S_PROVIDER_DEFAULT: &str = "local";
 const SDP_K8S_NO_VERIFY_ENV: &str = "SDP_K8S_NO_VERIFY";
 const SDP_SYSTEM_HOSTS: &str = "SDP_SYSTEM_HOSTS";
 const CREDENTIALS_POOL_SIZE: usize = 10;
@@ -93,9 +99,12 @@ async fn main() -> () {
             });
             tokio::spawn(async move {
                 let credentials = Credentials {
-                    username: "admin".to_string(),
-                    password: "admin".to_string(),
-                    provider_name: "local".to_string(),
+                    username: std::env::var(SDP_K8S_USERNAME_ENV)
+                        .unwrap_or(SDP_K8S_USERNAME_DEFAULT.to_string()),
+                    password: std::env::var(SDP_K8S_PASSWORD_ENV)
+                        .unwrap_or(SDP_K8S_PASSWORD_DEFAULT.to_string()),
+                    provider_name: std::env::var(SDP_K8S_PROVIDER_ENV)
+                        .unwrap_or(SDP_K8S_PROVIDER_DEFAULT.to_string()),
                     device_id: uuid::Uuid::new_v4().to_string(),
                 };
                 let mut system = SystemConfig::new(hosts)
