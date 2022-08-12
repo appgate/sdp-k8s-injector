@@ -667,7 +667,7 @@ impl IdentityManagerRunner<Deployment, ServiceIdentity> {
 #[cfg(test)]
 mod tests {
     use std::{
-        collections::{HashSet, HashMap},
+        collections::{HashMap, HashSet},
         future,
         pin::Pin,
         sync::{Arc, Mutex},
