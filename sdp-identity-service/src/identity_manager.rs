@@ -826,24 +826,24 @@ mod tests {
 
     #[test]
     fn test_service_identity_provider_next_identity() {
-        let id3 = identity_service!(1);
-        let identities = vec![id3.clone()];
-        let d1 = deployment!("srv2", "ns2");
-        let d2 = deployment!("srv1", "ns2");
-        let d3 = deployment!("srv1", "ns1");
-        let d4 = deployment!("srv3", "ns1");
+        let id1 = identity_service!(1);
+        let identities = vec![id1.clone()];
+        let d1_1 = deployment!("srv1", "ns1");
+        let d2_2 = deployment!("srv2", "ns2");
+        let d1_2 = deployment!("srv1", "ns2");
+        let d3_1 = deployment!("srv3", "ns1");
 
         test_service_identity_provider! {
             im(identities) => {
                 // service not registered but we don't have any credentials so we can not create
                 // new identities for it.
                 assert_eq!(im.identities().len(), 1);
-                assert!(im.next_identity(&d1).is_none());
-                assert!(im.next_identity(&d2).is_none());
+                assert!(im.next_identity(&d1_2).is_none());
+                assert!(im.next_identity(&d2_2).is_none());
 
                 // service already registered, we just return the credentials we have for it
-                let d3_id = im.next_identity(&d3);
-                check_service_identity(d3_id, &id3.spec().service_credentials, "srv1", "ns1");
+                let d1_id = im.next_identity(&d1_1);
+                check_service_identity(d1_id, &id1.spec().service_credentials, "srv1", "ns1");
             }
         }
 
@@ -870,29 +870,33 @@ mod tests {
                 assert_eq!(im.identities().len(), 1);
 
                 // ask for a new service identity, we can create it because we have creds
-                let d1_id = im.next_identity(&d1);
-                check_service_identity(d1_id, &c1, "srv2", "ns2");
+                let d2_2_id = im.next_identity(&d2_2);
+                check_service_identity(d2_2_id, &c1, "srv2", "ns2");
 
                 // service identity already registered
-                let d3_id = im.next_identity(&d3);
-                assert_eq!(d3_id.unwrap().spec(), id3.spec());
+                let d1_1_id = im.next_identity(&d1_1);
+                assert_eq!(d1_1_id.unwrap().spec(), id1.spec());
 
                 // ask for a new service identity, we can create it because we have creds
-                let d2_id = im.next_identity(&d2);
-                check_service_identity(d2_id, &c2, "srv1", "ns2");
+                let d1_2_id = im.next_identity(&d1_2);
+                check_service_identity(d1_2_id, &c2, "srv1", "ns2");
 
                 // service not registered but we don't have any credentials so we can not create
                 // new identities for it.
-                assert!(im.next_identity(&d4).is_none());
+                assert!(im.next_identity(&d3_1).is_none());
 
-                // We can still get the service identoties we have registered
-                let d1_id = im.next_identity(&d1);
-                check_service_identity(d1_id, &c1, "srv2", "ns2");
-                let d2_id = im.next_identity(&d2);
-                check_service_identity(d2_id, &c2, "srv1", "ns2");
+                // We can still get the service identities we have registered
+                let d2_2_id = im.next_identity(&d2_2);
+                check_service_identity(d2_2_id, &c1, "srv2", "ns2");
+                let d1_2_id = im.next_identity(&d1_2);
+                check_service_identity(d1_2_id, &c2, "srv1", "ns2");
 
-                // We have created 2 ServiceIdentity instances on K8S
-                assert_eq!(im.api_counters.lock().unwrap().create_calls, 2);
+                // We have created 2 ServiceIdentity so they are now registered
+                assert_eq!(im.identities().len(), 3);
+                let mut identities = im.identities();
+                identities.sort_by(|a, b| a.service_id().partial_cmp(&b.service_id()).unwrap());
+                let identities: Vec<String> = identities.iter().map(|i| i.service_id()).collect();
+                assert_eq!(identities, vec!["ns1-srv1", "ns2-srv1", "ns2-srv2"]);
             }
         }
     }
