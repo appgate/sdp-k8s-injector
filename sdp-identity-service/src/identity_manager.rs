@@ -783,7 +783,7 @@ mod tests {
     }
 
     impl TestIdentityManager {
-        fn reset_counters(&self) -> () {
+        fn _reset_counters(&self) -> () {
             let mut api_counters = self.api_counters.lock().unwrap();
             api_counters.delete_calls = 0;
             api_counters.create_calls = 0;
