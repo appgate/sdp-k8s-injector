@@ -7,8 +7,7 @@ use k8s_openapi::ByteString;
 use kube::api::{Patch as KubePatch, PatchParams};
 use kube::{Api, Client};
 use log::{error, info, warn};
-use schemars::JsonSchema;
-use serde::{Deserialize, Serialize};
+pub use sdp_common::crd::service_identity::ServiceCredentialsRef;
 use tokio::sync::mpsc::{Receiver, Sender};
 
 use crate::errors::IdentityServiceError;
@@ -19,15 +18,6 @@ use crate::{
 
 const SDP_IDENTITY_MANAGER_SECRETS: &str = "sdp-identity-service-creds";
 const SERVICE_NAME: &str = "identity-creator";
-
-#[derive(Clone, JsonSchema, Debug, Serialize, Deserialize, PartialEq)]
-pub struct ServiceCredentialsRef {
-    pub id: String,
-    pub name: String,
-    pub secret: String,
-    pub user_field: String,
-    pub password_field: String,
-}
 
 impl From<&ServiceUser> for ServiceCredentialsRef {
     fn from(service_user: &ServiceUser) -> Self {

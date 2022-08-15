@@ -1,10 +1,11 @@
 use futures::Future;
 use k8s_openapi::api::apps::v1::Deployment;
 use kube::api::{DeleteParams, ListParams, PostParams};
-use kube::{Api, Client, CustomResource, Error as KError, ResourceExt};
+use kube::{Api, Client, Error as KError};
 use log::{error, info, warn};
-use schemars::JsonSchema;
-use serde::{Deserialize, Serialize};
+pub use sdp_common::crd::service_identity::{
+    HasCredentials, ServiceCandidate, ServiceIdentity, ServiceIdentitySpec,
+};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fmt;
 use std::iter::FromIterator;
@@ -14,45 +15,6 @@ use tokio::sync::mpsc::{Receiver, Sender};
 use crate::deployment_watcher::DeploymentWatcherProtocol;
 use crate::identity_creator::{IdentityCreatorProtocol, ServiceCredentialsRef};
 pub use crate::sdp;
-
-/// ServiceIdentity CRD
-/// This is the CRD where we store the credentials for the services
-#[derive(Debug, CustomResource, Serialize, Deserialize, Clone, JsonSchema, PartialEq)]
-#[kube(
-    group = "injector.sdp.com",
-    version = "v1",
-    kind = "ServiceIdentity",
-    namespaced
-)]
-
-/// Spec for ServiceIdentity CRD
-/// This CRD defines the credentials and the labels used by a specific k8s service
-/// The credentials are stored in a k8s secret entity
-/// The labels in the service are used to determine what kind of access the service
-///   will have
-/// service_namespace + service_name indentify each service
-pub struct ServiceIdentitySpec {
-    service_credentials: ServiceCredentialsRef,
-    service_name: String,
-    service_namespace: String,
-    labels: HashMap<String, String>,
-    disabled: bool,
-}
-
-/// Trait that defines entities that are candidates to be services
-/// Basically a service candidate needs to be able to define :
-///  - namespace
-///  - name
-/// and the combination of both needs to be unique
-pub trait ServiceCandidate {
-    fn name(&self) -> String;
-    fn namespace(&self) -> String;
-    fn labels(&self) -> HashMap<String, String>;
-    fn is_candidate(&self) -> bool;
-    fn service_id(&self) -> String {
-        format!("{}-{}", self.namespace(), self.name()).to_string()
-    }
-}
 
 /// Trait that represents the pool of ServiceCredential entities
 /// We can pop and push ServiceCredential entities
@@ -116,59 +78,6 @@ trait ServiceIdentityAPI {
     fn list<'a>(
         &'a self,
     ) -> Pin<Box<dyn Future<Output = Result<Vec<ServiceIdentity>, KError>> + Send + '_>>;
-}
-
-/// ServiceIdentity is a ServiceCandidate by definition :D
-impl ServiceCandidate for ServiceIdentity {
-    fn name(&self) -> String {
-        self.spec.service_name.clone()
-    }
-
-    fn labels(&self) -> HashMap<String, String> {
-        self.spec.labels.clone()
-    }
-
-    fn namespace(&self) -> String {
-        self.spec.service_namespace.clone()
-    }
-
-    fn is_candidate(&self) -> bool {
-        true
-    }
-}
-
-/// Deployment are the main source of ServiceCandidate
-/// Final ServiceIdentity are created from Deployments
-impl ServiceCandidate for Deployment {
-    fn name(&self) -> String {
-        ResourceExt::name(self)
-    }
-
-    fn namespace(&self) -> String {
-        ResourceExt::namespace(self).unwrap_or("default".to_string())
-    }
-
-    fn labels(&self) -> HashMap<String, String> {
-        HashMap::from([
-            ("namespace".to_string(), ServiceCandidate::namespace(self)),
-            ("name".to_string(), ServiceCandidate::name(self)),
-        ])
-    }
-
-    fn is_candidate(&self) -> bool {
-        ResourceExt::namespace(self) == Some("purple-devops".to_string())
-        //self.annotations().get("sdp-injector").map(|v| v.eq("true")).unwrap_or(false)
-    }
-}
-
-trait HasCredentials {
-    fn credentials<'a>(&'a self) -> &'a ServiceCredentialsRef;
-}
-
-impl HasCredentials for ServiceIdentity {
-    fn credentials<'a>(&'a self) -> &'a ServiceCredentialsRef {
-        &self.spec.service_credentials
-    }
 }
 
 /// Messages exchanged between the the IdentityCreator and IdentityManager

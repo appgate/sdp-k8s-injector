@@ -4,13 +4,14 @@ use k8s_openapi::api::apps::v1::Deployment;
 use kube::{Client, Config, CustomResourceExt};
 use log::info;
 use reqwest::Url;
+use sdp_common::crd::service_identity::ServiceIdentity;
 use std::{convert::TryFrom, env::args};
 use tokio::sync::mpsc::channel;
 
 use crate::{
     deployment_watcher::{DeploymentWatcher, DeploymentWatcherProtocol},
     identity_creator::{IdentityCreator, IdentityCreatorProtocol},
-    identity_manager::{IdentityManagerProtocol, IdentityManagerRunner, ServiceIdentity},
+    identity_manager::{IdentityManagerProtocol, IdentityManagerRunner},
     sdp::{Credentials, SystemConfig},
 };
 

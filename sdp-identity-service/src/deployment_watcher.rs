@@ -6,9 +6,10 @@ use kube::{
     Api, Client,
 };
 use log::{debug, error, info};
+use sdp_common::crd::service_identity::{ServiceCandidate, ServiceIdentity};
 use tokio::sync::mpsc::{Receiver, Sender};
 
-use crate::identity_manager::{IdentityManagerProtocol, ServiceCandidate, ServiceIdentity};
+use crate::identity_manager::IdentityManagerProtocol;
 
 #[derive(Debug)]
 pub enum DeploymentWatcherProtocol {

@@ -1,8 +1,9 @@
 use k8s_openapi::api::apps::v1::Deployment;
+use sdp_common::crd::service_identity::ServiceIdentity;
 use std::fmt::Display;
 use tokio::sync::mpsc::error::SendError;
 
-use crate::identity_manager::{IdentityManagerProtocol, ServiceIdentity};
+use crate::identity_manager::IdentityManagerProtocol;
 
 #[derive(Debug)]
 pub struct IdentityServiceError {
