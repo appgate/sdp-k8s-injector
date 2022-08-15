@@ -1643,6 +1643,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "sdp-common"
+version = "0.1.0"
+
+[[package]]
 name = "sdp-device-id-service"
 version = "0.1.0"
 
