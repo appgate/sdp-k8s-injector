@@ -6,7 +6,8 @@ use kube::{
     Api, Client,
 };
 use log::{debug, error, info};
-use sdp_common::crd::service_identity::{ServiceCandidate, ServiceIdentity};
+use sdp_common::crd::ServiceIdentity;
+use sdp_common::service::ServiceCandidate;
 use tokio::sync::mpsc::{Receiver, Sender};
 
 use crate::identity_manager::IdentityManagerProtocol;

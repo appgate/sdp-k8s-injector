@@ -7,7 +7,7 @@ use k8s_openapi::ByteString;
 use kube::api::{Patch as KubePatch, PatchParams};
 use kube::{Api, Client};
 use log::{error, info, warn};
-pub use sdp_common::crd::service_identity::ServiceCredentialsRef;
+pub use sdp_common::crd::ServiceCredentialsRef;
 use tokio::sync::mpsc::{Receiver, Sender};
 
 use crate::errors::IdentityServiceError;

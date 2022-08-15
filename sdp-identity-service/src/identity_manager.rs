@@ -3,9 +3,8 @@ use k8s_openapi::api::apps::v1::Deployment;
 use kube::api::{DeleteParams, ListParams, PostParams};
 use kube::{Api, Client, Error as KError};
 use log::{error, info, warn};
-pub use sdp_common::crd::service_identity::{
-    HasCredentials, ServiceCandidate, ServiceIdentity, ServiceIdentitySpec,
-};
+pub use sdp_common::crd::{ServiceIdentity, ServiceIdentitySpec};
+use sdp_common::service::{HasCredentials, ServiceCandidate};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fmt;
 use std::iter::FromIterator;

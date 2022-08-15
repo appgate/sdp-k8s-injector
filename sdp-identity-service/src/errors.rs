@@ -1,5 +1,5 @@
 use k8s_openapi::api::apps::v1::Deployment;
-use sdp_common::crd::service_identity::ServiceIdentity;
+use sdp_common::crd::ServiceIdentity;
 use std::fmt::Display;
 use tokio::sync::mpsc::error::SendError;
 

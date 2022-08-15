@@ -4,7 +4,7 @@ use k8s_openapi::api::apps::v1::Deployment;
 use kube::{Client, Config, CustomResourceExt};
 use log::info;
 use reqwest::Url;
-use sdp_common::crd::service_identity::ServiceIdentity;
+use sdp_common::crd::ServiceIdentity;
 use std::{convert::TryFrom, env::args};
 use tokio::sync::mpsc::channel;
 
