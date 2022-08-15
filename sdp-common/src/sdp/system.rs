@@ -1,119 +1,13 @@
-use std::collections::HashMap;
-use std::fmt::Display;
-use std::time::Duration;
-
+use crate::sdp::auth::{Credentials, Login, ServiceUser, ServiceUsers};
+use crate::sdp::errors::{error_for_status, SDPClientError};
 use http::header::{InvalidHeaderValue, ACCEPT};
 use http::{HeaderValue, StatusCode};
 use log::info;
 use reqwest::header::HeaderMap;
-use reqwest::{Client, Error as RError, Response, Url};
+use reqwest::{Client, Url};
 use serde::de::DeserializeOwned;
-use serde::{Deserialize, Serialize};
-use uuid::Uuid;
-
-pub struct SDPClientError {
-    request_error: Option<RError>,
-    status_code: Option<reqwest::StatusCode>,
-    error_body: Option<String>,
-}
-
-impl Display for SDPClientError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if self.request_error.is_some() {
-            write!(
-                f,
-                "SDPClient error: {:?}",
-                self.request_error.as_ref().unwrap()
-            )
-        } else {
-            write!(
-                f,
-                "SDPClient error [{:?}]: {:?}",
-                self.status_code, self.error_body
-            )
-        }
-    }
-}
-
-impl From<RError> for SDPClientError {
-    fn from(error: RError) -> Self {
-        SDPClientError {
-            request_error: Some(error),
-            status_code: None,
-            error_body: None,
-        }
-    }
-}
-
-#[derive(Deserialize, Serialize, Debug)]
-#[serde(rename_all = "camelCase")]
-pub struct LoginUser {
-    name: String,
-    need_two_factor_auth: bool,
-    can_access_audit_logs: bool,
-}
-
-type Token = String;
-
-/// Token we obtain after login in SDP system
-#[derive(Deserialize, Serialize, Debug)]
-pub struct Login {
-    user: LoginUser,
-    token: Token,
-    expires: String,
-}
-
-impl Login {
-    pub fn has_expired(&self) -> bool {
-        false
-    }
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct Credentials {
-    pub username: String,
-    pub password: String,
-    pub provider_name: String,
-    pub device_id: String,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-pub struct ServiceUsers {
-    pub data: Vec<ServiceUser>,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-#[serde(rename_all = "camelCase")]
-pub struct ServiceUser {
-    pub id: String,
-    pub name: String,
-    pub labels: HashMap<String, String>,
-    #[serde(skip_deserializing)]
-    pub password: Option<String>,
-    pub disabled: bool,
-    #[serde(skip_serializing)]
-    pub failed_login_attempts: Option<u32>,
-    #[serde(skip_serializing)]
-    pub lock_start: Option<String>,
-}
-
-impl ServiceUser {
-    pub fn new() -> Self {
-        let id = Uuid::new_v4();
-        let user_name = Uuid::new_v4();
-        let password = Uuid::new_v4();
-        Self {
-            id: id.to_string(),
-            labels: HashMap::new(),
-            name: user_name.to_string(),
-            password: Some(password.to_string()),
-            disabled: true,
-            failed_login_attempts: None,
-            lock_start: None,
-        }
-    }
-}
+use serde::Serialize;
+use std::time::Duration;
 
 #[derive(Clone, Debug)]
 pub struct SystemConfig {
@@ -182,24 +76,6 @@ pub struct System {
 pub enum ResponseData<D> {
     NoContent,
     Entity(D),
-}
-
-async fn error_for_status<D: DeserializeOwned>(
-    response: Response,
-) -> Result<ResponseData<D>, SDPClientError> {
-    if response.status().is_client_error() || response.status().is_server_error() {
-        let status = response.status();
-        let body = response.text().await?;
-        Err(SDPClientError {
-            request_error: None,
-            status_code: Some(status),
-            error_body: Some(body),
-        })
-    } else if response.status() == StatusCode::NO_CONTENT {
-        Ok(ResponseData::NoContent)
-    } else {
-        Ok(ResponseData::Entity(response.json::<D>().await?))
-    }
 }
 
 impl System {

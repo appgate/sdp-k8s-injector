@@ -5,6 +5,8 @@ use kube::{Client, Config, CustomResourceExt};
 use log::info;
 use reqwest::Url;
 use sdp_common::crd::ServiceIdentity;
+use sdp_common::sdp::auth::Credentials;
+use sdp_common::sdp::system::SystemConfig;
 use std::{convert::TryFrom, env::args};
 use tokio::sync::mpsc::channel;
 
@@ -12,14 +14,12 @@ use crate::{
     deployment_watcher::{DeploymentWatcher, DeploymentWatcherProtocol},
     identity_creator::{IdentityCreator, IdentityCreatorProtocol},
     identity_manager::{IdentityManagerProtocol, IdentityManagerRunner},
-    sdp::{Credentials, SystemConfig},
 };
 
 pub mod deployment_watcher;
 pub mod errors;
 pub mod identity_creator;
 pub mod identity_manager;
-pub mod sdp;
 
 const SDP_K8S_HOST_ENV: &str = "SDP_K8S_HOST";
 const SDP_K8S_HOST_DEFAULT: &str = "kubernetes.default.svc";

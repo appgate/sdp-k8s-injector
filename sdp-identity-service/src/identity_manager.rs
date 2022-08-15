@@ -13,7 +13,6 @@ use tokio::sync::mpsc::{Receiver, Sender};
 
 use crate::deployment_watcher::DeploymentWatcherProtocol;
 use crate::identity_creator::{IdentityCreatorProtocol, ServiceCredentialsRef};
-pub use crate::sdp;
 
 /// Trait that represents the pool of ServiceCredential entities
 /// We can pop and push ServiceCredential entities

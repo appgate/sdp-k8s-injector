@@ -7,45 +7,14 @@ use k8s_openapi::ByteString;
 use kube::api::{Patch as KubePatch, PatchParams};
 use kube::{Api, Client};
 use log::{error, info, warn};
+use sdp_common::constants::{SDP_IDENTITY_MANAGER_SECRETS, SERVICE_NAME};
 pub use sdp_common::crd::ServiceCredentialsRef;
+use sdp_common::sdp::auth::ServiceUser;
+use sdp_common::sdp::system::System;
 use tokio::sync::mpsc::{Receiver, Sender};
 
 use crate::errors::IdentityServiceError;
-use crate::{
-    identity_manager::{IdentityManagerProtocol, ServiceIdentity},
-    sdp::{self, ServiceUser},
-};
-
-const SDP_IDENTITY_MANAGER_SECRETS: &str = "sdp-identity-service-creds";
-const SERVICE_NAME: &str = "identity-creator";
-
-impl From<&ServiceUser> for ServiceCredentialsRef {
-    fn from(service_user: &ServiceUser) -> Self {
-        let pw_field = format!("{}-pw", service_user.id);
-        let user_field = format!("{}-user", service_user.id);
-        Self {
-            id: service_user.id.clone(),
-            name: service_user.name.clone(),
-            secret: SDP_IDENTITY_MANAGER_SECRETS.to_string(),
-            user_field: user_field,
-            password_field: pw_field,
-        }
-    }
-}
-
-impl From<ServiceCredentialsRef> for ServiceUser {
-    fn from(credentials: ServiceCredentialsRef) -> Self {
-        ServiceUser {
-            id: credentials.id,
-            name: credentials.name,
-            labels: HashMap::new(),
-            password: None,
-            disabled: true,
-            failed_login_attempts: None,
-            lock_start: None,
-        }
-    }
-}
+use crate::identity_manager::{IdentityManagerProtocol, ServiceIdentity};
 
 trait ServiceCredentialsRefOps {}
 
@@ -215,7 +184,7 @@ impl IdentityCreator {
 
     async fn create_user(
         &self,
-        system: &mut sdp::System,
+        system: &mut System,
     ) -> Result<ServiceCredentialsRef, IdentityServiceError> {
         let service_user = ServiceUser::new();
         let (user_field_exists, passwd_field_exists) =
@@ -230,7 +199,7 @@ impl IdentityCreator {
 
     async fn delete_user(
         &self,
-        system: &mut sdp::System,
+        system: &mut System,
         service_user_id: &String,
         user_field_exists: bool,
         passwd_field_exists: bool,
@@ -248,7 +217,7 @@ impl IdentityCreator {
 
     pub async fn initialize(
         &self,
-        system: &mut sdp::System,
+        system: &mut System,
         identity_manager_proto_tx: Sender<IdentityManagerProtocol<Deployment, ServiceIdentity>>,
     ) -> Result<(), IdentityServiceError> {
         let users = system.get_users().await.map_err(|e| {
@@ -327,7 +296,7 @@ impl IdentityCreator {
 
     pub async fn run(
         self,
-        system: &mut sdp::System,
+        system: &mut System,
         mut identity_creator_proto_rx: Receiver<IdentityCreatorProtocol>,
         identity_manager_proto_tx: Sender<IdentityManagerProtocol<Deployment, ServiceIdentity>>,
     ) -> () {
