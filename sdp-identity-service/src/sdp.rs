@@ -143,7 +143,7 @@ impl SystemConfig {
         Ok(hm)
     }
 
-    pub fn with_api_version(&mut self, api_version: &str) -> &mut SystemConfig {
+    pub fn with_api_version(&mut self, _: &str) -> &mut SystemConfig {
         let api_version = self
             .api_version
             .as_ref()
