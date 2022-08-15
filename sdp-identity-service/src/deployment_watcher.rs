@@ -5,7 +5,7 @@ use kube::{
     runtime::watcher::{self, Event},
     Api, Client,
 };
-use log::{debug, error, info, warn};
+use log::{debug, error, info};
 use tokio::sync::mpsc::{Receiver, Sender};
 
 use crate::identity_manager::{IdentityManagerProtocol, ServiceCandidate, ServiceIdentity};
@@ -34,9 +34,6 @@ impl<'a> DeploymentWatcher<Deployment> {
                 DeploymentWatcherProtocol::IdentityManagerReady => {
                     info!("IdentityManager is ready, starting DeploymentWatcher!");
                     break;
-                }
-                _ => {
-                    warn!("Ignore message, waiting for IdentityManager to be ready!");
                 }
             }
         }
