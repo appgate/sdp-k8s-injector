@@ -564,7 +564,12 @@ mod tests {
     use std::iter::FromIterator;
 
     fn load_sidecar_containers_env() -> Result<SDPSidecars, String> {
-        std::env::set_var(SDP_SIDECARS_FILE_ENV, "tests/sdp-sidecars.json");
+        let manifest_dir =
+            std::env::var("CARGO_MANIFEST_DIR").expect("env var CARGO_MANIFEST_DIR not defined!");
+        std::env::set_var(
+            SDP_SIDECARS_FILE_ENV,
+            format!("{}/../tests/sdp-sidecars.json", manifest_dir),
+        );
         load_sidecar_containers()
             .map_err(|e| format!("Unable to load the sidecar information {}", e.to_string()))
     }
