@@ -177,48 +177,10 @@ impl ServiceIdentityProvider for IdentityManagerPool {
     }
 }
 
+#[sdp_macros::identity_provider()]
+#[derive(sdp_macros::IdentityProvider)]
 pub struct KubeIdentityManager {
-    pool: IdentityManagerPool,
     service_identity_api: Api<ServiceIdentity>,
-}
-
-impl ServiceCredentialsPool for KubeIdentityManager {
-    fn pop(&mut self) -> Option<ServiceCredentialsRef> {
-        self.pool.pop()
-    }
-
-    fn push(&mut self, user_credentials_ref: ServiceCredentialsRef) -> () {
-        self.pool.push(user_credentials_ref)
-    }
-
-    fn needs_new_credentials(&self) -> bool {
-        self.pool.needs_new_credentials()
-    }
-}
-
-impl ServiceIdentityProvider for KubeIdentityManager {
-    type From = Deployment;
-    type To = ServiceIdentity;
-
-    fn register_identity(&mut self, identity: Self::To) -> () {
-        self.pool.register_identity(identity);
-    }
-
-    fn unregister_identity(&mut self, to: &Self::To) -> Option<Self::To> {
-        self.pool.unregister_identity(to)
-    }
-
-    fn next_identity(&mut self, from: &Self::From) -> Option<Self::To> {
-        self.pool.next_identity(from)
-    }
-
-    fn identity(&self, from: &Self::From) -> Option<&Self::To> {
-        self.pool.identity(&from)
-    }
-
-    fn identities(&self) -> Vec<&Self::To> {
-        self.pool.identities()
-    }
 }
 
 impl ServiceIdentityAPI for KubeIdentityManager {
@@ -683,9 +645,9 @@ mod tests {
         list_calls: usize,
     }
 
-    #[derive(Default)]
+    #[sdp_macros::identity_provider()]
+    #[derive(sdp_macros::IdentityProvider, Default)]
     struct TestIdentityManager {
-        pool: IdentityManagerPool,
         api_counters: Arc<Mutex<APICounters>>,
     }
 
@@ -699,45 +661,6 @@ mod tests {
     }
 
     impl IdentityManager<Deployment, ServiceIdentity> for TestIdentityManager {}
-
-    impl ServiceIdentityProvider for TestIdentityManager {
-        type From = Deployment;
-        type To = ServiceIdentity;
-
-        fn register_identity(&mut self, identity: Self::To) -> () {
-            self.pool.register_identity(identity)
-        }
-
-        fn unregister_identity(&mut self, to: &Self::To) -> Option<Self::To> {
-            self.pool.unregister_identity(to)
-        }
-
-        fn next_identity(&mut self, from: &Self::From) -> Option<Self::To> {
-            self.pool.next_identity(from)
-        }
-
-        fn identity(&self, from: &Self::From) -> Option<&Self::To> {
-            self.pool.identity(from)
-        }
-
-        fn identities(&self) -> Vec<&Self::To> {
-            self.pool.identities()
-        }
-    }
-
-    impl ServiceCredentialsPool for TestIdentityManager {
-        fn pop(&mut self) -> Option<ServiceCredentialsRef> {
-            self.pool.pop()
-        }
-
-        fn push(&mut self, user_credentials_ref: ServiceCredentialsRef) -> () {
-            self.pool.push(user_credentials_ref)
-        }
-
-        fn needs_new_credentials(&self) -> bool {
-            self.pool.needs_new_credentials()
-        }
-    }
 
     impl ServiceIdentityAPI for TestIdentityManager {
         fn create<'a>(
