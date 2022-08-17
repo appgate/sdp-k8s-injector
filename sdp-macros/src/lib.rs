@@ -1,27 +1,15 @@
 use proc_macro::TokenStream;
 use quote::quote;
-use syn::{
-    parenthesized, parse::Parse, parse::ParseStream, parse::Parser, parse::Result,
-    parse_macro_input, Data, DeriveInput, Field, Fields, Ident,
-};
+use syn::Meta::NameValue;
+use syn::NestedMeta::Meta;
+use syn::{parse::Parser, parse_macro_input, Data, DeriveInput, Field, Fields, Ident, NestedMeta};
 
 struct IdentityProviderParams {
-    _from: Ident,
-    _to: Ident,
+    from: Ident,
+    to: Ident,
 }
 
-impl Parse for IdentityProviderParams {
-    fn parse(input: ParseStream) -> Result<Self> {
-        let _content;
-        parenthesized!(_content in input);
-        Ok(IdentityProviderParams {
-            _from: input.parse()?,
-            _to: input.parse()?,
-        })
-    }
-}
-
-#[proc_macro_derive(IdentityProvider, attributes(identity_provider_params))]
+#[proc_macro_derive(IdentityProvider, attributes(IdentityProvider))]
 pub fn derive_identity_provider(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     // Parse the input tokens into a syntax tree.
     let input = parse_macro_input!(input as DeriveInput);
@@ -41,13 +29,65 @@ pub fn derive_identity_provider(input: proc_macro::TokenStream) -> proc_macro::T
     } else {
         panic!("#[derive(IdentityProvider)] is only defined for structs!");
     }
+
+    let ms: Vec<NestedMeta> = input
+        .attrs
+        .iter()
+        .flat_map(|a| match a.parse_meta() {
+            Ok(syn::Meta::List(meta)) => meta.nested.into_iter().collect(),
+            _ => {
+                vec![]
+            }
+        })
+        .collect();
+
+    let mut identity_provider_params = IdentityProviderParams {
+        from: Ident::new("Deployment", proc_macro2::Span::call_site()),
+        to: Ident::new("ServiceIdentity", proc_macro2::Span::call_site()),
+    };
+    for m in ms {
+        match m {
+            Meta(NameValue(nv)) => {
+                let left = if let Some(s) = nv.path.segments.into_iter().last() {
+                    s.ident
+                } else {
+                    panic!("Use IdentityProviderParams(...)");
+                };
+                let right = if let syn::Lit::Str(lit) = nv.lit {
+                    Ident::new(lit.value().as_str(), proc_macro2::Span::call_site())
+                } else {
+                    panic!("Use IdentityProviderParams(...)");
+                };
+                match left.to_string().as_str() {
+                    "TO" => {
+                        identity_provider_params.to = right;
+                    }
+                    "FROM" => {
+                        identity_provider_params.from = right;
+                    }
+                    _ => (),
+                }
+            }
+            _ => {
+                panic!("Use IdentityProviderParams(...)");
+            }
+        };
+    }
+
+    // We need a pool field!
     if !_has_pool_field {
         panic!("#[derive(IdentityProvider)] struct needs to implement a pool field of type IdentityManagerPool");
     }
+
+    // Get the IdentityProvider parameters
+    let to = identity_provider_params.to;
+    let from = identity_provider_params.from;
+
+    // Code to expand
     let expanded = quote! {
         impl ServiceIdentityProvider for #name {
-            type From = Deployment;
-            type To = ServiceIdentity;
+            type From = #from;
+            type To = #to;
 
             fn register_identity(&mut self, identity: Self::To) -> () {
                 self.pool.register_identity(identity)
@@ -82,6 +122,7 @@ pub fn derive_identity_provider(input: proc_macro::TokenStream) -> proc_macro::T
                 self.pool.needs_new_credentials()
             }
         }
+        impl IdentityManager<#from, #to> for #name {}
     };
     expanded.into()
 }

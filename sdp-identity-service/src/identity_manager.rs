@@ -179,6 +179,7 @@ impl ServiceIdentityProvider for IdentityManagerPool {
 
 #[sdp_macros::identity_provider()]
 #[derive(sdp_macros::IdentityProvider)]
+#[IdentityProvider(From = "Deployment", To = "ServiceIdentity")]
 pub struct KubeIdentityManager {
     service_identity_api: Api<ServiceIdentity>,
 }
@@ -226,8 +227,6 @@ trait IdentityManager<From: ServiceCandidate + Send + Sync, To: ServiceCandidate
     ServiceIdentityAPI + ServiceIdentityProvider<From = From, To = To> + ServiceCredentialsPool
 {
 }
-
-impl IdentityManager<Deployment, ServiceIdentity> for KubeIdentityManager {}
 
 pub struct IdentityManagerRunner<From: ServiceCandidate + Send, To: ServiceCandidate + Send> {
     im: Box<dyn IdentityManager<From, To> + Send + Sync>,
@@ -647,6 +646,7 @@ mod tests {
 
     #[sdp_macros::identity_provider()]
     #[derive(sdp_macros::IdentityProvider, Default)]
+    #[IdentityProvider(From = "Deployment", To = "ServiceIdentity")]
     struct TestIdentityManager {
         api_counters: Arc<Mutex<APICounters>>,
     }
@@ -659,8 +659,6 @@ mod tests {
             api_counters.list_calls = 0;
         }
     }
-
-    impl IdentityManager<Deployment, ServiceIdentity> for TestIdentityManager {}
 
     impl ServiceIdentityAPI for TestIdentityManager {
         fn create<'a>(
