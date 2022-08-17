@@ -2,6 +2,7 @@
 
 members = [
     "sdp-common",
+    "sdp-macros",
     "sdp-injector",
     "sdp-identity-service",
     "sdp-device-id-service"
