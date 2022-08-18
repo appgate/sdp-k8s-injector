@@ -644,7 +644,12 @@ mod tests {
         (($var:ident :: $pattern:pat_param = $value:expr) => $e:expr) => {
             assert!($value.is_some());
             let $var = $value.unwrap();
-            assert!(matches!($var, $pattern));
+            assert!(
+                matches!($var, $pattern),
+                "Got wrong message {:?}, expected of type {}",
+                $var,
+                stringify!($pattern)
+            );
             $e
         };
     }
