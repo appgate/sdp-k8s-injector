@@ -1735,6 +1735,11 @@ dependencies = [
 [[package]]
 name = "sdp-device-id-service"
 version = "0.1.0"
+dependencies = [
+ "clap",
+ "env_logger",
+ "tokio",
+]
 
 [[package]]
 name = "sdp-identity-service"
