@@ -1,3 +1,4 @@
+use clap::{Parser, Subcommand};
 use errors::IdentityServiceError;
 use http::Uri;
 use k8s_openapi::api::apps::v1::Deployment;
@@ -7,7 +8,7 @@ use reqwest::Url;
 use sdp_common::crd::ServiceIdentity;
 use sdp_common::sdp::auth::Credentials;
 use sdp_common::sdp::system::SystemConfig;
-use std::{convert::TryFrom, env::args};
+use std::convert::TryFrom;
 use tokio::sync::mpsc::channel;
 
 use crate::{
@@ -65,16 +66,30 @@ fn show_crds() {
     println!("{}", p.unwrap());
 }
 
+#[derive(Debug, Subcommand)]
+enum IdentityServiceCommands {
+    /// Prints the ServiceIdentity CustomResourceDefinition YAML
+    Crd,
+    /// Runs the Identity Service
+    Run,
+}
+
+#[derive(Debug, Parser)]
+#[clap(name = "sdp-identity-service")]
+struct IdentityService {
+    #[clap(subcommand)]
+    command: IdentityServiceCommands,
+}
+
 #[tokio::main]
 async fn main() -> () {
     env_logger::init();
-    let command = args().nth(1);
-    let _arguments = args().skip(2).collect::<Vec<String>>();
-    match command.as_deref() {
-        Some("crd") => {
+    let args = IdentityService::parse();
+    match args.command {
+        IdentityServiceCommands::Crd => {
             show_crds();
         }
-        Some("run") => {
+        IdentityServiceCommands::Run => {
             info!("Starting sdp identity service ...");
             let identity_manager_client = get_k8s_client().await;
             let deployment_watcher_client = get_k8s_client().await;
@@ -129,9 +144,6 @@ async fn main() -> () {
                     None,
                 )
                 .await;
-        }
-        Some(_) | None => {
-            println!("Usage: sdp-identity-service [run | crd]");
         }
     }
 }
