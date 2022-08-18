@@ -9,6 +9,29 @@ struct IdentityProviderParams {
     to: Ident,
 }
 
+/// Macro to implement an IdentityProvider on an struct.
+///
+/// It will implement the traits ServiceCredentialsPool and ServiceIdentityProvider with types From and To.
+/// It accepts attributes From and To to specify the types for the ServiceIdentityProvider.
+/// The attribute is IdentityProvider.
+///
+/// Note that right the struct needs to have a pool field of type IdentityManagerPool.
+/// This can be added with the macro `identity_provider`.
+///
+/// # Examples:
+///
+/// ```ignore
+/// #[identity_provider()]
+/// #[derive(IdentityProvider, Default)]
+/// #[IdentityProvider(From = "Deployment", To = "ServiceIdentity")]
+/// struct TestIdentityManager {
+///     field1: bool
+/// }
+/// ```
+///
+/// # Panics
+///
+/// Panics if .
 #[proc_macro_derive(IdentityProvider, attributes(IdentityProvider))]
 pub fn derive_identity_provider(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     // Parse the input tokens into a syntax tree.
@@ -127,11 +150,22 @@ pub fn derive_identity_provider(input: proc_macro::TokenStream) -> proc_macro::T
     expanded.into()
 }
 
-/// .
+/// Macro to prepares a struct to be used as an IdentityProvider
+/// It adds an IdentityManagerPool field (named pool)
+///
+/// # Examples
+///
+/// ```ignore
+/// #[identity_provider()]
+/// struct MyIdManager {
+///     field1: i32,
+///     field2: bool,
+/// }
+/// ```
 ///
 /// # Panics
 ///
-/// Panics if .
+/// Panics if it's applied to something that it's not an struct.
 #[proc_macro_attribute]
 pub fn identity_provider(_args: TokenStream, input: TokenStream) -> TokenStream {
     let mut input = parse_macro_input!(input as DeriveInput);
