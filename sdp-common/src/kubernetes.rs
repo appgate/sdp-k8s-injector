@@ -3,15 +3,8 @@ use kube::{Client, Config};
 
 pub const SDP_K8S_HOST_ENV: &str = "SDP_K8S_HOST";
 pub const SDP_K8S_HOST_DEFAULT: &str = "kubernetes.default.svc";
-pub const SDP_K8S_USERNAME_ENV: &str = "SDP_K8S_USERNAME";
-pub const SDP_K8S_USERNAME_DEFAULT: &str = "admin";
-pub const SDP_K8S_PASSWORD_ENV: &str = "SDP_K8S_PASSWORD";
-pub const SDP_K8S_PASSWORD_DEFAULT: &str = "admin";
-pub const SDP_K8S_PROVIDER_ENV: &str = "SDP_K8S_PROVIDER";
-pub const SDP_K8S_PROVIDER_DEFAULT: &str = "local";
 pub const SDP_K8S_NO_VERIFY_ENV: &str = "SDP_K8S_NO_VERIFY";
-
-pub const SDP_NAMESPACE: &str = "sdp-system";
+pub const SDP_K8S_NAMESPACE: &str = "sdp-system";
 
 pub async fn get_k8s_client() -> Client {
     let mut k8s_host = String::from("https://");

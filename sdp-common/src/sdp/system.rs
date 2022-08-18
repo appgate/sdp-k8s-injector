@@ -9,6 +9,40 @@ use serde::de::DeserializeOwned;
 use serde::Serialize;
 use std::time::Duration;
 
+const SDP_SYSTEM_HOSTS: &str = "SDP_SYSTEM_HOSTS";
+const SDP_SYSTEM_API_VERSION: &str = "v17";
+const SDP_SYSTEM_USERNAME: &str = "SDP_K8S_USERNAME";
+const SDP_SYSTEM_USERNAME_DEFAULT: &str = "admin";
+const SDP_SYSTEM_PASSWORD_ENV: &str = "SDP_K8S_PASSWORD";
+const SDP_SYSTEM_PASSWORD_DEFAULT: &str = "admin";
+const SDP_SYSTEM_PROVIDER_ENV: &str = "SDP_K8S_PROVIDER";
+const SDP_SYSTEM_PROVIDER_DEFAULT: &str = "local";
+
+pub fn get_sdp_system() -> System {
+    let hosts = std::env::var(SDP_SYSTEM_HOSTS)
+        .map(|vs| {
+            vs.split(",")
+                .map(|v| Url::parse(v).expect("Error parsing host"))
+                .collect::<Vec<Url>>()
+        })
+        .expect("Unable to get SDP system hosts");
+
+    let credentials = Credentials {
+        username: std::env::var(SDP_SYSTEM_USERNAME)
+            .unwrap_or(SDP_SYSTEM_USERNAME_DEFAULT.to_string()),
+        password: std::env::var(SDP_SYSTEM_PASSWORD_ENV)
+            .unwrap_or(SDP_SYSTEM_PASSWORD_DEFAULT.to_string()),
+        provider_name: std::env::var(SDP_SYSTEM_PROVIDER_ENV)
+            .unwrap_or(SDP_SYSTEM_PROVIDER_DEFAULT.to_string()),
+        device_id: uuid::Uuid::new_v4().to_string(),
+    };
+
+    SystemConfig::new(hosts)
+        .with_api_version(SDP_SYSTEM_API_VERSION)
+        .build(credentials)
+        .expect("Unable to create SDP client")
+}
+
 #[derive(Clone, Debug)]
 pub struct SystemConfig {
     pub hosts: Vec<Url>,
@@ -31,7 +65,7 @@ impl SystemConfig {
             .api_version
             .as_ref()
             .map(|v| v.as_str())
-            .unwrap_or("17");
+            .unwrap_or(SDP_SYSTEM_API_VERSION);
         let header_value = format!("application/vnd.appgate.peer-v{}+json", api_version);
         hm.append(ACCEPT, HeaderValue::from_str(&header_value)?);
         Ok(hm)
