@@ -143,8 +143,9 @@ pub fn identity_provider(_args: TokenStream, input: TokenStream) -> TokenStream 
             fields.named.push(pool_field);
         }
     } else {
-        panic!("#[identity_provider)] is only defined for structs!");
+        panic!("#[identity_provider] is only defined for structs!");
     }
+
     quote! {
         #input
     }
