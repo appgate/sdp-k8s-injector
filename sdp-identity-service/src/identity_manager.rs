@@ -589,11 +589,13 @@ mod tests {
     }
 
     macro_rules! test_identity_manager {
-        (($watcher_rx:ident, $counters:ident) => $e:expr) => {
-            let (identity_manager_proto_tx, identity_manager_proto_rx) =
+        (($watcher_rx:ident, $identity_manager_proto_tx:ident, $identity_creator_proto_rx:ident, $deployment_watched_proto_rx:ident, $counters:ident) => $e:expr) => {
+            let ($identity_manager_proto_tx, identity_manager_proto_rx) =
                 channel::<IdentityManagerProtocol<Deployment, ServiceIdentity>>(10);
-            let (identity_creator_proto_tx, _) = channel::<IdentityCreatorProtocol>(10);
-            let (deployment_watched_proto_tx, _) = channel::<DeploymentWatcherProtocol>(10);
+            let (identity_creator_proto_tx, mut $identity_creator_proto_rx) =
+                channel::<IdentityCreatorProtocol>(10);
+            let (deployment_watched_proto_tx, mut $deployment_watched_proto_rx) =
+                channel::<DeploymentWatcherProtocol>(10);
             let (watcher_tx, mut $watcher_rx) =
                 channel::<IdentityManagerProtocol<Deployment, ServiceIdentity>>(10);
             let im = new_test_identity_manager();
@@ -603,7 +605,7 @@ mod tests {
                 im_runner
                     .run(
                         identity_manager_proto_rx,
-                        identity_manager_proto_tx,
+                        $identity_manager_proto_tx,
                         identity_creator_proto_tx,
                         deployment_watched_proto_tx,
                         Some(watcher_tx),
@@ -888,7 +890,7 @@ mod tests {
     #[tokio::test]
     async fn test_identity_manager_initialization() {
         test_identity_manager! {
-            (watcher_rx, counters) => {
+            (watcher_rx, _identity_manager_tx, _identity_creator_rx, _deployment_watched_rx, counters) => {
                 if let Some(_) = watcher_rx.recv().await {
                     assert_eq!(counters.lock().unwrap().list_calls, 1);
                 }
@@ -899,7 +901,7 @@ mod tests {
     #[tokio::test]
     async fn test_identity_manager_ask_for_new_credentials() {
         test_identity_manager! {
-            (watcher_rx, counters) => {
+            (watcher_rx, identity_manager_tx, _identity_creator_rx, _deployment_watched_rx, counters) => {
                 if let Some(_) = watcher_rx.recv().await {
                     assert_eq!(counters.lock().unwrap().list_calls, 1);
                 }
