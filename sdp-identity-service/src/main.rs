@@ -1,14 +1,16 @@
 use clap::{Parser, Subcommand};
 use errors::IdentityServiceError;
-use http::Uri;
 use k8s_openapi::api::apps::v1::Deployment;
-use kube::{Client, Config, CustomResourceExt};
+use kube::CustomResourceExt;
 use log::info;
 use reqwest::Url;
 use sdp_common::crd::ServiceIdentity;
+use sdp_common::kubernetes::{
+    get_k8s_client, SDP_K8S_PASSWORD_DEFAULT, SDP_K8S_PASSWORD_ENV, SDP_K8S_PROVIDER_DEFAULT,
+    SDP_K8S_PROVIDER_ENV, SDP_K8S_USERNAME_DEFAULT, SDP_K8S_USERNAME_ENV,
+};
 use sdp_common::sdp::auth::Credentials;
 use sdp_common::sdp::system::SystemConfig;
-use std::convert::TryFrom;
 use tokio::sync::mpsc::channel;
 
 use crate::{
@@ -22,33 +24,8 @@ pub mod errors;
 pub mod identity_creator;
 pub mod identity_manager;
 
-const SDP_K8S_HOST_ENV: &str = "SDP_K8S_HOST";
-const SDP_K8S_HOST_DEFAULT: &str = "kubernetes.default.svc";
-const SDP_K8S_USERNAME_ENV: &str = "SDP_K8S_USERNAME";
-const SDP_K8S_USERNAME_DEFAULT: &str = "admin";
-const SDP_K8S_PASSWORD_ENV: &str = "SDP_K8S_PASSWORD";
-const SDP_K8S_PASSWORD_DEFAULT: &str = "admin";
-const SDP_K8S_PROVIDER_ENV: &str = "SDP_K8S_PROVIDER";
-const SDP_K8S_PROVIDER_DEFAULT: &str = "local";
-const SDP_K8S_NO_VERIFY_ENV: &str = "SDP_K8S_NO_VERIFY";
 const SDP_SYSTEM_HOSTS: &str = "SDP_SYSTEM_HOSTS";
 const CREDENTIALS_POOL_SIZE: usize = 10;
-
-async fn get_k8s_client() -> Client {
-    let mut k8s_host = String::from("https://");
-    k8s_host.push_str(&std::env::var(SDP_K8S_HOST_ENV).unwrap_or(SDP_K8S_HOST_DEFAULT.to_string()));
-    let k8s_uri = k8s_host
-        .parse::<Uri>()
-        .expect("Unable to parse SDP_K8S_HOST value:");
-    let mut k8s_config = Config::infer()
-        .await
-        .expect("Unable to infer K8S configuration");
-    k8s_config.cluster_url = k8s_uri;
-    k8s_config.accept_invalid_certs = std::env::var(SDP_K8S_NO_VERIFY_ENV)
-        .map(|v| v == "1" || v.to_lowercase() == "true")
-        .unwrap_or(false);
-    Client::try_from(k8s_config).expect("Unable to create k8s client")
-}
 
 fn get_system_hosts() -> Result<Vec<Url>, IdentityServiceError> {
     std::env::var(SDP_SYSTEM_HOSTS)
