@@ -640,6 +640,15 @@ mod tests {
         };
     }
 
+    macro_rules! assert_message {
+        (($var:ident :: $pattern:pat_param = $value:expr) => $e:expr) => {
+            assert!($value.is_some());
+            let $var = $value.unwrap();
+            assert!(matches!($var, $pattern));
+            $e
+        };
+    }
+
     #[derive(Default)]
     struct APICounters {
         delete_calls: usize,
@@ -902,9 +911,38 @@ mod tests {
     #[tokio::test]
     async fn test_identity_manager_ask_for_new_credentials() {
         test_identity_manager! {
-            (watcher_rx, identity_manager_tx, _identity_creator_rx, _deployment_watched_rx, counters) => {
+            (watcher_rx, identity_manager_tx, identity_creator_rx, _deployment_watched_rx, counters) => {
+                let tx = identity_manager_tx.clone();
+
+                // Ask to delete a ServiceIdentity
+                tx.send(IdentityManagerProtocol::DeleteServiceIdentity {
+                    service_identity: service_identity!(1)
+                }).await.expect("Unable to send DeleteServiceIdentity message to IdentityManager");
+
                 if let Some(_) = watcher_rx.recv().await {
                     assert_eq!(counters.lock().unwrap().list_calls, 1);
+
+                    // We tried to delete it from the API
+                    assert_eq!(counters.lock().unwrap().delete_calls, 1);
+
+                    // First message for IC should be StartService from IM
+                   assert_message! {
+                        (v1 :: IdentityCreatorProtocol::DeleteIdentity(_) = identity_creator_rx.recv().await) => {
+                            println!("somethon {:?}", v1);
+                            assert!(false);
+                        }
+                    };
+
+                    // We told IC to delete the credentials
+                    /*assert_message! {
+                        (v1 :: IdentityCreatorProtocol::DeleteIdentity(_) = identity_creator_rx.recv().await) => {
+                            if let IdentityCreatorProtocol::DeleteIdentity(id) = v1 {
+                                assert!(id == "id".to_string(), "Wrong id for ServiceIdentity: {:?}", id);
+                            }
+                        }
+                    };*/
+                } else {
+                    assert!(false, "Identity manager not initialized!");
                 }
             }
         };
