@@ -932,20 +932,17 @@ mod tests {
 
                     // First message for IC should be StartService from IM
                    assert_message! {
-                        (v1 :: IdentityCreatorProtocol::DeleteIdentity(_) = identity_creator_rx.recv().await) => {
-                            println!("somethon {:?}", v1);
-                            assert!(false);
-                        }
+                        (m :: IdentityCreatorProtocol::StartService = identity_creator_rx.recv().await) => {}
                     };
 
                     // We told IC to delete the credentials
-                    /*assert_message! {
+                    assert_message! {
                         (v1 :: IdentityCreatorProtocol::DeleteIdentity(_) = identity_creator_rx.recv().await) => {
                             if let IdentityCreatorProtocol::DeleteIdentity(id) = v1 {
                                 assert!(id == "id".to_string(), "Wrong id for ServiceIdentity: {:?}", id);
                             }
                         }
-                    };*/
+                    };
                 } else {
                     assert!(false, "Identity manager not initialized!");
                 }
