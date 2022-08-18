@@ -567,7 +567,7 @@ mod tests {
         }};
     }
 
-    macro_rules! identity_service {
+    macro_rules! service_identity {
         ($n:tt) => {
             ServiceIdentity::new(
                 concat!(stringify!(id), $n),
@@ -628,10 +628,10 @@ mod tests {
         };
         ($im:ident => $e:expr) => {
             let vs = vec![
-                identity_service!(1),
-                identity_service!(2),
-                identity_service!(3),
-                identity_service!(4),
+                service_identity!(1),
+                service_identity!(2),
+                service_identity!(3),
+                service_identity!(4),
             ];
             test_service_identity_provider! {
                 $im(vs) => $e
@@ -713,10 +713,10 @@ mod tests {
     #[test]
     fn test_service_identity_provider_identities() {
         let identities = vec![
-            identity_service!(1),
-            identity_service!(2),
-            identity_service!(3),
-            identity_service!(4),
+            service_identity!(1),
+            service_identity!(2),
+            service_identity!(3),
+            service_identity!(4),
         ];
         let d1 = deployment!("dep1", "ns1");
         let d2 = deployment!("srv1", "ns1");
@@ -749,7 +749,7 @@ mod tests {
 
     #[test]
     fn test_service_identity_provider_next_identity() {
-        let id1 = identity_service!(1);
+        let id1 = service_identity!(1);
         let identities = vec![id1.clone()];
         let d1_1 = deployment!("srv1", "ns1");
         let d2_2 = deployment!("srv2", "ns2");
