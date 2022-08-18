@@ -599,13 +599,14 @@ mod tests {
             let (watcher_tx, mut $watcher_rx) =
                 channel::<IdentityManagerProtocol<Deployment, ServiceIdentity>>(10);
             let im = new_test_identity_manager();
+            let identity_manager_proto_tx_cp2 = $identity_manager_proto_tx.clone();
             let $counters = im.api_counters.clone();
             tokio::spawn(async move {
                 let im_runner = new_test_identity_runner(im);
                 im_runner
                     .run(
                         identity_manager_proto_rx,
-                        $identity_manager_proto_tx,
+                        identity_manager_proto_tx_cp2,
                         identity_creator_proto_tx,
                         deployment_watched_proto_tx,
                         Some(watcher_tx),
