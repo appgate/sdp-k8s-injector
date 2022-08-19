@@ -656,8 +656,8 @@ mod tests {
         (($var:ident :: $pattern:pat_param in $queue:ident) => $e:expr) => {
             let value = timeout(Duration::from_millis(1000), $queue.recv())
                 .await
-                .expect("Unable to get message from queue");
-            assert!(value.is_some());
+                .expect(format!("No messages of type {} found", stringify!($pattern)).as_str());
+            assert!(value.is_some(), "Trying to read from a closed channel!");
             let $var = value.unwrap();
             assert!(
                 matches!($var, $pattern),
