@@ -101,6 +101,9 @@ pub enum IdentityManagerProtocol<From: ServiceCandidate, To: ServiceCandidate> {
     DeploymentWatcherReady,
     IdentityManagerInitialized,
     IdentityManagerStarted,
+    IdentityManagerWarning(String),
+    IdentityManagerError(String),
+    IdentityManagerNotify(String),
 }
 
 pub enum IdentityMessageResponse {
@@ -233,6 +236,16 @@ pub struct IdentityManagerRunner<From: ServiceCandidate + Send, To: ServiceCandi
     im: Box<dyn IdentityManager<From, To> + Send + Sync>,
 }
 
+macro_rules! queue_debug {
+    ($msg:expr => $q:ident) => {
+        if let Some(ref q) = $q {
+            if let Err(err) = q.send($msg).await {
+                error!("Error notifying external watcher:{:?} => {}", $msg, err)
+            }
+        }
+    };
+}
+
 /// Load all the current ServiceIdentity
 /// Flow between services is:
 /// - IM collects all ServiceIdentity defined
@@ -263,7 +276,7 @@ impl IdentityManagerRunner<Deployment, ServiceIdentity> {
         identity_manager_tx: Sender<IdentityManagerProtocol<F, ServiceIdentity>>,
         identity_creator_tx: Sender<IdentityCreatorProtocol>,
         deployment_watcher_proto_tx: Sender<DeploymentWatcherProtocol>,
-        external_queue_tx: Option<&Sender<IdentityManagerProtocol<Deployment, ServiceIdentity>>>,
+        external_queue_tx: Option<&Sender<IdentityManagerProtocol<F, ServiceIdentity>>>,
     ) -> () {
         info!("Running Identity Manager main loop");
         let mut deployment_watcher_ready = false;
@@ -271,14 +284,11 @@ impl IdentityManagerRunner<Deployment, ServiceIdentity> {
         let mut existing_service_candidates: HashSet<String> = HashSet::new();
         let mut existing_activated_credentials: HashSet<String> = HashSet::new();
         let mut existing_deactivated_credentials: HashSet<String> = HashSet::new();
-        if let Some(q) = external_queue_tx {
-            if let Err(err) = q
-                .send(IdentityManagerProtocol::IdentityManagerStarted)
-                .await
-            {
-                error!("Error notifying external watcher: {}", err)
-            }
-        }
+
+        queue_debug! {
+            IdentityManagerProtocol::<F, ServiceIdentity>::IdentityManagerStarted => external_queue_tx
+        };
+
         while let Some(msg) = identity_manager_rx.recv().await {
             match msg {
                 IdentityManagerProtocol::DeleteServiceIdentity { service_identity } => {
@@ -292,12 +302,28 @@ impl IdentityManagerRunner<Deployment, ServiceIdentity> {
                                 "Deregistering ServiceIdentity with id {}",
                                 service_identity.service_id()
                             );
-                            if let None = im.unregister_identity(&service_identity) {
-                                warn!(
+
+                            // Unregister the identity
+                            if let Some(s) = im.unregister_identity(&service_identity) {
+                                let msg = format!(
+                                    "ServiceIdentity with id {} unregistered",
+                                    s.service_id()
+                                );
+                                queue_debug! {
+                                    IdentityManagerProtocol::<F, ServiceIdentity>::IdentityManagerNotify(msg.clone()) => external_queue_tx
+                                };
+                            } else {
+                                let msg = format!(
                                     "ServiceIdentity with id {} was not registered",
                                     service_identity.service_id()
                                 );
+                                queue_debug! {
+                                    IdentityManagerProtocol::<F, ServiceIdentity>::IdentityManagerWarning(msg.clone()) => external_queue_tx
+                                };
+                                warn!("{}", msg);
                             }
+
+                            // Ask IdentityCreator to remove the IdentityCredential
                             info!(
                                 "Asking for deletion of IdentityCredential {} from SDP system",
                                 service_identity.credentials().id
@@ -515,14 +541,11 @@ impl IdentityManagerRunner<Deployment, ServiceIdentity> {
     ) -> () {
         info!("Starting Identity Manager service");
         IdentityManagerRunner::initialize(&mut self.im).await;
-        if let Some(ref q) = external_queue_tx {
-            if let Err(err) = q
-                .send(IdentityManagerProtocol::IdentityManagerInitialized)
-                .await
-            {
-                error!("Error notifying external watcher: {}", err)
-            }
-        }
+
+        queue_debug! {
+            IdentityManagerProtocol::<Deployment, ServiceIdentity>::IdentityManagerInitialized => external_queue_tx
+        };
+
         // Ask Identity Creator to awake
         if let Err(err) = identity_creater_proto_tx
             .send(IdentityCreatorProtocol::StartService)
