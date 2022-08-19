@@ -938,7 +938,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_identity_manager_ask_for_new_credentials() {
+    async fn test_identity_manager_delete_service_identity() {
         test_identity_manager! {
             (watcher_rx, identity_manager_tx, identity_creator_rx, _deployment_watched_rx, counters) => {
                 assert_message! {
