@@ -1015,7 +1015,21 @@ mod tests {
     #[tokio::test]
     async fn test_identity_manager_request_service_identity() {
         test_identity_manager! {
-            (watcher_rx, identity_manager_tx, identity_creator_rx, _deployment_watched_rx, counters) => {
+            (watcher_rx, identity_manager_tx, identity_creator_rx, _deployment_watched_rx, _counters) => {
+                assert_message!(m :: IdentityManagerProtocol::IdentityManagerInitialized in watcher_rx);
+                assert_message!(m :: IdentityManagerProtocol::IdentityManagerStarted in watcher_rx);
+                // Ask to delete a ServiceIdentity and give it time to process it
+                let tx = identity_manager_tx.clone();
+                tx.send(IdentityManagerProtocol::RequestServiceIdentity {
+                    service_candidate: deployment!("ns1", "srv1"),
+                }).await.expect("Unable to send RequestServiceIdentity message to IdentityManager");
+                assert_message!(m :: IdentityCreatorProtocol::StartService in identity_creator_rx);
+                assert_no_message!(identity_creator_rx);
+            }
+        }
+
+        test_identity_manager! {
+            (watcher_rx, identity_manager_tx, identity_creator_rx, _deployment_watched_rx, _counters) => {
                 assert_message!(m :: IdentityManagerProtocol::IdentityManagerInitialized in watcher_rx);
                 assert_message!(m :: IdentityManagerProtocol::IdentityManagerStarted in watcher_rx);
                 // Ask to delete a ServiceIdentity and give it time to process it
