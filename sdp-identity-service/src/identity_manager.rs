@@ -386,11 +386,11 @@ impl IdentityManagerRunner<Deployment, ServiceIdentity> {
                             }
                         }
                         Err(err) => {
-                            error!(
-                                "Error deleting ServiceIdentity for service with id {}: {}",
+                            sdp_error!((
+                                "Error deleting ServiceIdentity for service {}: {}",
                                 service_identity.service_id(),
                                 err
-                            );
+                            ) => external_queue_tx);
                         }
                     }
                 }
@@ -403,17 +403,21 @@ impl IdentityManagerRunner<Deployment, ServiceIdentity> {
                     match im.next_identity(&service_candidate) {
                         Some(identity) => match im.create(&identity).await {
                             Ok(service_identity) => {
-                                info!(
-                                    "New ServiceIdentity created for service with id {}",
+                                sdp_info!((
+                                    "ServiceIdentity created for service with id {}",
                                     service_id
-                                );
+                                ) => external_queue_tx);
+
                                 if im.needs_new_credentials() {
                                     info!("Requesting new UserCredentials to add to the pool");
                                     if let Err(err) = identity_creator_tx
                                         .send(IdentityCreatorProtocol::CreateIdentity)
                                         .await
                                     {
-                                        error!("Error when sending IdentityCreatorMessage::CreateIdentity: {}", err);
+                                        sdp_error!((
+                                            "Error when sending IdentityCreatorMessage::CreateIdentity: {}",
+                                            err
+                                        ) => external_queue_tx);
                                     }
                                 }
                                 if let Err(err) = identity_creator_tx
@@ -430,26 +434,32 @@ impl IdentityManagerRunner<Deployment, ServiceIdentity> {
                                 }
                             }
                             Err(err) => {
-                                error!(
+                                sdp_error!((
                                     "Error creating ServiceIdentity for service with id {}: {}",
                                     service_id, err
-                                );
+                            ) => external_queue_tx);
                             }
                         },
                         None => {
-                            error!("Unable to assign service identity for service {}. Identities pool seems to be empty!", service_id);
+                            sdp_error!((
+                                "Unable to assign service identity for service {}. Identities pool seems to be empty!",
+                                 service_id
+                                ) => external_queue_tx);
                         }
                     };
                 }
                 IdentityManagerProtocol::FoundServiceCandidate { service_candidate } => {
                     if let Some(service_identity) = im.identity(&service_candidate) {
-                        info!(
-                            "Found already registered ServiceCandidate in K8S cluster with id: {}",
+                        sdp_info!((
+                            "Found registered ServiceCandidate {}",
                             service_identity.service_id()
-                        );
+                        ) => external_queue_tx);
                     } else {
-                        info!("Found not registered ServiceCandidate in K8S cluster with id: {}, registering it",
-                            service_candidate.service_id());
+                        sdp_info!((
+                            "Found unregistered ServiceCandidate {}, registering it",
+                            service_candidate.service_id()
+                        ) => external_queue_tx);
+
                         identity_manager_tx
                             .send(IdentityManagerProtocol::RequestServiceIdentity {
                                 service_candidate: service_candidate.clone(),
@@ -484,10 +494,10 @@ impl IdentityManagerRunner<Deployment, ServiceIdentity> {
                     user_credentials_ref,
                     activated,
                 } if !activated => {
-                    info!(
-                        "Push fresh UserCredentialRef with id {}",
+                    sdp_info!((
+                        "Found deactivated UserCredentialRef with id {}",
                         user_credentials_ref.id
-                    );
+                    ) => external_queue_tx);
                     existing_deactivated_credentials.insert(user_credentials_ref.id.clone());
                     im.push(user_credentials_ref);
                 }
@@ -496,17 +506,17 @@ impl IdentityManagerRunner<Deployment, ServiceIdentity> {
                     user_credentials_ref,
                     activated,
                 } if activated => {
-                    info!(
+                    existing_activated_credentials.insert(user_credentials_ref.id.clone());
+                    sdp_info!((
                         "Found activated UserCredentials with id {}",
                         user_credentials_ref.id
-                    );
-                    existing_activated_credentials.insert(user_credentials_ref.id.clone());
+                    ) => external_queue_tx);
                 }
                 // Identity Creator finished the initialization
                 IdentityManagerProtocol::IdentityCreatorReady if !deployment_watcher_ready => {
                     info!("IdentityCreator is ready");
 
-                    info!("Syncing UserCredentials");
+                    sdp_info!(("Syncing UserCredentials") => external_queue_tx);
                     // Delete active credentials not in use by any service
                     for user_credentials_id in
                         im.extra_user_credentials(&existing_activated_credentials)
@@ -520,7 +530,7 @@ impl IdentityManagerRunner<Deployment, ServiceIdentity> {
                             .expect("Unable to delete obsolete UserCredentials");
                     }
 
-                    info!("Syncing IdentityServices");
+                    sdp_info!(("Syncing IdentityServices") => external_queue_tx);
                     // Delete Identity Services holding not active credentials
                     for identity_service in im.orphan_identities(&existing_activated_credentials) {
                         info!(
@@ -543,7 +553,7 @@ impl IdentityManagerRunner<Deployment, ServiceIdentity> {
                         .expect("Unable to notify DeploymentWatcher!");
                 }
                 IdentityManagerProtocol::IdentityCreatorReady => {
-                    info!("IdentityCreator event ignored");
+                    sdp_info!(("IdentityCreator event ignored") => external_queue_tx);
                     identity_creator_ready = true;
                 }
                 _ => {
