@@ -100,6 +100,7 @@ pub enum IdentityManagerProtocol<From: ServiceCandidate, To: ServiceCandidate> {
     IdentityCreatorReady,
     DeploymentWatcherReady,
     IdentityManagerInitialized,
+    IdentityManagerStarted,
 }
 
 pub enum IdentityMessageResponse {
@@ -262,6 +263,7 @@ impl IdentityManagerRunner<Deployment, ServiceIdentity> {
         identity_manager_tx: Sender<IdentityManagerProtocol<F, ServiceIdentity>>,
         identity_creator_tx: Sender<IdentityCreatorProtocol>,
         deployment_watcher_proto_tx: Sender<DeploymentWatcherProtocol>,
+        external_queue_tx: Option<&Sender<IdentityManagerProtocol<Deployment, ServiceIdentity>>>,
     ) -> () {
         info!("Running Identity Manager main loop");
         let mut deployment_watcher_ready = false;
@@ -269,6 +271,14 @@ impl IdentityManagerRunner<Deployment, ServiceIdentity> {
         let mut existing_service_candidates: HashSet<String> = HashSet::new();
         let mut existing_activated_credentials: HashSet<String> = HashSet::new();
         let mut existing_deactivated_credentials: HashSet<String> = HashSet::new();
+        if let Some(q) = external_queue_tx {
+            if let Err(err) = q
+                .send(IdentityManagerProtocol::IdentityManagerStarted)
+                .await
+            {
+                error!("Error notifying external watcher: {}", err)
+            }
+        }
         while let Some(msg) = identity_manager_rx.recv().await {
             match msg {
                 IdentityManagerProtocol::DeleteServiceIdentity { service_identity } => {
@@ -501,12 +511,12 @@ impl IdentityManagerRunner<Deployment, ServiceIdentity> {
         identity_manager_prot_tx: Sender<IdentityManagerProtocol<Deployment, ServiceIdentity>>,
         identity_creater_proto_tx: Sender<IdentityCreatorProtocol>,
         deployment_watcher_proto_tx: Sender<DeploymentWatcherProtocol>,
-        external_watcher: Option<Sender<IdentityManagerProtocol<Deployment, ServiceIdentity>>>,
+        external_queue_tx: Option<Sender<IdentityManagerProtocol<Deployment, ServiceIdentity>>>,
     ) -> () {
         info!("Starting Identity Manager service");
         IdentityManagerRunner::initialize(&mut self.im).await;
-        if let Some(watcher) = external_watcher {
-            if let Err(err) = watcher
+        if let Some(ref q) = external_queue_tx {
+            if let Err(err) = q
                 .send(IdentityManagerProtocol::IdentityManagerInitialized)
                 .await
             {
@@ -527,6 +537,7 @@ impl IdentityManagerRunner<Deployment, ServiceIdentity> {
             identity_manager_prot_tx,
             identity_creater_proto_tx,
             deployment_watcher_proto_tx,
+            external_queue_tx.as_ref(),
         )
         .await;
     }
