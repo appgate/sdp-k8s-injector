@@ -556,6 +556,7 @@ mod tests {
     use k8s_openapi::api::apps::v1::Deployment;
     use kube::{core::object::HasSpec, error::Error as KError};
     use tokio::sync::mpsc::channel;
+    use tokio::time::{sleep, timeout, Duration};
 
     use crate::{
         deployment_watcher::DeploymentWatcherProtocol,
@@ -652,9 +653,12 @@ mod tests {
     }
 
     macro_rules! assert_message {
-        (($var:ident :: $pattern:pat_param = $value:expr) => $e:expr) => {
-            assert!($value.is_some());
-            let $var = $value.unwrap();
+        (($var:ident :: $pattern:pat_param in $queue:ident) => $e:expr) => {
+            let value = timeout(Duration::from_millis(1000), $queue.recv())
+                .await
+                .expect("Unable to get message from queue");
+            assert!(value.is_some());
+            let $var = value.unwrap();
             assert!(
                 matches!($var, $pattern),
                 "Got wrong message {:?}, expected of type {}",
@@ -662,6 +666,12 @@ mod tests {
                 stringify!($pattern)
             );
             $e
+        };
+
+        ($var:ident :: $pattern:pat_param in $queue:ident) => {
+            assert_message! {
+                ($var :: $pattern in $queue) => {}
+            }
         };
     }
 
@@ -917,45 +927,50 @@ mod tests {
     async fn test_identity_manager_initialization() {
         test_identity_manager! {
             (watcher_rx, _identity_manager_tx, _identity_creator_rx, _deployment_watched_rx, counters) => {
-                if let Some(_) = watcher_rx.recv().await {
-                    assert_eq!(counters.lock().unwrap().list_calls, 1);
+                assert_message! {
+                    (m :: IdentityManagerProtocol::IdentityManagerInitialized in watcher_rx) => {
+                        assert_eq!(counters.lock().unwrap().list_calls, 1);
+                        assert_message!(m :: IdentityManagerProtocol::IdentityManagerStarted in watcher_rx);
+                    }
                 }
             }
-        };
+        }
     }
 
     #[tokio::test]
     async fn test_identity_manager_ask_for_new_credentials() {
         test_identity_manager! {
             (watcher_rx, identity_manager_tx, identity_creator_rx, _deployment_watched_rx, counters) => {
-                let tx = identity_manager_tx.clone();
+                assert_message! {
+                    (m :: IdentityManagerProtocol::IdentityManagerInitialized in watcher_rx) => {
+                        // We called API.list
+                        assert_eq!(counters.lock().unwrap().list_calls, 1);
 
-                // Ask to delete a ServiceIdentity
-                tx.send(IdentityManagerProtocol::DeleteServiceIdentity {
-                    service_identity: service_identity!(1)
-                }).await.expect("Unable to send DeleteServiceIdentity message to IdentityManager");
+                        // Wait for the service to run
+                        assert_message!(m :: IdentityManagerProtocol::IdentityManagerStarted in watcher_rx);
 
-                if let Some(_) = watcher_rx.recv().await {
-                    assert_eq!(counters.lock().unwrap().list_calls, 1);
+                        // First message for IC should be StartService from IM
+                        assert_message!(m :: IdentityCreatorProtocol::StartService in identity_creator_rx);
 
-                    // We tried to delete it from the API
-                    assert_eq!(counters.lock().unwrap().delete_calls, 1);
+                        // Ask to delete a ServiceIdentity and give it time to process it
+                        let tx = identity_manager_tx.clone();
+                        tx.send(IdentityManagerProtocol::DeleteServiceIdentity {
+                            service_identity: service_identity!(1)
+                        }).await.expect("Unable to send DeleteServiceIdentity message to IdentityManager");
+                        sleep(Duration::from_millis(10)).await;
 
-                    // First message for IC should be StartService from IM
-                   assert_message! {
-                        (m :: IdentityCreatorProtocol::StartService = identity_creator_rx.recv().await) => {}
-                    };
+                        // We tried to delete it from the API
+                        assert_eq!(counters.lock().unwrap().delete_calls, 1);
 
-                    // We told IC to delete the credentials
-                    assert_message! {
-                        (v1 :: IdentityCreatorProtocol::DeleteIdentity(_) = identity_creator_rx.recv().await) => {
-                            if let IdentityCreatorProtocol::DeleteIdentity(id) = v1 {
-                                assert!(id == "id".to_string(), "Wrong id for ServiceIdentity: {:?}", id);
+                        // We told IC to delete the credentials
+                        assert_message! {
+                            (m :: IdentityCreatorProtocol::DeleteIdentity(_) in identity_creator_rx) => {
+                                if let IdentityCreatorProtocol::DeleteIdentity(id) = m {
+                                    assert!(id == "id1".to_string(), "Wrong id for ServiceIdentity: {:?}", id);
+                                }
                             }
-                        }
-                    };
-                } else {
-                    assert!(false, "Identity manager not initialized!");
+                        };
+                    }
                 }
             }
         };
