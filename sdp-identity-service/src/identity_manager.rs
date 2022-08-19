@@ -1052,8 +1052,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_identity_manager_delete_service_identity() {
-        let s1 = service_identity!(1);
+    async fn test_identity_manager_delete_service_identity_0() {
         test_identity_manager! {
             (im(vec![]), watcher_rx, identity_manager_tx, identity_creator_rx, _deployment_watched_rx, counters) => {
                 // Wait for IM to be initialized
@@ -1097,7 +1096,11 @@ mod tests {
                 }
             }
         };
+    }
 
+    #[tokio::test]
+    async fn test_identity_manager_delete_service_identity_1() {
+        let s1 = service_identity!(1);
         test_identity_manager! {
             (im(vec![s1]), watcher_rx, identity_manager_tx, identity_creator_rx, _deployment_watched_rx, counters) => {
                 // Wait for IM to be initialized
@@ -1144,7 +1147,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_identity_manager_request_service_identity() {
+    async fn test_identity_manager_request_service_identity_0() {
         test_identity_manager! {
             (watcher_rx, identity_manager_tx, identity_creator_rx, _deployment_watched_rx, _counters) => {
                 assert_message!(m :: IdentityManagerProtocol::IdentityManagerInitialized in watcher_rx);
@@ -1168,7 +1171,10 @@ mod tests {
                 }
             }
         }
+    }
 
+    #[tokio::test]
+    async fn test_identity_manager_request_service_identity_1() {
         test_identity_manager! {
             (watcher_rx, identity_manager_tx, identity_creator_rx, _deployment_watched_rx, _counters) => {
                 assert_message!(m :: IdentityManagerProtocol::IdentityManagerInitialized in watcher_rx);
