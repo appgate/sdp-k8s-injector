@@ -675,6 +675,25 @@ mod tests {
         };
     }
 
+    macro_rules! assert_no_message {
+        ($queue:ident | $timeout:literal) => {
+            let value = timeout(Duration::from_millis($timeout), $queue.recv()).await;
+            match value {
+                Ok(Some(v)) => {
+                    assert!(false, "Expected not messages in queue, found {:?}", v);
+                }
+                Ok(None) => {
+                    assert!(false, "Trying to read from a closed channel!");
+                }
+                _ => (),
+            }
+        };
+
+        ($queue:ident) => {
+            assert_no_message!($queue | 1000);
+        };
+    }
+
     #[derive(Default)]
     struct APICounters {
         delete_calls: usize,
