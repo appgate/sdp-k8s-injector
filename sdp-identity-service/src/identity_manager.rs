@@ -998,11 +998,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_identity_manager_delete_service_identity() {
+        let s1 = service_identity!(1);
         test_identity_manager! {
-            (watcher_rx, identity_manager_tx, identity_creator_rx, _deployment_watched_rx, counters) => {
+            (im(vec![]), watcher_rx, identity_manager_tx, identity_creator_rx, _deployment_watched_rx, counters) => {
                 // Wait for IM to be initialized
                 assert_message!(m :: IdentityManagerProtocol::IdentityManagerInitialized in watcher_rx);
-
                 // Wait for the service to run
                 assert_message!(m :: IdentityManagerProtocol::IdentityManagerStarted in watcher_rx);
 
@@ -1020,9 +1020,9 @@ mod tests {
                 sleep(Duration::from_millis(10)).await;
 
                 // We tried to delete it from the API
+                assert_eq!(counters.lock().unwrap().delete_calls, 1);
 
-                assert_eq!(counters.lock().unwrap().delete_calls, 1);
-                assert_eq!(counters.lock().unwrap().delete_calls, 1);
+                // We asked the IdentityCreator to delete it
                 assert_message! {
                     (m :: IdentityCreatorProtocol::DeleteIdentity(_) in identity_creator_rx) => {
                         if let IdentityCreatorProtocol::DeleteIdentity(id) = m {
@@ -1030,6 +1030,60 @@ mod tests {
                         }
                     }
                 };
+
+                // We could not deregister the ServiceIdentity since we dont have any one registered
+                assert_message! {
+                    (m :: IdentityManagerProtocol::IdentityManagerWarning(_) in watcher_rx) => {
+                     if let IdentityManagerProtocol::IdentityManagerWarning(msg) = m {
+                            assert!(msg.eq("ServiceIdentity with id ns1-srv1 was not registered"),
+                                    "Wrong message, got {}", msg);
+                        }
+                    }
+                }
+            }
+        };
+
+        test_identity_manager! {
+            (im(vec![s1]), watcher_rx, identity_manager_tx, identity_creator_rx, _deployment_watched_rx, counters) => {
+                // Wait for IM to be initialized
+                assert_message!(m :: IdentityManagerProtocol::IdentityManagerInitialized in watcher_rx);
+                // Wait for the service to run
+                assert_message!(m :: IdentityManagerProtocol::IdentityManagerStarted in watcher_rx);
+
+                // API.list was called
+                assert_eq!(counters.lock().unwrap().list_calls, 1);
+
+                // First message for IC should be StartService from IM
+                assert_message!(m :: IdentityCreatorProtocol::StartService in identity_creator_rx);
+
+                // Ask to delete a ServiceIdentity and give it time to process it
+                let tx = identity_manager_tx.clone();
+                tx.send(IdentityManagerProtocol::DeleteServiceIdentity {
+                    service_identity: service_identity!(1)
+                }).await.expect("Unable to send DeleteServiceIdentity message to IdentityManager");
+                sleep(Duration::from_millis(10)).await;
+
+                // We tried to delete it from the API
+                assert_eq!(counters.lock().unwrap().delete_calls, 1);
+
+                // We asked the IdentityCreator to delete it
+                assert_message! {
+                    (m :: IdentityCreatorProtocol::DeleteIdentity(_) in identity_creator_rx) => {
+                        if let IdentityCreatorProtocol::DeleteIdentity(id) = m {
+                            assert!(id == "id1".to_string(), "Wrong id for ServiceIdentity: {:?}", id);
+                        }
+                    }
+                };
+
+                // We could not deregister the ServiceIdentity since we dont have any one registered
+                assert_message! {
+                    (m :: IdentityManagerProtocol::IdentityManagerNotify(_) in watcher_rx) => {
+                     if let IdentityManagerProtocol::IdentityManagerNotify(msg) = m {
+                            assert!(msg.eq("ServiceIdentity with id ns1-srv1 unregistered"),
+                                    "Wrong message, got {}", msg);
+                        }
+                    }
+                }
             }
         };
     }
