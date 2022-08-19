@@ -601,7 +601,7 @@ mod tests {
     }
 
     macro_rules! test_identity_manager {
-        (($watcher_rx:ident, $identity_manager_proto_tx:ident, $identity_creator_proto_rx:ident, $deployment_watched_proto_rx:ident, $counters:ident) => $e:expr) => {
+        (($im: ident, $watcher_rx:ident, $identity_manager_proto_tx:ident, $identity_creator_proto_rx:ident, $deployment_watched_proto_rx:ident, $counters:ident) => $e:expr) => {
             let ($identity_manager_proto_tx, identity_manager_proto_rx) =
                 channel::<IdentityManagerProtocol<Deployment, ServiceIdentity>>(10);
             let (identity_creator_proto_tx, mut $identity_creator_proto_rx) =
@@ -610,11 +610,11 @@ mod tests {
                 channel::<DeploymentWatcherProtocol>(10);
             let (watcher_tx, mut $watcher_rx) =
                 channel::<IdentityManagerProtocol<Deployment, ServiceIdentity>>(10);
-            let im = new_test_identity_manager();
+            let $im = new_test_identity_manager();
             let identity_manager_proto_tx_cp2 = $identity_manager_proto_tx.clone();
-            let $counters = im.api_counters.clone();
+            let $counters = $im.api_counters.clone();
             tokio::spawn(async move {
-                let im_runner = new_test_identity_runner(im);
+                let im_runner = new_test_identity_runner($im);
                 im_runner
                     .run(
                         identity_manager_proto_rx,
@@ -627,6 +627,14 @@ mod tests {
             });
             $e
         };
+
+        (($watcher_rx:ident, $identity_manager_proto_tx:ident, $identity_creator_proto_rx:ident, $deployment_watched_proto_rx:ident, $counters:ident) => $e:expr) => {
+            test_identity_manager! {
+                (im, $watcher_rx, $identity_manager_proto_tx, $identity_creator_proto_rx, $deployment_watched_proto_rx, $counters) => {
+                    $e
+               }
+            }
+        }
     }
 
     macro_rules! test_service_identity_provider {
@@ -993,5 +1001,22 @@ mod tests {
                 }
             }
         };
+    }
+
+    #[tokio::test]
+    async fn test_identity_manager_request_service_identity() {
+        test_identity_manager! {
+            (watcher_rx, identity_manager_tx, identity_creator_rx, _deployment_watched_rx, counters) => {
+                assert_message!(m :: IdentityManagerProtocol::IdentityManagerInitialized in watcher_rx);
+                assert_message!(m :: IdentityManagerProtocol::IdentityManagerStarted in watcher_rx);
+                // Ask to delete a ServiceIdentity and give it time to process it
+                let tx = identity_manager_tx.clone();
+                tx.send(IdentityManagerProtocol::RequestServiceIdentity {
+                    service_candidate: deployment!("ns1", "srv1"),
+                }).await.expect("Unable to send RequestServiceIdentity message to IdentityManager");
+                assert_message!(m :: IdentityCreatorProtocol::StartService in identity_creator_rx);
+                assert_no_message!(identity_creator_rx);
+            }
+        }
     }
 }
