@@ -227,12 +227,17 @@ impl ServiceIdentityAPI for KubeIdentityManager {
     }
 }
 
-trait IdentityManager<From: ServiceCandidate + Send + Sync, To: ServiceCandidate + HasCredentials + Send + Sync>:
-    ServiceIdentityAPI + ServiceIdentityProvider<From = From, To = To> + ServiceCredentialsPool
+trait IdentityManager<
+    From: ServiceCandidate + Send + Sync,
+    To: ServiceCandidate + HasCredentials + Send + Sync,
+>: ServiceIdentityAPI + ServiceIdentityProvider<From = From, To = To> + ServiceCredentialsPool
 {
 }
 
-pub struct IdentityManagerRunner<From: ServiceCandidate + Send, To: ServiceCandidate + HasCredentials + Send> {
+pub struct IdentityManagerRunner<
+    From: ServiceCandidate + Send,
+    To: ServiceCandidate + HasCredentials + Send,
+> {
     im: Box<dyn IdentityManager<From, To> + Send + Sync>,
 }
 
