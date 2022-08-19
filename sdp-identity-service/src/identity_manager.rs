@@ -312,6 +312,7 @@ impl IdentityManagerRunner<Deployment, ServiceIdentity> {
                                 queue_debug! {
                                     IdentityManagerProtocol::<F, ServiceIdentity>::IdentityManagerNotify(msg.clone()) => external_queue_tx
                                 };
+                                info!("{}", msg);
                             } else {
                                 let msg = format!(
                                     "ServiceIdentity with id {} was not registered",
