@@ -252,52 +252,52 @@ macro_rules! queue_debug {
 }
 
 macro_rules! sdp_log {
-    ($logger:ident | ($target:expr, $($arg:tt)+) => $q:ident) => {
+    ($logger:ident | ($target:expr $(, $arg:expr)*) => $q:ident) => {
         if cfg!(debug_assertions) {
-            let t = format!($target, $($arg)+);
+            let t = format!($target $(, $arg)*);
             queue_debug!(IdentityManagerProtocol::<F, ServiceIdentity>::IdentityManagerDebug(t.to_string()) => $q);
         }
-        $logger!($target, $($arg)+);
-    }
+        $logger!($target $(, $arg)*);
+    };
 }
 
 macro_rules! sdp_info {
-    (($target:expr, $($arg:tt)+) => $q:ident) => {
-       sdp_log!(info | ($target, $($arg)+) => $q);
+    (($target:expr $(, $arg:expr)*) => $q:ident) => {
+       sdp_log!(info | ($target $(, $arg)*) => $q);
     };
 
-    ($target:expr, $($arg:tt)+) => {
-        sdp_log!(info | ($target, $($arg)+) => None);
-    }
+    ($target:expr $(, $arg:expr)*) => {
+        sdp_log!(info | ($target $(, $arg)*) => None);
+    };
 }
 
 macro_rules! sdp_warn {
-    (($target:expr, $($arg:tt)+) => $q:ident) => {
-        sdp_log!(warn | ($target, $($arg)+) => $q);
+    (($target:expr $(, $arg:expr)*) => $q:ident) => {
+        sdp_log!(warn | ($target $(, $arg)*) => $q);
     };
 
-    ($target:expr, $($arg:tt)+) => {
-        sdp_log!(warn | ($target, $($arg)+) => None);
+    ($target:expr $(, $arg:expr)*) => {
+        sdp_log!(warn | ($target $(, $arg)*) => None);
     }
 }
 
 macro_rules! sdp_debug {
-    (($target:expr, $($arg:tt)+) => $q:ident) => {
-        sdp_log!(debug | ($target, $($arg)+) => $q);
+    (($target:expr $(, $arg:expr)*) => $q:ident) => {
+        sdp_log!(debug | ($target $(, $arg)*) => $q);
     };
 
-    ($target:expr, $($arg:tt)+) => {
-        sdp_log!(debug | ($target, $($arg)+) => None);
+    ($target:expr $(, $arg:expr)*) => {
+        sdp_log!(debug | ($target $(, $arg)*) => None);
     }
 }
 
 macro_rules! sdp_error {
-    (($target:expr, $($arg:tt)+) => $q:ident) => {
-        sdp_log!(debug | ($target, $($arg)+) => $q);
+    (($target:expr $(, $arg:expr)*) => $q:ident) => {
+        sdp_log!(debug | ($target $(, $arg)*) => $q);
     };
 
-    ($target:expr, $($arg:tt)+) => {
-        sdp_log!(debug | ($target, $($arg)+) => None);
+    ($target:expr $(, $arg:expr)*) => {
+        sdp_log!(error | ($target $(, $arg)*) => None);
     }
 }
 
