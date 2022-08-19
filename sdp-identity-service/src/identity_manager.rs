@@ -601,7 +601,7 @@ mod tests {
     }
 
     macro_rules! test_identity_manager {
-        (($im: ident, $watcher_rx:ident, $identity_manager_proto_tx:ident, $identity_creator_proto_rx:ident, $deployment_watched_proto_rx:ident, $counters:ident) => $e:expr) => {
+        (($im:ident($vs:expr), $watcher_rx:ident, $identity_manager_proto_tx:ident, $identity_creator_proto_rx:ident, $deployment_watched_proto_rx:ident, $counters:ident) => $e:expr) => {
             let ($identity_manager_proto_tx, identity_manager_proto_rx) =
                 channel::<IdentityManagerProtocol<Deployment, ServiceIdentity>>(10);
             let (identity_creator_proto_tx, mut $identity_creator_proto_rx) =
@@ -610,7 +610,10 @@ mod tests {
                 channel::<DeploymentWatcherProtocol>(10);
             let (watcher_tx, mut $watcher_rx) =
                 channel::<IdentityManagerProtocol<Deployment, ServiceIdentity>>(10);
-            let $im = new_test_identity_manager();
+            let mut $im = new_test_identity_manager();
+            for i in $vs.clone() {
+                $im.register_identity(i);
+            }
             let identity_manager_proto_tx_cp2 = $identity_manager_proto_tx.clone();
             let $counters = $im.api_counters.clone();
             tokio::spawn(async move {
@@ -629,8 +632,14 @@ mod tests {
         };
 
         (($watcher_rx:ident, $identity_manager_proto_tx:ident, $identity_creator_proto_rx:ident, $deployment_watched_proto_rx:ident, $counters:ident) => $e:expr) => {
+            let vs = vec![
+                service_identity!(1),
+                service_identity!(2),
+                service_identity!(3),
+                service_identity!(4),
+            ];
             test_identity_manager! {
-                (im, $watcher_rx, $identity_manager_proto_tx, $identity_creator_proto_rx, $deployment_watched_proto_rx, $counters) => {
+                (im(vs), $watcher_rx, $identity_manager_proto_tx, $identity_creator_proto_rx, $deployment_watched_proto_rx, $counters) => {
                     $e
                }
             }
