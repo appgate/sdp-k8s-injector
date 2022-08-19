@@ -26,7 +26,7 @@ trait ServiceCredentialsPool {
 /// This traits provides instances of To from instances of From
 trait ServiceIdentityProvider {
     type From: ServiceCandidate + Send;
-    type To: ServiceCandidate + HasCredentials + HasCredentials + Send;
+    type To: ServiceCandidate + HasCredentials + Send;
     fn register_identity(&mut self, to: Self::To) -> ();
     fn unregister_identity(&mut self, to: &Self::To) -> Option<Self::To>;
     fn next_identity(&mut self, from: &Self::From) -> Option<Self::To>;
@@ -80,7 +80,7 @@ trait ServiceIdentityAPI {
 
 /// Messages exchanged between the the IdentityCreator and IdentityManager
 #[derive(Debug)]
-pub enum IdentityManagerProtocol<From: ServiceCandidate, To: ServiceCandidate> {
+pub enum IdentityManagerProtocol<From: ServiceCandidate, To: ServiceCandidate + HasCredentials> {
     /// Message used to request a new ServiceIdentity for ServiceCandidate
     RequestServiceIdentity {
         service_candidate: From,
@@ -227,12 +227,12 @@ impl ServiceIdentityAPI for KubeIdentityManager {
     }
 }
 
-trait IdentityManager<From: ServiceCandidate + Send + Sync, To: ServiceCandidate + Send + Sync>:
+trait IdentityManager<From: ServiceCandidate + Send + Sync, To: ServiceCandidate + HasCredentials + Send + Sync>:
     ServiceIdentityAPI + ServiceIdentityProvider<From = From, To = To> + ServiceCredentialsPool
 {
 }
 
-pub struct IdentityManagerRunner<From: ServiceCandidate + Send, To: ServiceCandidate + Send> {
+pub struct IdentityManagerRunner<From: ServiceCandidate + Send, To: ServiceCandidate + HasCredentials + Send> {
     im: Box<dyn IdentityManager<From, To> + Send + Sync>,
 }
 
