@@ -1156,6 +1156,16 @@ mod tests {
                 }).await.expect("Unable to send RequestServiceIdentity message to IdentityManager");
                 assert_message!(m :: IdentityCreatorProtocol::StartService in identity_creator_rx);
                 assert_no_message!(identity_creator_rx);
+
+                // Since we have an empty pool we can not create identities
+                assert_message! {
+                    (m :: IdentityManagerProtocol::IdentityManagerDebug(_) in watcher_rx) => {
+                     if let IdentityManagerProtocol::IdentityManagerDebug(msg) = m {
+                            assert!(msg.eq("Unable to assign service identity for service srv1-ns1. Identities pool seems to be empty!"),
+                                    "Wrong message, got {}", msg);
+                        }
+                    }
+                }
             }
         }
 
