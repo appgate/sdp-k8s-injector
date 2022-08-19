@@ -2,7 +2,7 @@ use futures::Future;
 use k8s_openapi::api::apps::v1::Deployment;
 use kube::api::{DeleteParams, ListParams, PostParams};
 use kube::{Api, Client, Error as KError};
-use log::{error, info, warn};
+use log::{debug, error, info, warn};
 pub use sdp_common::crd::{ServiceIdentity, ServiceIdentitySpec};
 use sdp_common::service::{HasCredentials, ServiceCandidate};
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -101,9 +101,7 @@ pub enum IdentityManagerProtocol<From: ServiceCandidate, To: ServiceCandidate + 
     DeploymentWatcherReady,
     IdentityManagerInitialized,
     IdentityManagerStarted,
-    IdentityManagerWarning(String),
-    IdentityManagerError(String),
-    IdentityManagerNotify(String),
+    IdentityManagerDebug(String),
 }
 
 pub enum IdentityMessageResponse {
@@ -243,12 +241,64 @@ pub struct IdentityManagerRunner<
 
 macro_rules! queue_debug {
     ($msg:expr => $q:ident) => {
-        if let Some(ref q) = $q {
-            if let Err(err) = q.send($msg).await {
-                error!("Error notifying external watcher:{:?} => {}", $msg, err)
+        if cfg!(debug_assertions) {
+            if let Some(ref q) = $q {
+                if let Err(err) = q.send($msg).await {
+                    error!("Error notifying external watcher:{:?} => {}", $msg, err)
+                }
             }
         }
     };
+}
+
+macro_rules! sdp_log {
+    ($logger:ident | ($target:expr, $($arg:tt)+) => $q:ident) => {
+        if cfg!(debug_assertions) {
+            let t = format!($target, $($arg)+);
+            queue_debug!(IdentityManagerProtocol::<F, ServiceIdentity>::IdentityManagerDebug(t.to_string()) => $q);
+        }
+        $logger!($target, $($arg)+);
+    }
+}
+
+macro_rules! sdp_info {
+    (($target:expr, $($arg:tt)+) => $q:ident) => {
+       sdp_log!(info | ($target, $($arg)+) => $q);
+    };
+
+    ($target:expr, $($arg:tt)+) => {
+        sdp_log!(info | ($target, $($arg)+) => None);
+    }
+}
+
+macro_rules! sdp_warn {
+    (($target:expr, $($arg:tt)+) => $q:ident) => {
+        sdp_log!(warn | ($target, $($arg)+) => $q);
+    };
+
+    ($target:expr, $($arg:tt)+) => {
+        sdp_log!(warn | ($target, $($arg)+) => None);
+    }
+}
+
+macro_rules! sdp_debug {
+    (($target:expr, $($arg:tt)+) => $q:ident) => {
+        sdp_log!(debug | ($target, $($arg)+) => $q);
+    };
+
+    ($target:expr, $($arg:tt)+) => {
+        sdp_log!(debug | ($target, $($arg)+) => None);
+    }
+}
+
+macro_rules! sdp_error {
+    (($target:expr, $($arg:tt)+) => $q:ident) => {
+        sdp_log!(debug | ($target, $($arg)+) => $q);
+    };
+
+    ($target:expr, $($arg:tt)+) => {
+        sdp_log!(debug | ($target, $($arg)+) => None);
+    }
 }
 
 /// Load all the current ServiceIdentity
@@ -310,23 +360,13 @@ impl IdentityManagerRunner<Deployment, ServiceIdentity> {
 
                             // Unregister the identity
                             if let Some(s) = im.unregister_identity(&service_identity) {
-                                let msg = format!(
-                                    "ServiceIdentity with id {} unregistered",
-                                    s.service_id()
-                                );
-                                queue_debug! {
-                                    IdentityManagerProtocol::<F, ServiceIdentity>::IdentityManagerNotify(msg.clone()) => external_queue_tx
-                                };
-                                info!("{}", msg);
+                                sdp_info!(
+                                    ("ServiceIdentity with id {} unregistered", s.service_id()
+                                ) => external_queue_tx);
                             } else {
-                                let msg = format!(
-                                    "ServiceIdentity with id {} was not registered",
-                                    service_identity.service_id()
-                                );
-                                queue_debug! {
-                                    IdentityManagerProtocol::<F, ServiceIdentity>::IdentityManagerWarning(msg.clone()) => external_queue_tx
-                                };
-                                warn!("{}", msg);
+                                sdp_warn!((
+                                    "ServiceIdentity with id {} was not registered", service_identity.service_id()
+                                ) => external_queue_tx);
                             }
 
                             // Ask IdentityCreator to remove the IdentityCredential
@@ -340,10 +380,9 @@ impl IdentityManagerRunner<Deployment, ServiceIdentity> {
                                 ))
                                 .await
                             {
-                                error!(
-                                    "Error when sending event to delete IdentityCredential: {}",
-                                    err
-                                );
+                                sdp_error!((
+                                    "Error when sending event to delete IdentityCredential: {}", err
+                                ) => external_queue_tx);
                             }
                         }
                         Err(err) => {
@@ -1039,8 +1078,8 @@ mod tests {
 
                 // We could not deregister the ServiceIdentity since we dont have any one registered
                 assert_message! {
-                    (m :: IdentityManagerProtocol::IdentityManagerWarning(_) in watcher_rx) => {
-                     if let IdentityManagerProtocol::IdentityManagerWarning(msg) = m {
+                    (m :: IdentityManagerProtocol::IdentityManagerDebug(_) in watcher_rx) => {
+                     if let IdentityManagerProtocol::IdentityManagerDebug(msg) = m {
                             assert!(msg.eq("ServiceIdentity with id ns1-srv1 was not registered"),
                                     "Wrong message, got {}", msg);
                         }
@@ -1083,8 +1122,8 @@ mod tests {
 
                 // We could not deregister the ServiceIdentity since we dont have any one registered
                 assert_message! {
-                    (m :: IdentityManagerProtocol::IdentityManagerNotify(_) in watcher_rx) => {
-                     if let IdentityManagerProtocol::IdentityManagerNotify(msg) = m {
+                    (m :: IdentityManagerProtocol::IdentityManagerDebug(_) in watcher_rx) => {
+                     if let IdentityManagerProtocol::IdentityManagerDebug(msg) = m {
                             assert!(msg.eq("ServiceIdentity with id ns1-srv1 unregistered"),
                                     "Wrong message, got {}", msg);
                         }
