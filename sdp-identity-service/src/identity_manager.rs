@@ -396,15 +396,15 @@ impl IdentityManagerRunner<Deployment, ServiceIdentity> {
                 }
                 IdentityManagerProtocol::RequestServiceIdentity { service_candidate } => {
                     let service_id = service_candidate.service_id();
-                    info!(
+                    sdp_info!((
                         "New ServiceIdentity requested for ServiceCandidate {}",
                         service_id
-                    );
+                    ) => external_queue_tx);
                     match im.next_identity(&service_candidate) {
                         Some(identity) => match im.create(&identity).await {
                             Ok(service_identity) => {
                                 sdp_info!((
-                                    "ServiceIdentity created for service with id {}",
+                                    "ServiceIdentity created for service {}",
                                     service_id
                                 ) => external_queue_tx);
 
@@ -495,7 +495,7 @@ impl IdentityManagerRunner<Deployment, ServiceIdentity> {
                     activated,
                 } if !activated => {
                     sdp_info!((
-                        "Found deactivated UserCredentialRef with id {}",
+                        "Found deactivated UserCredentialsRef with id {}",
                         user_credentials_ref.id
                     ) => external_queue_tx);
                     existing_deactivated_credentials.insert(user_credentials_ref.id.clone());
@@ -508,7 +508,7 @@ impl IdentityManagerRunner<Deployment, ServiceIdentity> {
                 } if activated => {
                     existing_activated_credentials.insert(user_credentials_ref.id.clone());
                     sdp_info!((
-                        "Found activated UserCredentials with id {}",
+                        "Found activated UserCredentialsRef with id {}",
                         user_credentials_ref.id
                     ) => external_queue_tx);
                 }
@@ -658,13 +658,13 @@ mod tests {
     }
 
     macro_rules! credentials_ref {
-        ($n:literal) => {
+        ($n:expr) => {
             ServiceCredentialsRef {
-                id: concat!(stringify!(id), $n).to_string(),
-                name: concat!(stringify!(name), $n).to_string(),
-                secret: concat!(stringify!(secret), $n).to_string(),
-                user_field: concat!(stringify!(field_field), $n).to_string(),
-                password_field: concat!(stringify!(password_field), $n).to_string(),
+                id: format!("{}{}", stringify!(id), $n).to_string(),
+                name: format!("{}{}", stringify!(name), $n).to_string(),
+                secret: format!("{}{}", stringify!(secret), $n).to_string(),
+                user_field: format!("{}{}", stringify!(field_field), $n).to_string(),
+                password_field: format!("{}{}", stringify!(password_field), $n).to_string(),
             }
         };
     }
@@ -1158,6 +1158,14 @@ mod tests {
                 assert_message! {
                     (m :: IdentityManagerProtocol::IdentityManagerDebug(_) in watcher_rx) => {
                      if let IdentityManagerProtocol::IdentityManagerDebug(msg) = m {
+                            assert!(msg.eq("New ServiceIdentity requested for ServiceCandidate srv1-ns1"),
+                                    "Wrong message, got {}", msg);
+                        }
+                    }
+                }
+                assert_message! {
+                    (m :: IdentityManagerProtocol::IdentityManagerDebug(_) in watcher_rx) => {
+                     if let IdentityManagerProtocol::IdentityManagerDebug(msg) = m {
                             assert!(msg.eq("Unable to assign service identity for service srv1-ns1. Identities pool seems to be empty!"),
                                     "Wrong message, got {}", msg);
                         }
@@ -1170,15 +1178,350 @@ mod tests {
     #[tokio::test]
     async fn test_identity_manager_request_service_identity_1() {
         test_identity_manager! {
-            (watcher_rx, identity_manager_tx, identity_creator_rx, _deployment_watched_rx, _counters) => {
+            (watcher_rx, identity_manager_tx, identity_creator_rx, _deployment_watched_rx, counters) => {
                 assert_message!(m :: IdentityManagerProtocol::IdentityManagerInitialized in watcher_rx);
                 assert_message!(m :: IdentityManagerProtocol::IdentityManagerStarted in watcher_rx);
+                assert_message!(m :: IdentityCreatorProtocol::StartService in identity_creator_rx);
                 // Request a new ServiceIdentity and give it time to process it
                 let tx = identity_manager_tx.clone();
+
+                // Push 2 fresh UserCredentialsRef
+                tx.send(IdentityManagerProtocol::FoundUserCredentials{
+                    user_credentials_ref: credentials_ref!(1),
+                    activated: false
+                }).await.expect("Unable to send message!");
+                tx.send(IdentityManagerProtocol::FoundUserCredentials{
+                    user_credentials_ref: credentials_ref!(2),
+                    activated: false
+                }).await.expect("Unable to send message!");
+
+                // Check they were registered
+                assert_message! {
+                    (m :: IdentityManagerProtocol::IdentityManagerDebug(_) in watcher_rx) => {
+                     if let IdentityManagerProtocol::IdentityManagerDebug(msg) = m {
+                            assert!(msg.eq("Found deactivated UserCredentialsRef with id id1"),
+                                    "Wrong message, got {}", msg);
+                        }
+                    }
+                }
+                assert_message! {
+                    (m :: IdentityManagerProtocol::IdentityManagerDebug(_) in watcher_rx) => {
+                     if let IdentityManagerProtocol::IdentityManagerDebug(msg) = m {
+                            assert!(msg.eq("Found deactivated UserCredentialsRef with id id2"),
+                                    "Wrong message, got {}", msg);
+                        }
+                    }
+                }
+
+                // Request a new ServiceIdentity
                 tx.send(IdentityManagerProtocol::RequestServiceIdentity {
                     service_candidate: deployment!("ns1", "srv1"),
                 }).await.expect("Unable to send RequestServiceIdentity message to IdentityManager");
+
+                // We have deactivated credentials so we can create it
+                assert_message! {
+                    (m :: IdentityManagerProtocol::IdentityManagerDebug(_) in watcher_rx) => {
+                     if let IdentityManagerProtocol::IdentityManagerDebug(msg) = m {
+                            assert!(msg.eq("New ServiceIdentity requested for ServiceCandidate srv1-ns1"),
+                                    "Wrong message, got {}", msg);
+                        }
+                    }
+                }
+                assert_message! {
+                    (m :: IdentityManagerProtocol::IdentityManagerDebug(_) in watcher_rx) => {
+                     if let IdentityManagerProtocol::IdentityManagerDebug(msg) = m {
+                            assert!(msg.eq("ServiceIdentity created for service srv1-ns1"),
+                                    "Wrong message, got {}", msg);
+                        }
+                    }
+                }
+                // Create it in k8s
+                assert_eq!(counters.lock().unwrap().create_calls, 1);
+
+                // We ask IC to create a new crendential
+                assert_message!(m :: IdentityCreatorProtocol::CreateIdentity in identity_creator_rx);
+                // We add labels and we activate new credential
+                assert_message! {
+                    (m :: IdentityCreatorProtocol::ModifyIdentity {..} in identity_creator_rx) => {
+                        if let IdentityCreatorProtocol::ModifyIdentity {
+                            service_credentials,
+                            name,
+                            labels,
+                            active,
+                        } = m {
+                            assert!(service_credentials.id == "id1");
+                            assert!(name == "srv1-ns1");
+                            assert!(active);
+                            assert!(labels == HashMap::from([
+                                ("namespace".to_string(), "srv1".to_string()),
+                                ("name".to_string(), "ns1".to_string())
+                            ]));
+                        }
+                    }
+                }
+
+                // Request a new ServiceIdentity, second one
+                tx.send(IdentityManagerProtocol::RequestServiceIdentity {
+                    service_candidate: deployment!("ns2", "srv2"),
+                }).await.expect("Unable to send RequestServiceIdentity message to IdentityManager");
+
+                // We have deactivated credentials so we can create it
+                assert_message! {
+                    (m :: IdentityManagerProtocol::IdentityManagerDebug(_) in watcher_rx) => {
+                     if let IdentityManagerProtocol::IdentityManagerDebug(msg) = m {
+                            assert!(msg.eq("New ServiceIdentity requested for ServiceCandidate srv2-ns2"),
+                                    "Wrong message, got {}", msg);
+                        }
+                    }
+                }
+                assert_message! {
+                    (m :: IdentityManagerProtocol::IdentityManagerDebug(_) in watcher_rx) => {
+                     if let IdentityManagerProtocol::IdentityManagerDebug(msg) = m {
+                            assert!(msg.eq("ServiceIdentity created for service srv2-ns2"),
+                                    "Wrong message, got {}", msg);
+                        }
+                    }
+                }
+                // Create it in k8s
+                assert_eq!(counters.lock().unwrap().create_calls, 2);
+
+                // We ask IC to create a new crendential
+                assert_message!(m :: IdentityCreatorProtocol::CreateIdentity in identity_creator_rx);
+
+                // We add labels and we activate new credential
+                assert_message! {
+                    (m :: IdentityCreatorProtocol::ModifyIdentity {..} in identity_creator_rx) => {
+                        if let IdentityCreatorProtocol::ModifyIdentity {
+                            service_credentials,
+                            name,
+                            labels,
+                            active,
+                        } = m {
+                            assert!(service_credentials.id == "id2");
+                            assert!(name == "srv2-ns2");
+                            assert!(active);
+                            assert!(labels == HashMap::from([
+                                ("namespace".to_string(), "srv2".to_string()),
+                                ("name".to_string(), "ns2".to_string())
+                            ]));
+                        }
+                    }
+                }
+                assert_no_message!(identity_creator_rx);
+
+                // Request a new ServiceIdentity, no more credentials!
+                tx.send(IdentityManagerProtocol::RequestServiceIdentity {
+                    service_candidate: deployment!("ns3", "srv1"),
+                }).await.expect("Unable to send RequestServiceIdentity message to IdentityManager");
+                assert_message! {
+                    (m :: IdentityManagerProtocol::IdentityManagerDebug(_) in watcher_rx) => {
+                     if let IdentityManagerProtocol::IdentityManagerDebug(msg) = m {
+                            assert!(msg.eq("New ServiceIdentity requested for ServiceCandidate srv1-ns3"),
+                                    "Wrong message, got {}", msg);
+                        }
+                    }
+                }
+                assert_message! {
+                    (m :: IdentityManagerProtocol::IdentityManagerDebug(_) in watcher_rx) => {
+                     if let IdentityManagerProtocol::IdentityManagerDebug(msg) = m {
+                            assert!(msg.eq("Unable to assign service identity for service srv1-ns3. Identities pool seems to be empty!"),
+                                    "Wrong message, got {}", msg);
+                        }
+                    }
+                }
+                assert_no_message!(identity_creator_rx);
+
+                // Request a new ServiceIdentity already created
+                tx.send(IdentityManagerProtocol::RequestServiceIdentity {
+                    service_candidate: deployment!("ns1", "srv1"),
+                }).await.expect("Unable to send RequestServiceIdentity message to IdentityManager");
+                assert_message! {
+                    (m :: IdentityManagerProtocol::IdentityManagerDebug(_) in watcher_rx) => {
+                     if let IdentityManagerProtocol::IdentityManagerDebug(msg) = m {
+                            assert!(msg.eq("New ServiceIdentity requested for ServiceCandidate srv1-ns1"),
+                                    "Wrong message, got {}", msg);
+                        }
+                    }
+                }
+                assert_message! {
+                    (m :: IdentityManagerProtocol::IdentityManagerDebug(_) in watcher_rx) => {
+                     if let IdentityManagerProtocol::IdentityManagerDebug(msg) = m {
+                            assert!(msg.eq("ServiceIdentity created for service srv1-ns1"),
+                                    "Wrong message, got {}", msg);
+                        }
+                    }
+                }
+                // TODO: Here we should not call this create API.
+                // Create it in k8s
+                assert_eq!(counters.lock().unwrap().create_calls, 3);
+
+                // We ask IC to create a new crendential
+                assert_message!(m :: IdentityCreatorProtocol::CreateIdentity in identity_creator_rx);
+                // We add labels and we activate new credential
+                assert_message! {
+                    (m :: IdentityCreatorProtocol::ModifyIdentity {..} in identity_creator_rx) => {
+                        if let IdentityCreatorProtocol::ModifyIdentity {
+                            service_credentials,
+                            name,
+                            labels,
+                            active,
+                        } = m {
+                            assert!(service_credentials.id == "id1");
+                            assert!(name == "srv1-ns1");
+                            assert!(active);
+                            assert!(labels == HashMap::from([
+                                ("namespace".to_string(),
+                                 "srv1".to_string()),
+                                ("name".to_string(), "ns1".to_string())
+                            ]));
+                        }
+                    }
+                }
+
+                assert_no_message!(identity_creator_rx);
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn test_identity_manager_request_service_identity_2() {
+        test_identity_manager! {
+            (watcher_rx, identity_manager_tx, identity_creator_rx, _deployment_watched_rx, counters) => {
+                assert_message!(m :: IdentityManagerProtocol::IdentityManagerInitialized in watcher_rx);
+                assert_message!(m :: IdentityManagerProtocol::IdentityManagerStarted in watcher_rx);
                 assert_message!(m :: IdentityCreatorProtocol::StartService in identity_creator_rx);
+                // Request a new ServiceIdentity and give it time to process it
+                let tx = identity_manager_tx.clone();
+
+                // Push 11 fresh UserCredentialsRef
+                for i in 1..12 {
+                    tx.send(IdentityManagerProtocol::FoundUserCredentials{
+                        user_credentials_ref: credentials_ref!(i),
+                        activated: false
+                    }).await.expect("Unable to send message!");
+
+                    assert_message! {
+                        (m :: IdentityManagerProtocol::IdentityManagerDebug(_) in watcher_rx) => {
+                        let expected_msg = format!("Found deactivated UserCredentialsRef with id id{}", i);
+                         if let IdentityManagerProtocol::IdentityManagerDebug(msg) = m {
+                                assert!(msg.eq(expected_msg.as_str()),
+                                        "Wrong message, expected {} but got {}", expected_msg.as_str(), msg);
+                            }
+                        }
+                    }
+                }
+                // Request a new ServiceIdentity
+                tx.send(IdentityManagerProtocol::RequestServiceIdentity {
+                service_candidate: deployment!("ns1", "srv1"),
+                }).await.expect("Unable to send RequestServiceIdentity message to IdentityManager");
+
+                // We have deactivated credentials so we can create it
+                assert_message! {
+                    (m :: IdentityManagerProtocol::IdentityManagerDebug(_) in watcher_rx) => {
+                        if let IdentityManagerProtocol::IdentityManagerDebug(msg) = m {
+                            assert!(msg.eq("New ServiceIdentity requested for ServiceCandidate srv1-ns1"),
+                                    "Wrong message, got {}", msg);
+                        }
+                    }
+                }
+                assert_message! {
+                    (m :: IdentityManagerProtocol::IdentityManagerDebug(_) in watcher_rx) => {
+                        if let IdentityManagerProtocol::IdentityManagerDebug(msg) = m {
+                            assert!(msg.eq("ServiceIdentity created for service srv1-ns1"),
+                                    "Wrong message, got {}", msg);
+                        }
+                    }
+                }
+                // Create it in k8s
+                assert_eq!(counters.lock().unwrap().create_calls, 1);
+
+                // Note that now we dont ask IC to create a new crendential, since the pool has enough credentials
+                // We add labels and we activate new credential
+                assert_message! {
+                    (m :: IdentityCreatorProtocol::ModifyIdentity {..} in identity_creator_rx) => {
+                        if let IdentityCreatorProtocol::ModifyIdentity {
+                            service_credentials,
+                            name,
+                            labels,
+                            active,
+                        } = m {
+                            assert!(service_credentials.id == "id1");
+                            assert!(name == "srv1-ns1");
+                            assert!(active);
+                            assert!(labels == HashMap::from([
+                                ("namespace".to_string(), "srv1".to_string()),
+                                ("name".to_string(), "ns1".to_string())
+                            ]));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn test_identity_manager_request_service_identity_3() {
+        test_identity_manager! {
+            (watcher_rx, identity_manager_tx, identity_creator_rx, _deployment_watched_rx, _counters) => {
+                assert_message!(m :: IdentityManagerProtocol::IdentityManagerInitialized in watcher_rx);
+                assert_message!(m :: IdentityManagerProtocol::IdentityManagerStarted in watcher_rx);
+                assert_message!(m :: IdentityCreatorProtocol::StartService in identity_creator_rx);
+                // Request a new ServiceIdentity and give it time to process it
+                let tx = identity_manager_tx.clone();
+
+                // Push 11 activated UserCredentialsRef, they should not be added to the pool
+                for i in 1..12 {
+                    tx.send(IdentityManagerProtocol::FoundUserCredentials{
+                        user_credentials_ref: credentials_ref!(i),
+                        activated: true
+                    }).await.expect("Unable to send message!");
+
+                    assert_message! {
+                        (m :: IdentityManagerProtocol::IdentityManagerDebug(_) in watcher_rx) => {
+                        let expected_msg = format!("Found activated UserCredentialsRef with id id{}", i);
+                         if let IdentityManagerProtocol::IdentityManagerDebug(msg) = m {
+                                assert!(msg.eq(expected_msg.as_str()),
+                                        "Wrong message, expected {} but got {}", expected_msg.as_str(), msg);
+                            }
+                        }
+                    }
+                }
+                // Request a new ServiceIdentity
+                tx.send(IdentityManagerProtocol::RequestServiceIdentity {
+                service_candidate: deployment!("ns1", "srv1"),
+                }).await.expect("Unable to send RequestServiceIdentity message to IdentityManager");
+
+                // Since we have an empty pool we can not create identities
+                assert_message! {
+                    (m :: IdentityManagerProtocol::IdentityManagerDebug(_) in watcher_rx) => {
+                     if let IdentityManagerProtocol::IdentityManagerDebug(msg) = m {
+                            assert!(msg.eq("New ServiceIdentity requested for ServiceCandidate srv1-ns1"),
+                                    "Wrong message, got {}", msg);
+                        }
+                    }
+                }
+                assert_message! {
+                    (m :: IdentityManagerProtocol::IdentityManagerDebug(_) in watcher_rx) => {
+                     if let IdentityManagerProtocol::IdentityManagerDebug(msg) = m {
+                            assert!(msg.eq("Unable to assign service identity for service srv1-ns1. Identities pool seems to be empty!"),
+                                    "Wrong message, got {}", msg);
+                        }
+                    }
+                }
+                assert_no_message!(identity_creator_rx);
+
+                // Push a fresh credential now
+                tx.send(IdentityManagerProtocol::FoundUserCredentials{
+                    user_credentials_ref: credentials_ref!(13),
+                    activated: false
+                }).await.expect("Unable to send message!");
+                // Request a new ServiceIdentity
+                tx.send(IdentityManagerProtocol::RequestServiceIdentity {
+                    service_candidate: deployment!("ns1", "srv1"),
+                }).await.expect("Unable to send RequestServiceIdentity message to IdentityManager");
+                // We ask IC to create a new crendential
+                assert_message!(m :: IdentityCreatorProtocol::CreateIdentity in identity_creator_rx);
+                assert_message!(m :: IdentityCreatorProtocol::ModifyIdentity{..} in identity_creator_rx);
                 assert_no_message!(identity_creator_rx);
             }
         }
