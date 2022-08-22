@@ -657,18 +657,24 @@ mod tests {
         }};
     }
 
+    macro_rules! credentials_ref {
+        ($n:literal) => {
+            ServiceCredentialsRef {
+                id: concat!(stringify!(id), $n).to_string(),
+                name: concat!(stringify!(name), $n).to_string(),
+                secret: concat!(stringify!(secret), $n).to_string(),
+                user_field: concat!(stringify!(field_field), $n).to_string(),
+                password_field: concat!(stringify!(password_field), $n).to_string(),
+            }
+        };
+    }
+
     macro_rules! service_identity {
         ($n:tt) => {
             ServiceIdentity::new(
                 concat!(stringify!(id), $n),
                 ServiceIdentitySpec {
-                    service_credentials: ServiceCredentialsRef {
-                        id: concat!(stringify!(id), $n).to_string(),
-                        name: concat!(stringify!(name), $n).to_string(),
-                        secret: concat!(stringify!(secret), $n).to_string(),
-                        user_field: concat!(stringify!(field), $n).to_string(),
-                        password_field: concat!(stringify!(password), $n).to_string(),
-                    },
+                    service_credentials: credentials_ref!($n),
                     service_name: concat!(stringify!(srv), $n).to_string(),
                     service_namespace: concat!(stringify!(ns), $n).to_string(),
                     labels: HashMap::new(),
@@ -922,20 +928,8 @@ mod tests {
 
         test_service_identity_provider! {
             im(identities) => {
-                let c1 = ServiceCredentialsRef {
-                    id: "uuid1".to_string(),
-                    name: "name1".to_string(),
-                    secret: "secret".to_string(),
-                    user_field: "user_field1".to_string(),
-                    password_field: "password_field1".to_string(),
-                };
-                let c2 = ServiceCredentialsRef {
-                    id: "uuid2".to_string(),
-                    name: "name2".to_string(),
-                    secret: "secret".to_string(),
-                    user_field: "user_field2".to_string(),
-                    password_field: "password_field2".to_string(),
-                };
+                let c1 = credentials_ref!(1);
+                let c2 = credentials_ref!(2);
                 // push some credentials
                 im.push(c1.clone());
                 im.push(c2.clone());
