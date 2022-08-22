@@ -530,7 +530,7 @@ impl IdentityManagerRunner<Deployment, ServiceIdentity> {
                             .expect("Unable to delete obsolete UserCredentials");
                     }
 
-                    sdp_info!(("Syncing IdentityServices") => external_queue_tx);
+                    sdp_info!(("Syncing ServiceIdentities") => external_queue_tx);
                     // Delete Identity Services holding not active credentials
                     for identity_service in im.orphan_identities(&existing_activated_credentials) {
                         info!(
@@ -1523,6 +1523,103 @@ mod tests {
                 assert_message!(m :: IdentityCreatorProtocol::CreateIdentity in identity_creator_rx);
                 assert_message!(m :: IdentityCreatorProtocol::ModifyIdentity{..} in identity_creator_rx);
                 assert_no_message!(identity_creator_rx);
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn test_identity_manager_identity_creator_ready_0() {
+        test_identity_manager! {
+            (_watcher_rx, identity_manager_tx, identity_creator_rx, _deployment_watched_rx, _counters) => {
+                // Normal startup, nothing to cleanup
+                assert_message!(m :: IdentityCreatorProtocol::StartService in identity_creator_rx);
+                assert_no_message!(identity_creator_rx);
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn test_identity_manager_identity_creator_ready_1() {
+        test_identity_manager! {
+            (im(vec![]), watcher_rx, identity_manager_tx, identity_creator_rx, _deployment_watched_rx, _counters) => {
+                let tx = identity_manager_tx.clone();
+                assert_message!(m :: IdentityManagerProtocol::IdentityManagerInitialized in watcher_rx);
+                assert_message!(m :: IdentityManagerProtocol::IdentityManagerStarted in watcher_rx);
+                assert_message!(m :: IdentityCreatorProtocol::StartService in identity_creator_rx);
+                // Push some a
+                for i in 1..12 {
+                    tx.send(IdentityManagerProtocol::FoundUserCredentials{
+                        user_credentials_ref: credentials_ref!(i),
+                        activated: true
+                    }).await.expect("Unable to send message!");
+
+                    assert_message! {
+                        (m :: IdentityManagerProtocol::IdentityManagerDebug(_) in watcher_rx) => {
+                        let expected_msg = format!("Found activated UserCredentialsRef with id id{}", i);
+                         if let IdentityManagerProtocol::IdentityManagerDebug(msg) = m {
+                                assert!(msg.eq(expected_msg.as_str()),
+                                        "Wrong message, expected {} but got {}", expected_msg.as_str(), msg);
+                            }
+                        }
+                    }
+                }
+                // Add one deactivated
+                tx.send(IdentityManagerProtocol::FoundUserCredentials{
+                    user_credentials_ref: credentials_ref!(13),
+                    activated: false
+                }).await.expect("Unable to send message!");
+
+                // Notify that IdentityCreator is ready
+                tx.send(IdentityManagerProtocol::IdentityCreatorReady).await.expect("Unable to send message!");
+                let mut extra_credentials_expected: HashSet<String> = HashSet::from_iter((1 .. 12).map(|i| format!("id{}", i)).collect::<Vec<_>>());
+                for _ in 1 .. 12 {
+                    assert_message!(m :: IdentityCreatorProtocol::DeleteIdentity(_) in identity_creator_rx);
+                    if let IdentityCreatorProtocol::DeleteIdentity(id) = m {
+                        if extra_credentials_expected.contains(&id) {
+                            extra_credentials_expected.remove(&id);
+                        } else {
+                            assert!(false, "Deleted extra credential with id {}", id);
+                        }
+                    } else {
+                        assert!(false, "Got wrong message!");
+                    }
+                }
+                assert!(extra_credentials_expected.is_empty(),
+                 "There were credentials that should be removed but they weren't: {:?}", extra_credentials_expected);
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn test_identity_manager_identity_creator_ready_2() {
+        test_identity_manager! {
+            (watcher_rx, identity_manager_tx, _identity_creator_rx, _deployment_watched_rx, _counters) => {
+                // Notify that IdentityCreator is ready
+                assert_message!(m :: IdentityManagerProtocol::IdentityManagerInitialized in watcher_rx);
+                assert_message!(m :: IdentityManagerProtocol::IdentityManagerStarted in watcher_rx);
+                let tx = identity_manager_tx.clone();
+                tx.send(IdentityManagerProtocol::IdentityCreatorReady).await.expect("Unable to send message!");
+                // Syncing UserCredentials log message
+                assert_message!(m :: IdentityManagerProtocol::IdentityManagerDebug(_) in watcher_rx);
+                // Syncing ServiceIdentities log message
+                assert_message!(m :: IdentityManagerProtocol::IdentityManagerDebug(_) in watcher_rx);
+                let mut extra_service_identities: HashSet<String> = HashSet::from_iter((1 .. 5)
+                    .map(|i| format!("ServiceIdentity with id ns{}-srv{} unregistered", i, i))
+                    .collect::<Vec<_>>());
+                for _ in 1 .. 5 {
+                    assert_message!(m :: IdentityManagerProtocol::IdentityManagerDebug(_) in watcher_rx);
+                    if let IdentityManagerProtocol::IdentityManagerDebug(msg) = m {
+                        if extra_service_identities.contains(&msg) {
+                            extra_service_identities.remove(&msg);
+                        } else {
+                            assert!(false, "Deleted extra ServiceIdentity: {}", msg);
+                        }
+                    } else {
+                        assert!(false, "Got wrong message!");
+                    }
+                }
+                assert!(extra_service_identities.is_empty(),
+                "There were ServiceIdentities that should be removed but they weren't: {:?}", extra_service_identities);
             }
         }
     }
