@@ -1593,7 +1593,7 @@ mod tests {
     #[tokio::test]
     async fn test_identity_manager_identity_creator_ready_2() {
         test_identity_manager! {
-            (watcher_rx, identity_manager_tx, _identity_creator_rx, _deployment_watched_rx, _counters) => {
+            (watcher_rx, identity_manager_tx, _identity_creator_rx, _deployment_watched_rx, counters) => {
                 // Notify that IdentityCreator is ready
                 assert_message!(m :: IdentityManagerProtocol::IdentityManagerInitialized in watcher_rx);
                 assert_message!(m :: IdentityManagerProtocol::IdentityManagerStarted in watcher_rx);
@@ -1620,6 +1620,7 @@ mod tests {
                 }
                 assert!(extra_service_identities.is_empty(),
                 "There were ServiceIdentities that should be removed but they weren't: {:?}", extra_service_identities);
+                assert!(counters.lock().unwrap().delete_calls == 4);
             }
         }
     }
