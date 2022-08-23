@@ -231,10 +231,6 @@ impl SDPPod<'_> {
             .map(|a| a.eq("false"))
             .unwrap_or(false)
     }
-
-    fn needs_patching(&self) -> bool {
-        self.has_containers() && !self.has_any_sidecars() && !self.disabled_by_annotations()
-    }
 }
 
 impl ServiceCandidate for SDPPod<'_> {
@@ -269,7 +265,7 @@ impl Patched for SDPPod<'_> {
             .map(|s| s.clone())
             .unwrap_or(SDP_DEFAULT_CLIENT_SECRETS.to_string());
         let mut patches = vec![];
-        if self.needs_patching() {
+        if self.is_candidate() {
             let k8s_dns_service_ip = self.k8s_dns_service.maybe_ip();
             match k8s_dns_service_ip {
                 Some(ip) => {
@@ -378,9 +374,9 @@ impl Display for SDPPod<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> FResult {
         write!(
             f,
-            "POD(name:{}, needs_patching:{}, containers:[{}], volumes: [{}])",
+            "POD(name:{}, candidate:{}, containers:[{}], volumes: [{}])",
             self.name(),
-            self.needs_patching(),
+            self.is_candidate(),
             self.container_names().unwrap_or(vec![]).join(","),
             self.volume_names().unwrap_or(vec![]).join(",")
         )
@@ -583,6 +579,7 @@ mod tests {
     use k8s_openapi::api::core::v1::{Container, Pod, Service, ServiceSpec, ServiceStatus, Volume};
     use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
     use kube::core::admission::AdmissionReview;
+    use sdp_common::service::ServiceCandidate;
     use serde_json::json;
     use std::collections::{BTreeMap, HashSet};
     use std::iter::FromIterator;
@@ -881,7 +878,7 @@ POD is missing needed volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-de
                     sdp_sidecars: &sdp_sidecars,
                     k8s_dns_service: Some(&t.service),
                 };
-                let needs_patching = sdp_pod.needs_patching();
+                let needs_patching = sdp_pod.is_candidate();
                 (
                     t.needs_patching == needs_patching,
                     "Needs patching simple".to_string(),
@@ -1105,7 +1102,7 @@ POD is missing needed volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-de
                     sdp_sidecars: &sdp_sidecars,
                     k8s_dns_service: Some(&test.service),
                 };
-                let needs_patching = sdp_pod.needs_patching();
+                let needs_patching = sdp_pod.is_candidate();
                 let patch = sdp_pod.patch();
                 if test.needs_patching && needs_patching {
                     match patch
