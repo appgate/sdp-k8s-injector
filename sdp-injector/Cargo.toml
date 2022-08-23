@@ -10,6 +10,8 @@ test = true
 bench = false
 
 [dependencies]
+sdp-common = {path = "../sdp-common"}
+
 actix-web = { version = "4", features = ["rustls"] }
 serde_json = "1.0"
 serde = { version = "1.0", features = ["derive"] }
