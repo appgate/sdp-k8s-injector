@@ -51,6 +51,7 @@ macro_rules! env_var {
         env.value = Some($value);
         env
     }};
+
     (configMap :: $env_name:expr => $map_name:expr) => {{
         let mut env: EnvVar = Default::default();
         env.name = $env_name.to_string();
@@ -63,18 +64,24 @@ macro_rules! env_var {
         env.value_from = Some(env_source);
         env
     }};
-    (secrets :: $env_name:expr => $secret_name:expr) => {{
+
+    (secrets :: $env_name:expr => ($secret_name:expr, $secret_key:expr)) => {{
         let mut env: EnvVar = Default::default();
         env.name = $env_name.to_string();
         let mut env_source: EnvVarSource = Default::default();
         env_source.secret_key_ref = Some(SecretKeySelector {
-            key: $env_name.to_lowercase().replace("_", "-"),
+            key: $secret_key.to_string(),
             name: Some($secret_name.to_string()),
             optional: Some(false),
         });
         env.value_from = Some(env_source);
         env
     }};
+
+    (secrets :: $env_name:expr => $secret_name:expr) => {{
+        env_var!(secrets :: $env_name => ($secret_name, $env_name.to_lowercase().replace("_", "-")))
+    }};
+
     (fieldRef :: $env_name:expr => $field_path:expr) => {{
         let mut env: EnvVar = Default::default();
         env.name = $env_name.to_string();
@@ -91,7 +98,10 @@ macro_rules! env_var {
 fn get_env_vars(
     container_name: &str,
     client_config: &str,
-    client_secret: &str,
+    client_secret_name: &str,
+    client_secret_controller_url_key: &str,
+    client_secret_user_key: &str,
+    client_secret_pwd_key: &str,
     n_containers: String,
     k8s_dns_service_ip: Option<&str>,
 ) -> Vec<EnvVar> {
@@ -101,11 +111,11 @@ fn get_env_vars(
             env_var!(
                 configMap :: "CLIENT_LOG_LEVEL" => client_config),
             env_var!(
-                secrets :: "CLIENT_CONTROLLER_URL" => client_secret),
+                secrets :: "CLIENT_CONTROLLER_URL" => (client_secret_name, client_secret_controller_url_key)),
             env_var!(
-                secrets :: "CLIENT_USERNAME" => client_secret),
+                secrets :: "CLIENT_USERNAME" => (client_secret_name, client_secret_user_key)),
             env_var!(
-                secrets :: "CLIENT_PASSWORD" => client_secret),
+                secrets :: "CLIENT_PASSWORD" => (client_secret_name, client_secret_pwd_key)),
             env_var!(
                 fieldRef :: "POD_NODE" => "spec.nodeName"),
             env_var!(
@@ -264,6 +274,9 @@ impl Patched for SDPPod<'_> {
                     &c.name,
                     &config_map,
                     &secrets,
+                    "client_controller_url_key",
+                    "client_secret_user_key",
+                    "client_secret_pwd_key",
                     n_containers.to_string(),
                     k8s_dns_service_ip.map(|s| s.as_str()),
                 ));
