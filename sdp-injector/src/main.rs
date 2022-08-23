@@ -24,7 +24,9 @@ use std::io::{BufReader, Error as IOError, ErrorKind};
 use std::iter::FromIterator;
 use std::path::PathBuf;
 
-use sdp_common::service::ServiceCandidate;
+use sdp_common::service::{
+    is_injection_disabled, Annotated, Patched, ServiceCandidate, Validated, SDP_INJECTOR_ANNOTATION,
+};
 
 const SDP_K8S_HOST_ENV: &str = "SDP_K8S_HOST";
 const SDP_K8S_HOST_DEFAULT: &str = "kubernetes.default.svc";
@@ -155,14 +157,6 @@ async fn dns_service_discover<'a>(k8s_client: &'a Client) -> Option<Service> {
         })
 }
 
-trait Patched {
-    fn patch(&self) -> Result<Patch, Box<dyn Error>>;
-}
-
-trait Validated {
-    fn validate(&self) -> Result<(), String>;
-}
-
 trait K8SDNSService {
     fn maybe_ip(&self) -> Option<&String>;
 }
@@ -188,10 +182,6 @@ impl SDPPod<'_> {
 
     fn volumes(&self) -> Option<&Vec<Volume>> {
         self.pod.spec.as_ref().and_then(|s| s.volumes.as_ref())
-    }
-
-    fn annotations(&self) -> Option<&BTreeMap<String, String>> {
-        self.pod.metadata.annotations.as_ref()
     }
 
     fn sidecars(&self) -> Option<Vec<&Container>> {
@@ -224,13 +214,6 @@ impl SDPPod<'_> {
     fn has_containers(&self) -> bool {
         self.containers().unwrap_or(&vec![]).len() > 0
     }
-
-    fn disabled_by_annotations(&self) -> bool {
-        self.annotations()
-            .and_then(|bm| bm.get("sdp-injector"))
-            .map(|a| a.eq("false"))
-            .unwrap_or(false)
-    }
 }
 
 impl ServiceCandidate for SDPPod<'_> {
@@ -247,7 +230,7 @@ impl ServiceCandidate for SDPPod<'_> {
     }
 
     fn is_candidate(&self) -> bool {
-        self.has_containers() && !self.has_any_sidecars() && !self.disabled_by_annotations()
+        self.has_containers() && !self.has_any_sidecars() && !is_injection_disabled(&self.pod)
     }
 }
 
@@ -255,13 +238,13 @@ impl Patched for SDPPod<'_> {
     fn patch(&self) -> Result<Patch, Box<dyn Error>> {
         info!("Patching POD with SDP client");
         let config_map = self
-            .annotations()
-            .and_then(|bt| bt.get(SDP_ANNOTATION_CLIENT_CONFIG))
+            .pod
+            .annotation(SDP_ANNOTATION_CLIENT_CONFIG)
             .map(|s| s.clone())
             .unwrap_or(SDP_DEFAULT_CLIENT_CONFIG.to_string());
         let secrets = self
-            .annotations()
-            .and_then(|bt| bt.get(SDP_ANNOTATION_CLIENT_SECRETS))
+            .pod
+            .annotation(SDP_ANNOTATION_CLIENT_SECRETS)
             .map(|s| s.clone())
             .unwrap_or(SDP_DEFAULT_CLIENT_SECRETS.to_string());
         let mut patches = vec![];

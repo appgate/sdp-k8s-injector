@@ -1,9 +1,15 @@
 pub use crate::crd::ServiceIdentity;
-use k8s_openapi::api::apps::v1::Deployment;
+use json_patch::Patch;
+use k8s_openapi::api::{apps::v1::Deployment, core::v1::Pod};
 use kube::ResourceExt;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::{
+    collections::{BTreeMap, HashMap},
+    error::Error,
+};
+
+pub const SDP_INJECTOR_ANNOTATION: &str = "sdp-injector";
 
 #[derive(Clone, JsonSchema, Debug, Serialize, Deserialize, PartialEq)]
 pub struct ServiceCredentialsRef {
@@ -12,6 +18,29 @@ pub struct ServiceCredentialsRef {
     pub secret: String,
     pub user_field: String,
     pub password_field: String,
+}
+
+pub fn is_injection_disabled<A: Annotated>(entity: &A) -> bool {
+    entity
+        .annotation(SDP_INJECTOR_ANNOTATION)
+        .map(|v| v.to_lowercase() == "false" || v == "0")
+        .unwrap_or(false)
+}
+
+pub trait Annotated {
+    fn annotations(&self) -> &BTreeMap<String, String>;
+
+    fn annotation(&self, annotation: &str) -> Option<&String> {
+        self.annotations().get(annotation)
+    }
+}
+
+pub trait Patched {
+    fn patch(&self) -> Result<Patch, Box<dyn Error>>;
+}
+
+pub trait Validated {
+    fn validate(&self) -> Result<(), String>;
 }
 
 /// Trait that defines entities that are candidates to be services
@@ -45,6 +74,18 @@ impl ServiceCandidate for ServiceIdentity {
 
     fn is_candidate(&self) -> bool {
         true
+    }
+}
+
+impl Annotated for &Pod {
+    fn annotations(&self) -> &BTreeMap<String, String> {
+        ResourceExt::annotations(*self)
+    }
+}
+
+impl Annotated for Deployment {
+    fn annotations(&self) -> &BTreeMap<String, String> {
+        ResourceExt::annotations(self)
     }
 }
 
