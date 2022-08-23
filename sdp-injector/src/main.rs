@@ -9,13 +9,13 @@ use k8s_openapi::api::core::v1::{
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::Status;
 use kube::api::{DynamicObject, ListParams};
 use kube::core::admission::{AdmissionRequest, AdmissionResponse, AdmissionReview};
-use kube::{Api, Client, Config};
+use kube::{Api, Client, Config, ResourceExt};
 use log::{debug, error, info, warn};
 use rustls::{Certificate, PrivateKey, ServerConfig};
 use rustls_pemfile::{read_one, Item};
 use serde::Deserialize;
 use std::collections::hash_map::RandomState;
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::convert::{TryFrom, TryInto};
 use std::error::Error;
 use std::fmt::{Display, Formatter, Result as FResult};
@@ -23,6 +23,8 @@ use std::fs::File;
 use std::io::{BufReader, Error as IOError, ErrorKind};
 use std::iter::FromIterator;
 use std::path::PathBuf;
+
+use sdp_common::service::ServiceCandidate;
 
 const SDP_K8S_HOST_ENV: &str = "SDP_K8S_HOST";
 const SDP_K8S_HOST_DEFAULT: &str = "kubernetes.default.svc";
@@ -153,6 +155,14 @@ async fn dns_service_discover<'a>(k8s_client: &'a Client) -> Option<Service> {
         })
 }
 
+trait Patched {
+    fn patch_sidecars(&self) -> Result<Patch, Box<dyn Error>>;
+}
+
+trait Validated {
+    fn validate_sidecars(&self) -> Result<(), String>;
+}
+
 trait K8SDNSService {
     fn maybe_ip(&self) -> Option<&String>;
 }
@@ -178,15 +188,6 @@ impl SDPPod<'_> {
 
     fn volumes(&self) -> Option<&Vec<Volume>> {
         self.pod.spec.as_ref().and_then(|s| s.volumes.as_ref())
-    }
-
-    fn name(&self) -> String {
-        self.pod
-            .metadata
-            .name
-            .as_ref()
-            .map(|x| x.clone())
-            .unwrap_or("Unnamed".to_string())
     }
 
     fn annotations(&self) -> Option<&BTreeMap<String, String>> {
@@ -234,7 +235,27 @@ impl SDPPod<'_> {
     fn needs_patching(&self) -> bool {
         self.has_containers() && !self.has_any_sidecars() && !self.disabled_by_annotations()
     }
+}
 
+impl ServiceCandidate for SDPPod<'_> {
+    fn name(&self) -> String {
+        self.pod.name()
+    }
+
+    fn namespace(&self) -> String {
+        self.pod.namespace().unwrap_or("default".to_string())
+    }
+
+    fn labels(&self) -> std::collections::HashMap<String, String> {
+        HashMap::from_iter(self.pod.labels().iter().map(|s| (s.0.clone(), s.1.clone())))
+    }
+
+    fn is_candidate(&self) -> bool {
+        self.has_containers() && !self.has_any_sidecars() && !self.disabled_by_annotations()
+    }
+}
+
+impl Patched for SDPPod<'_> {
     fn patch_sidecars(&self) -> Result<Patch, Box<dyn Error>> {
         info!("Patching POD with SDP client");
         let config_map = self
@@ -302,7 +323,9 @@ impl SDPPod<'_> {
             Ok(Patch(patches))
         }
     }
+}
 
+impl Validated for SDPPod<'_> {
     fn validate_sidecars(&self) -> Result<(), String> {
         let expected_volume_names =
             HashSet::from_iter(self.sdp_sidecars.volumes.iter().map(|v| v.name.clone()));
@@ -551,9 +574,10 @@ async fn get_dns_service(request: HttpRequest) -> Result<HttpResponse, error::Er
 #[cfg(test)]
 mod tests {
     use crate::{
-        load_sidecar_containers, patch_request, SDPPatchContext, SDPPod, SDPSidecars,
-        SDP_ANNOTATION_CLIENT_CONFIG, SDP_ANNOTATION_CLIENT_SECRETS, SDP_DEFAULT_CLIENT_CONFIG,
-        SDP_DEFAULT_CLIENT_SECRETS, SDP_SERVICE_CONTAINER_NAME, SDP_SIDECARS_FILE_ENV,
+        load_sidecar_containers, patch_request, Patched, SDPPatchContext, SDPPod, SDPSidecars,
+        Validated, SDP_ANNOTATION_CLIENT_CONFIG, SDP_ANNOTATION_CLIENT_SECRETS,
+        SDP_DEFAULT_CLIENT_CONFIG, SDP_DEFAULT_CLIENT_SECRETS, SDP_SERVICE_CONTAINER_NAME,
+        SDP_SIDECARS_FILE_ENV,
     };
     use json_patch::Patch;
     use k8s_openapi::api::core::v1::{Container, Pod, Service, ServiceSpec, ServiceStatus, Volume};
