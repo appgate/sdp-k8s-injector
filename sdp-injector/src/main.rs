@@ -156,11 +156,11 @@ async fn dns_service_discover<'a>(k8s_client: &'a Client) -> Option<Service> {
 }
 
 trait Patched {
-    fn patch_sidecars(&self) -> Result<Patch, Box<dyn Error>>;
+    fn patch(&self) -> Result<Patch, Box<dyn Error>>;
 }
 
 trait Validated {
-    fn validate_sidecars(&self) -> Result<(), String>;
+    fn validate(&self) -> Result<(), String>;
 }
 
 trait K8SDNSService {
@@ -256,7 +256,7 @@ impl ServiceCandidate for SDPPod<'_> {
 }
 
 impl Patched for SDPPod<'_> {
-    fn patch_sidecars(&self) -> Result<Patch, Box<dyn Error>> {
+    fn patch(&self) -> Result<Patch, Box<dyn Error>> {
         info!("Patching POD with SDP client");
         let config_map = self
             .annotations()
@@ -326,7 +326,7 @@ impl Patched for SDPPod<'_> {
 }
 
 impl Validated for SDPPod<'_> {
-    fn validate_sidecars(&self) -> Result<(), String> {
+    fn validate(&self) -> Result<(), String> {
         let expected_volume_names =
             HashSet::from_iter(self.sdp_sidecars.volumes.iter().map(|v| v.name.clone()));
         let expected_container_names =
@@ -480,7 +480,7 @@ fn patch_request(
         k8s_dns_service: sdp_context.k8s_dns_service.as_ref(),
     };
     let mut admission_response = AdmissionResponse::from(&admission_request);
-    match sdp_pod.patch_sidecars() {
+    match sdp_pod.patch() {
         Ok(patch) => admission_response = admission_response.with_patch(patch)?,
         Err(error) => {
             let mut status: Status = Default::default();
@@ -510,7 +510,7 @@ fn validate_request(
         k8s_dns_service: Option::None,
     };
     let mut admission_response = AdmissionResponse::from(&admission_request);
-    if let Err(error) = sdp_pod.validate_sidecars() {
+    if let Err(error) = sdp_pod.validate() {
         let mut status: Status = Default::default();
         status.code = Some(40);
         status.message = Some(error);
@@ -1106,7 +1106,7 @@ POD is missing needed volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-de
                     k8s_dns_service: Some(&test.service),
                 };
                 let needs_patching = sdp_pod.needs_patching();
-                let patch = sdp_pod.patch_sidecars();
+                let patch = sdp_pod.patch();
                 if test.needs_patching && needs_patching {
                     match patch
                         .map_err(|e| e.to_string())
@@ -1244,7 +1244,7 @@ POD is missing needed volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-de
                     sdp_sidecars: &sdp_sidecars,
                     k8s_dns_service: Some(&service),
                 };
-                let pass_validation = sdp_pod.validate_sidecars();
+                let pass_validation = sdp_pod.validate();
                 match (pass_validation, t.validation_errors.as_ref()) {
                     (Ok(_), Some(expected_error)) => {
                         let error_message =
