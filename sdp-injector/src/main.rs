@@ -617,9 +617,12 @@ mod tests {
         () => {{
             let mut pod: Pod = Default::default();
             pod.spec = Some(Default::default());
-            pod
+            test_pod!(pod)
         }};
-        ($pod:expr) => {{$pod}};
+        ($pod:expr) => {{
+            $pod.metadata.name = Some("TestContainer".to_string());
+            $pod
+        }};
         ($($fs:ident => $es:expr),*) => {{
             let mut pod: Pod = Default::default();
             pod.spec = Some(Default::default());
@@ -695,6 +698,7 @@ mod tests {
         let sdp_sidecar_names = sdp_sidecars.container_names();
         vec![
             TestPatch {
+                pod: test_pod!(),
                 envs: vec![("POD_N_CONTAINERS".to_string(), Some("0".to_string()))],
                 service: Service::default(),
                 ..Default::default()
