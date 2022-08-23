@@ -15,7 +15,7 @@ use rustls::{Certificate, PrivateKey, ServerConfig};
 use rustls_pemfile::{read_one, Item};
 use serde::Deserialize;
 use std::collections::hash_map::RandomState;
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{HashMap, HashSet};
 use std::convert::{TryFrom, TryInto};
 use std::error::Error;
 use std::fmt::{Display, Formatter, Result as FResult};
@@ -24,9 +24,7 @@ use std::io::{BufReader, Error as IOError, ErrorKind};
 use std::iter::FromIterator;
 use std::path::PathBuf;
 
-use sdp_common::service::{
-    is_injection_disabled, Annotated, Patched, ServiceCandidate, Validated, SDP_INJECTOR_ANNOTATION,
-};
+use sdp_common::service::{is_injection_disabled, Annotated, Patched, ServiceCandidate, Validated};
 
 const SDP_K8S_HOST_ENV: &str = "SDP_K8S_HOST";
 const SDP_K8S_HOST_DEFAULT: &str = "kubernetes.default.svc";
