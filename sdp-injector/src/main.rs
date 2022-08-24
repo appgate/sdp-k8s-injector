@@ -1,3 +1,4 @@
+use actix_web::web::{self, Data};
 use actix_web::{error, get, post, App, HttpRequest, HttpResponse, HttpServer};
 use http::Uri;
 use json_patch::PatchOperation::Add;
@@ -13,6 +14,7 @@ use kube::{Api, Client, Config, ResourceExt};
 use log::{debug, error, info, warn};
 use rustls::{Certificate, PrivateKey, ServerConfig};
 use rustls_pemfile::{read_one, Item};
+use sdp_common::crd::ServiceDeviceIds;
 use serde::Deserialize;
 use std::collections::hash_map::RandomState;
 use std::collections::{HashMap, HashSet};
@@ -23,8 +25,11 @@ use std::fs::File;
 use std::io::{BufReader, Error as IOError, ErrorKind};
 use std::iter::FromIterator;
 use std::path::PathBuf;
+use std::sync::Arc;
 
-use sdp_common::service::{is_injection_disabled, Annotated, Patched, ServiceCandidate, Validated};
+use sdp_common::service::{
+    is_injection_disabled, Annotated, ServiceCandidate, ServiceIdentity, Validated,
+};
 
 const SDP_K8S_HOST_ENV: &str = "SDP_K8S_HOST";
 const SDP_K8S_HOST_DEFAULT: &str = "kubernetes.default.svc";
@@ -93,47 +98,18 @@ macro_rules! env_var {
     }};
 }
 
-fn get_env_vars(
-    container_name: &str,
-    client_config: &str,
-    client_secret_name: &str,
-    client_secret_controller_url_key: &str,
-    client_secret_user_key: &str,
-    client_secret_pwd_key: &str,
-    n_containers: String,
-    k8s_dns_service_ip: Option<&str>,
-) -> Vec<EnvVar> {
-    let k8s_dns = k8s_dns_service_ip.unwrap_or("").to_string();
-    if container_name == SDP_SERVICE_CONTAINER_NAME {
-        vec![
-            env_var!(
-                configMap :: "CLIENT_LOG_LEVEL" => client_config),
-            env_var!(
-                secrets :: "CLIENT_CONTROLLER_URL" => (client_secret_name, client_secret_controller_url_key)),
-            env_var!(
-                secrets :: "CLIENT_USERNAME" => (client_secret_name, client_secret_user_key)),
-            env_var!(
-                secrets :: "CLIENT_PASSWORD" => (client_secret_name, client_secret_pwd_key)),
-            env_var!(
-                fieldRef :: "POD_NODE" => "spec.nodeName"),
-            env_var!(
-                fieldRef :: "POD_NAME" => "metadata.name"),
-            env_var!(
-                fieldRef :: "POD_NAMESPACE" => "metadata.namespace"),
-            env_var!(
-                fieldRef :: "POD_SERVICE_ACCOUNT" => "spec.serviceAccountName"),
-            env_var!(
-                value :: "POD_N_CONTAINERS" => n_containers),
-            env_var!(
-                value :: "K8S_DNS_SERVICE" => k8s_dns),
-        ]
-    } else {
-        vec![
-            env_var!(
-                value :: "POD_N_CONTAINERS" => n_containers),
-            env_var!(
-                value :: "K8S_DNS_SERVICE" => k8s_dns),
-        ]
+#[derive(Default)]
+pub struct IdentityStore {
+    pub identities: HashMap<String, ServiceIdentity>,
+    pub device_ids: HashMap<String, ServiceDeviceIds>,
+}
+
+impl std::fmt::Debug for IdentityStore {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FResult {
+        f.debug_struct("IdentityStore")
+            .field("identities", &self.identities.keys())
+            .field("device_ids", &self.device_ids.keys())
+            .finish()
     }
 }
 
@@ -174,6 +150,63 @@ impl K8SDNSService for Option<&Service> {
         self.as_ref()
             .and_then(|s| s.spec.as_ref())
             .and_then(|s| s.cluster_ip.as_ref())
+    }
+}
+trait Patched {
+    fn patch(&self, environment: &ServiceEnvironment) -> Result<Patch, Box<dyn Error>>;
+}
+
+struct ServiceEnvironment {
+    client_config: String,
+    client_secret_name: String,
+    client_secret_controller_url_key: String,
+    client_secret_user_key: String,
+    client_secret_pwd_key: String,
+    n_containers: String,
+    k8s_dns_service_ip: Option<String>,
+}
+
+impl ServiceEnvironment {
+    fn from_identity_store(store: &IdentityStore) -> Option<Self> {
+        None
+    }
+
+    fn from_pod(store: &Pod) -> Option<Self> {
+        None
+    }
+
+    fn variables(&self, container_name: &str) -> Vec<EnvVar> {
+        let k8s_dns = self
+            .k8s_dns_service_ip
+            .as_ref()
+            .map(|s| s.clone())
+            .unwrap_or("".to_string());
+        let mut envs: Vec<EnvVar> =
+            vec![env_var!(value :: "POD_N_CONTAINERS" => self.n_containers.clone())];
+        if container_name == SDP_SERVICE_CONTAINER_NAME {
+            envs.extend([
+                env_var!(
+                configMap :: "CLIENT_LOG_LEVEL" => self.client_config),
+                env_var!(
+                    secrets :: "CLIENT_CONTROLLER_URL" => (self.client_secret_name, self.client_secret_controller_url_key)),
+                env_var!(
+                    secrets :: "CLIENT_USERNAME" => (self.client_secret_name, self.client_secret_user_key)),
+                env_var!(
+                    secrets :: "CLIENT_PASSWORD" => (self.client_secret_name, self.client_secret_pwd_key)),
+                env_var!(
+                    fieldRef :: "POD_NODE" => "spec.nodeName"),
+                env_var!(
+                    fieldRef :: "POD_NAME" => "metadata.name"),
+                env_var!(
+                    fieldRef :: "POD_NAMESPACE" => "metadata.namespace"),
+                env_var!(
+                    fieldRef :: "POD_SERVICE_ACCOUNT" => "spec.serviceAccountName"),
+            ]);
+        }
+        if self.k8s_dns_service_ip.is_some() {
+            envs.insert(0, env_var!(value :: "K8S_DNS_SERVICE" => k8s_dns));
+        }
+        envs
     }
 }
 
@@ -243,18 +276,14 @@ impl ServiceCandidate for SDPPod<'_> {
 }
 
 impl Patched for SDPPod<'_> {
-    fn patch(&self) -> Result<Patch, Box<dyn Error>> {
+    fn patch(&self, environment: &ServiceEnvironment) -> Result<Patch, Box<dyn Error>> {
         info!("Patching POD with SDP client");
         let config_map = self
             .pod
             .annotation(SDP_ANNOTATION_CLIENT_CONFIG)
             .map(|s| s.clone())
             .unwrap_or(SDP_DEFAULT_CLIENT_CONFIG.to_string());
-        let secrets = self
-            .pod
-            .annotation(SDP_ANNOTATION_CLIENT_SECRETS)
-            .map(|s| s.clone())
-            .unwrap_or(SDP_DEFAULT_CLIENT_SECRETS.to_string());
+
         let mut patches = vec![];
         if self.is_candidate() {
             let k8s_dns_service_ip = self.k8s_dns_service.maybe_ip();
@@ -268,16 +297,7 @@ impl Patched for SDPPod<'_> {
             };
             let n_containers = self.containers().map(|xs| xs.len()).unwrap_or(0);
             for c in self.sdp_sidecars.containers.clone().iter_mut() {
-                c.env = Some(get_env_vars(
-                    &c.name,
-                    &config_map,
-                    &secrets,
-                    "client_controller_url_key",
-                    "client_secret_user_key",
-                    "client_secret_pwd_key",
-                    n_containers.to_string(),
-                    k8s_dns_service_ip.map(|s| s.as_str()),
-                ));
+                c.env = Some(environment.variables(&c.name));
                 patches.push(Add(AddOperation {
                     path: "/spec/containers/-".to_string(),
                     value: serde_json::to_value(&c)?,
@@ -398,16 +418,17 @@ struct SDPSidecars {
     dns_config: Box<DNSConfig>,
 }
 
-#[derive(Clone)]
 struct SDPInjectorContext {
     sdp_sidecars: SDPSidecars,
-    k8s_client: Client,
+    k8s_client: Arc<Client>,
+    identity_store: IdentityStore,
 }
 
 #[derive(Debug, Clone)]
 struct SDPPatchContext<'a> {
     sdp_sidecars: &'a SDPSidecars,
     k8s_dns_service: Option<Service>,
+    identity_store: &'a IdentityStore,
 }
 
 impl SDPSidecars {
@@ -470,12 +491,25 @@ fn patch_request(
         k8s_dns_service: sdp_context.k8s_dns_service.as_ref(),
     };
     let mut admission_response = AdmissionResponse::from(&admission_request);
-    match sdp_pod.patch() {
-        Ok(patch) => admission_response = admission_response.with_patch(patch)?,
-        Err(error) => {
+
+    // Try to get the service environment and use it to patch the POD
+    let environment = ServiceEnvironment::from_identity_store(sdp_context.identity_store)
+        .or_else(|| ServiceEnvironment::from_pod(pod));
+
+    match environment.map(|env| sdp_pod.patch(&env)) {
+        Some(Ok(patch)) => admission_response = admission_response.with_patch(patch)?,
+        Some(Err(error)) => {
             let mut status: Status = Default::default();
-            status.code = Some(40);
+            status.code = Some(400);
             status.message = Some(format!("This POD can not be patched {}", error.to_string()));
+            admission_response.allowed = false;
+            admission_response.result = status;
+        }
+        None => {
+            let mut status: Status = Default::default();
+            status.code = Some(503);
+            status.message =
+                Some("Unable to find ServiceIdentity for this pod, retry later".to_string());
             admission_response.allowed = false;
             admission_response.result = status;
         }
@@ -519,6 +553,7 @@ async fn mutate(request: HttpRequest, body: String) -> Result<HttpResponse, erro
     let sdp_context = SDPPatchContext {
         sdp_sidecars: &(sdp_injector_context.sdp_sidecars),
         k8s_dns_service: k8s_dns_service,
+        identity_store: &sdp_injector_context.identity_store,
     };
     let admission_review = patch_request(&body, &sdp_context);
     if admission_review.is_err() {
@@ -564,10 +599,10 @@ async fn get_dns_service(request: HttpRequest) -> Result<HttpResponse, error::Er
 #[cfg(test)]
 mod tests {
     use crate::{
-        load_sidecar_containers, patch_request, Patched, SDPPatchContext, SDPPod, SDPSidecars,
-        Validated, SDP_ANNOTATION_CLIENT_CONFIG, SDP_ANNOTATION_CLIENT_SECRETS,
-        SDP_DEFAULT_CLIENT_CONFIG, SDP_DEFAULT_CLIENT_SECRETS, SDP_SERVICE_CONTAINER_NAME,
-        SDP_SIDECARS_FILE_ENV,
+        load_sidecar_containers, patch_request, IdentityStore, Patched, SDPPatchContext, SDPPod,
+        SDPSidecars, ServiceEnvironment, Validated, SDP_ANNOTATION_CLIENT_CONFIG,
+        SDP_ANNOTATION_CLIENT_SECRETS, SDP_DEFAULT_CLIENT_CONFIG, SDP_DEFAULT_CLIENT_SECRETS,
+        SDP_SERVICE_CONTAINER_NAME, SDP_SIDECARS_FILE_ENV,
     };
     use json_patch::Patch;
     use k8s_openapi::api::core::v1::{Container, Pod, Service, ServiceSpec, ServiceStatus, Volume};
@@ -587,6 +622,20 @@ mod tests {
         );
         load_sidecar_containers()
             .map_err(|e| format!("Unable to load the sidecar information {}", e.to_string()))
+    }
+
+    macro_rules! service_environment {
+        () => {
+            ServiceEnvironment {
+                client_config: "sdp-injector-client-config".to_string(),
+                client_secret_name: "sdp-injector-client-secrets".to_string(),
+                client_secret_controller_url_key: "client-secret-controller-url-key".to_string(),
+                client_secret_user_key: "client-secret-user-key".to_string(),
+                client_secret_pwd_key: "cleint-secret-pwd-key".to_string(),
+                n_containers: "3".to_string(),
+                k8s_dns_service_ip: None,
+            }
+        };
     }
 
     macro_rules! set_pod_field {
@@ -973,7 +1022,7 @@ POD is missing needed volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-de
                                     || !secrets.name.as_ref().unwrap().eq(test_patch.client_secrets)
                                 {
                                     let error = format!(
-                                        "EnvVar {} got sdp-injector secret {:?}, expected {}",
+                                        "EnvVar {} got secret {:?}, expected {}",
                                         env_var.name, secrets.name, test_patch.client_secrets
                                     );
                                     env_errors.insert(0, error);
@@ -988,7 +1037,7 @@ POD is missing needed volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-de
                                         .eq(test_patch.client_config_map)
                                 {
                                     let error = format!(
-                                        "EnvVar {} got sdp-injector configMap {:?}, expected {}",
+                                        "EnvVar {} got configMap {:?}, expected {}",
                                         env_var.name, configmap.name, test_patch.client_config_map
                                     );
                                     env_errors.insert(0, error);
@@ -1097,7 +1146,7 @@ POD is missing needed volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-de
                     k8s_dns_service: Some(&test.service),
                 };
                 let needs_patching = sdp_pod.is_candidate();
-                let patch = sdp_pod.patch();
+                let patch = sdp_pod.patch(&service_environment!());
                 if test.needs_patching && needs_patching {
                     match patch
                         .map_err(|e| e.to_string())
@@ -1134,6 +1183,7 @@ POD is missing needed volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-de
         let sdp_context = SDPPatchContext {
             sdp_sidecars: &sdp_sidecars,
             k8s_dns_service: None,
+            identity_store: &IdentityStore::default(),
         };
         let assert_response = Box::new(|test: &TestPatch| -> Result<bool, String> {
             let sdp_pod = SDPPod {
@@ -1294,11 +1344,7 @@ fn load_ssl() -> Result<ServerConfig, Box<dyn Error>> {
 async fn main() -> std::io::Result<()> {
     env_logger::init();
     info!("Starting sdp-injector!!!!");
-    // Get the sidecar containers definition
-    // this is used to inject later the sidecars
-    let sdp_sidecars: SDPSidecars =
-        load_sidecar_containers().expect("Unable to load the sidecar information");
-
+    let identity_store = IdentityStore::default();
     let mut k8s_host = String::from("https://");
     k8s_host.push_str(&std::env::var(SDP_K8S_HOST_ENV).unwrap_or(SDP_K8S_HOST_DEFAULT.to_string()));
     let k8s_uri = k8s_host
@@ -1311,16 +1357,22 @@ async fn main() -> std::io::Result<()> {
     k8s_config.accept_invalid_certs = std::env::var(SDP_K8S_NO_VERIFY_ENV)
         .map(|v| v == "1" || v.to_lowercase() == "true")
         .unwrap_or(false);
-    let k8s_client: Client =
-        async move { Client::try_from(k8s_config).expect("Unable to create k8s client") }.await;
-    let sdp_injector_context = SDPInjectorContext {
-        sdp_sidecars: sdp_sidecars,
-        k8s_client: k8s_client,
-    };
+    let k8s_client: Arc<Client> =
+        async move { Arc::new(Client::try_from(k8s_config).expect("Unable to create k8s client")) }
+            .await;
     let ssl_config = load_ssl().expect("Unable to load certificates");
     HttpServer::new(move || {
+        // Get the sidecar containers definition
+        // this is used to inject later the sidecars
+        let sdp_sidecars: SDPSidecars =
+            load_sidecar_containers().expect("Unable to load the sidecar information");
+        let sdp_injector_context = web::Data::new(SDPInjectorContext {
+            sdp_sidecars: sdp_sidecars,
+            k8s_client: Arc::clone(&k8s_client),
+            identity_store: IdentityStore::default(),
+        });
         App::new()
-            .app_data(sdp_injector_context.clone())
+            .app_data(sdp_injector_context)
             .service(mutate)
             .service(validate)
             .service(get_dns_service)
