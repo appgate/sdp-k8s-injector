@@ -26,3 +26,18 @@ pub struct ServiceIdentitySpec {
     pub labels: HashMap<String, String>,
     pub disabled: bool,
 }
+
+/// DeviceId
+/// DeviceId represents the list of device ids assigned to a ServiceIdentity
+/// There is N uuid stored in the DeviceId where N == number of pods in a deployment/replicaset
+#[derive(Debug, CustomResource, Serialize, Deserialize, Clone, JsonSchema, PartialEq)]
+#[kube(
+    group = "injector.sdp.com",
+    version = "v1",
+    kind = "DeviceId",
+    namespaced
+)]
+pub struct DeviceIdSpec {
+    /// List of uuid assigned to a ServiceIdentity
+    pub uuids: Vec<String>,
+}

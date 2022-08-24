@@ -1738,6 +1738,10 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "env_logger",
+ "kube",
+ "sdp-common",
+ "serde",
+ "serde_json",
  "tokio",
 ]
 
