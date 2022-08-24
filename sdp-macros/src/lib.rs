@@ -185,3 +185,137 @@ pub fn identity_provider(_args: TokenStream, input: TokenStream) -> TokenStream 
     }
     .into()
 }
+
+#[proc_macro_derive(DeviceIdProvider, attributes(DeviceIdProvider))]
+pub fn derive_device_id_provider(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    // Parse the input tokens into a syntax tree.
+    let input = parse_macro_input!(input as DeriveInput);
+    let name = &input.ident;
+    let _attrs = &input.attrs;
+    let mut _has_pool_field = false;
+    if let Data::Struct(data) = input.data {
+        if let Fields::Named(fields) = data.fields {
+            if let Some(_field) = fields
+                .named
+                .iter()
+                .find(|f| f.ident.is_some() && f.ident.as_ref().unwrap().to_string() == "pool")
+            {
+                _has_pool_field = true;
+            }
+        }
+    } else {
+        panic!("#[derive(DeviceIdProider)] is only defined for structs!");
+    }
+
+    let ms: Vec<NestedMeta> = input
+        .attrs
+        .iter()
+        .flat_map(|a| match a.parse_meta() {
+            Ok(syn::Meta::List(meta)) => meta.nested.into_iter().collect(),
+            _ => {
+                vec![]
+            }
+        })
+        .collect();
+
+    let mut device_id_params = IdentityProviderParams {
+        from: Ident::new("ServiceIdentity", proc_macro2::Span::call_site()),
+        to: Ident::new("DeviceId", proc_macro2::Span::call_site()),
+    };
+    for m in ms {
+        match m {
+            Meta(NameValue(nv)) => {
+                let left = if let Some(s) = nv.path.segments.into_iter().last() {
+                    s.ident
+                } else {
+                    panic!("Use DeviceIdProviderParams(...)");
+                };
+                let right = if let syn::Lit::Str(lit) = nv.lit {
+                    Ident::new(lit.value().as_str(), proc_macro2::Span::call_site())
+                } else {
+                    panic!("Use DeviceIdProviderParams(...)");
+                };
+                match left.to_string().as_str() {
+                    "TO" => {
+                        device_id_params.to = right;
+                    }
+                    "FROM" => {
+                        device_id_params.from = right;
+                    }
+                    _ => (),
+                }
+            }
+            _ => {
+                panic!("Use DeviceIdProviderParams(...)");
+            }
+        };
+    }
+
+    // Requires pool field
+    if !_has_pool_field {
+        panic!("#[derive(DeviceIdProvider)] struct needs to implement a 'pool' field of type DeviceIdManagerPool");
+    }
+
+    // Get the parameters
+    let to = device_id_params.to;
+    let from = device_id_params.from;
+
+    // Expand this code
+    let expanded = quote! {
+        impl DeviceIdProvider for #name {
+            type From = #from;
+            type To = #to;
+
+            fn register(&mut self, device_id: Self::To) -> () {
+                self.pool.register(device_id)
+            }
+
+            fn unregister(&mut self, to: &Self::To) -> Option<Self::To> {
+                self.pool.unregister(to)
+            }
+
+            fn device_id(&self, from: &Self::From) -> Option<&Self::To> {
+                self.pool.device_id(from)
+            }
+
+            fn device_ids(&self) -> Vec<&Self::To> {
+                self.pool.device_ids()
+            }
+        }
+        impl DeviceIdPool for #name {
+            fn pop(&mut self) -> Option<String> {
+                self.pool.pop()
+            }
+
+            fn push(&mut self, device_id: String) -> () {
+                self.pool.push(device_id)
+            }
+
+            fn needs_new_device_id(&self) -> bool {
+                self.pool.needs_new_device_id()
+            }
+        }
+        impl DeviceIdManager<#from, #to> for #name {}
+    };
+    expanded.into()
+}
+
+#[proc_macro_attribute]
+pub fn device_id_provider(_args: TokenStream, input: TokenStream) -> TokenStream {
+    let mut input = parse_macro_input!(input as DeriveInput);
+    if let Data::Struct(ref mut data) = input.data {
+        if let Fields::Named(ref mut fields) = &mut data.fields {
+            let pool_field = Field::parse_named
+                .parse2(quote! { pool: DeviceIdManagerPool })
+                .expect("Unable to parse pool field!");
+            fields.named.push(pool_field);
+        }
+    } else {
+        panic!("#[device_id_provider] is only defined for structs!");
+    }
+
+    quote! {
+        #input
+    }
+    .into()
+}
