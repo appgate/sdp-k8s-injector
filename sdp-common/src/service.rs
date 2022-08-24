@@ -35,10 +35,6 @@ pub trait Annotated {
     }
 }
 
-pub trait Patched {
-    fn patch(&self) -> Result<Patch, Box<dyn Error>>;
-}
-
 pub trait Validated {
     fn validate(&self) -> Result<(), String>;
 }
@@ -110,6 +106,26 @@ impl ServiceCandidate for Deployment {
     fn is_candidate(&self) -> bool {
         ResourceExt::namespace(self) == Some("purple-devops".to_string())
         //self.annotations().get("sdp-injector").map(|v| v.eq("true")).unwrap_or(false)
+    }
+}
+
+/// Pod are the main source of ServiceCandidate
+/// Final ServiceIdentity are created from Pod
+impl ServiceCandidate for Pod {
+    fn name(&self) -> String {
+        ResourceExt::name(self)
+    }
+
+    fn namespace(&self) -> String {
+        ResourceExt::namespace(self).unwrap_or("default".to_string())
+    }
+
+    fn labels(&self) -> HashMap<String, String> {
+        HashMap::default()
+    }
+
+    fn is_candidate(&self) -> bool {
+        false
     }
 }
 

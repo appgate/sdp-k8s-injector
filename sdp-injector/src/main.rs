@@ -167,14 +167,36 @@ struct ServiceEnvironment {
 }
 
 impl ServiceEnvironment {
-    fn from_identity_store(store: &IdentityStore) -> Option<Self> {
-        None
+    fn from_identity_store(service_id: &str, store: &IdentityStore) -> Option<Self> {
+        let service = store.identities.get(service_id);
+        service.map(|s| ServiceEnvironment {
+            client_config: SDP_DEFAULT_CLIENT_CONFIG.to_string(),
+            client_secret_name: s.spec.service_credentials.secret.clone(),
+            client_secret_controller_url_key: "SOMETHING HERE".to_string(),
+            client_secret_pwd_key: s.spec.service_credentials.password_field.clone(),
+            client_secret_user_key: s.spec.service_credentials.user_field.clone(),
+            n_containers: "0".to_string(),
+            k8s_dns_service_ip: None,
+        })
     }
 
-    fn from_pod(store: &Pod) -> Option<Self> {
-        None
+    fn from_pod(pod: &Pod) -> Option<Self> {
+        let config = pod.annotation(SDP_ANNOTATION_CLIENT_CONFIG);
+        let secret = pod.annotation(SDP_ANNOTATION_CLIENT_SECRETS);
+        let user_field = format!("{}-user", pod.service_id());
+        let pwd_field = format!("{}-password", pod.service_id());
+        secret.map(|s| ServiceEnvironment {
+            client_config: config
+                .map(|s| s.clone())
+                .unwrap_or(SDP_DEFAULT_CLIENT_CONFIG.to_string()),
+            client_secret_name: s.to_string(),
+            client_secret_controller_url_key: "SOMETHING HERE".to_string(),
+            client_secret_pwd_key: user_field,
+            client_secret_user_key: pwd_field,
+            n_containers: "0".to_string(),
+            k8s_dns_service_ip: None,
+        })
     }
-
     fn variables(&self, container_name: &str) -> Vec<EnvVar> {
         let k8s_dns = self
             .k8s_dns_service_ip
@@ -259,15 +281,19 @@ impl SDPPod<'_> {
 
 impl ServiceCandidate for SDPPod<'_> {
     fn name(&self) -> String {
-        self.pod.name()
+        ServiceCandidate::name(self.pod)
     }
 
     fn namespace(&self) -> String {
-        self.pod.namespace().unwrap_or("default".to_string())
+        ServiceCandidate::namespace(self.pod)
     }
 
     fn labels(&self) -> std::collections::HashMap<String, String> {
-        HashMap::from_iter(self.pod.labels().iter().map(|s| (s.0.clone(), s.1.clone())))
+        HashMap::from_iter(
+            ServiceCandidate::labels(self.pod)
+                .iter()
+                .map(|s| (s.0.clone(), s.1.clone())),
+        )
     }
 
     fn is_candidate(&self) -> bool {
@@ -493,8 +519,11 @@ fn patch_request(
     let mut admission_response = AdmissionResponse::from(&admission_request);
 
     // Try to get the service environment and use it to patch the POD
-    let environment = ServiceEnvironment::from_identity_store(sdp_context.identity_store)
-        .or_else(|| ServiceEnvironment::from_pod(pod));
+    let environment = ServiceEnvironment::from_identity_store(
+        pod.service_id().as_str(),
+        sdp_context.identity_store,
+    )
+    .or_else(|| ServiceEnvironment::from_pod(pod));
 
     match environment.map(|env| sdp_pod.patch(&env)) {
         Some(Ok(patch)) => admission_response = admission_response.with_patch(patch)?,
