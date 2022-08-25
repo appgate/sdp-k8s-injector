@@ -25,7 +25,6 @@ version: "3.9"
 services:
   service:
     image: ghcr.io/appgate/sdp-k8s-client/sdp-headless-service:5.5.1
-    #image: sdp-service:dev
     environment:
       CLIENT_DEVICE_ID: ${CLIENT_DEVICE_ID}
       CLIENT_LOGLEVEL: ${CLIENT_LOGLEVEL}
@@ -38,7 +37,6 @@ services:
     network_mode: service:driver
   driver:
     image: ghcr.io/appgate/sdp-k8s-client/sdp-headless-driver:5.5.1
-    #image: sdp-driver:dev
     cap_add:
       - MKNOD
       - NET_ADMIN
@@ -54,7 +52,6 @@ services:
       - appgate-client
   dnsmasq:
     image: ghcr.io/appgate/sdp-k8s-client/sdp-dnsmasq:5.5.1
-    #image: sdp-dnsmasq:dev
     environment:
       # Default to redirecting to docker DNS
       K8S_DNS_SERVICE: ${K8S_DNS_SERVICE:-127.0.0.11}
