@@ -1,0 +1,71 @@
+# We simulate a pod using docker compose.
+# This is achieved by running all the containers in the same network namespace.
+#
+# dnsmasq is used to provide dynamic policy-based DNS configuration provided through the driver.
+# It listens on localhost and forwards to the appropriate DNS servers, some of them behind the tunnel.
+#
+# Configuration for the client must be provided using a .env file:
+#    $ cat .env 
+#    CLIENT_DEVICE_ID=773e6f33-5158-4480-95a0-9f200a2f5388
+#    CLIENT_LOGLEVEL=Info
+#    CLIENT_USERNAME=myuser
+#    CLIENT_PASSWORD=mypassword
+#    CLIENT_CONTROLLER_URL=appgate://mycontroller.example.com/profileurl
+#
+# The device id should be unique for each client running concurrently.
+#
+# You can now run the client using docker compose:
+#     $ docker-compose up -p myclient
+#
+# You can now use the Appgate SDP client from other containers by also joining that network namespace.
+# For example:
+#     $ echo "nameserver 127.0.0.1" > resolv.conf
+#     $ docker run -v $PWD/resolv.conf:/etc/resolv.conf --rm -it --net container:myclient_driver_1 hello-world 
+version: "3.9"
+services:
+  service:
+    image: ghcr.io/appgate/sdp-k8s-client/sdp-headless-service:5.5.1
+    #image: sdp-service:dev
+    environment:
+      CLIENT_DEVICE_ID: ${CLIENT_DEVICE_ID}
+      CLIENT_LOGLEVEL: ${CLIENT_LOGLEVEL}
+      CLIENT_CONTROLLER_URL: ${CLIENT_CONTROLLER_URL}
+      CLIENT_USERNAME: ${CLIENT_USERNAME}
+      CLIENT_PASSWORD: ${CLIENT_PASSWORD}
+    volumes:
+      - run-driver:/var/run/sdp-driver
+    user: appgate:appgate
+    network_mode: service:driver
+  driver:
+    image: ghcr.io/appgate/sdp-k8s-client/sdp-headless-driver:5.5.1
+    #image: sdp-driver:dev
+    cap_add:
+      - MKNOD
+      - NET_ADMIN
+      - NET_BIND_SERVICE
+    volumes:
+      - run-driver:/var/run/sdp-driver
+      - run-dnsmasq:/var/run/sdp-dnsmasq
+      - /dev/net/tun:/dev/net/tun
+    user: appgate:appgate
+    group_add:
+      - dnsmasq
+    networks:
+      - appgate-client
+  dnsmasq:
+    image: ghcr.io/appgate/sdp-k8s-client/sdp-dnsmasq:5.5.1
+    #image: sdp-dnsmasq:dev
+    environment:
+      # Default to redirecting to docker DNS
+      K8S_DNS_SERVICE: ${K8S_DNS_SERVICE:-127.0.0.11}
+    volumes:
+      - run-dnsmasq:/var/run/sdp-dnsmasq
+    user: dnsmasq:dnsmasq
+    # Run in the same network namespace as the driver to be able to reach dns servers
+    # accessible through gateways.
+    network_mode: service:driver
+volumes:
+  run-driver:
+  run-dnsmasq:
+networks:
+  appgate-client:
