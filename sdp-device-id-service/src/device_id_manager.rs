@@ -228,3 +228,69 @@ impl DeviceIdManagerRunner<ServiceIdentity, DeviceId> {
         .await;
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::device_id_manager::{
+        DeviceIdAPI, DeviceIdManager, DeviceIdManagerPool, DeviceIdPool, DeviceIdProvider,
+    };
+    use crate::DeviceIdManagerRunner;
+    use futures::future;
+    use kube::error::Error;
+    use sdp_common::crd::{DeviceId, ServiceIdentity};
+    use std::future::Future;
+    use std::pin::Pin;
+    use std::process::Output;
+    use std::sync::{Arc, Mutex};
+
+    #[derive(Default)]
+    struct APICounters {
+        delete_calls: usize,
+        create_calls: usize,
+        list_calls: usize,
+    }
+
+    #[sdp_macros::device_id_provider()]
+    #[derive(sdp_macros::DeviceIdProvider, Default)]
+    #[DeviceIdProvider(From = "ServiceIdentity", To = "DeviceId")]
+    struct TestDeviceIdManager {
+        api_counters: Arc<Mutex<APICounters>>,
+    }
+
+    impl TestDeviceIdManager {}
+
+    impl DeviceIdAPI for TestDeviceIdManager {
+        fn create<'a>(
+            &'a self,
+            device_id: &'a DeviceId,
+        ) -> Pin<Box<dyn Future<Output = Result<DeviceId, Error>> + Send + '_>> {
+            self.api_counters.lock().unwrap().create_calls += 1;
+            Box::pin(future::ready(Ok(device_id.clone())))
+        }
+
+        fn delete<'a>(
+            &'a self,
+            _: &'a str,
+        ) -> Pin<Box<dyn Future<Output = Result<(), Error>> + Send + '_>> {
+            self.api_counters.lock().unwrap().delete_calls += 1;
+            Box::pin(future::ready(Ok(())))
+        }
+
+        fn list(&self) -> Pin<Box<dyn Future<Output = Result<Vec<DeviceId>, Error>> + Send + '_>> {
+            self.api_counters.lock().unwrap().list_calls += 1;
+            Box::pin(future::ready(Ok(vec![])))
+        }
+    }
+
+    fn new_test_device_id_manager() -> Box<TestDeviceIdManager> {
+        Box::new(TestDeviceIdManager::default())
+    }
+
+    fn new_test_device_id_runner(
+        dm: Box<TestDeviceIdManager>,
+    ) -> DeviceIdManagerRunner<ServiceIdentity, DeviceId> {
+        DeviceIdManagerRunner {
+            dm: dm as Box<dyn DeviceIdManager<ServiceIdentity, DeviceId> + Send + Sync>,
+        }
+    }
+}

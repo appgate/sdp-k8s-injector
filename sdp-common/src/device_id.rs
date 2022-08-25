@@ -1,6 +1,6 @@
 pub use crate::crd::{DeviceId, ServiceIdentity};
-use kube::ResourceExt;
 use crate::kubernetes::SDP_K8S_NAMESPACE;
+use kube::ResourceExt;
 
 pub trait DeviceIdCandidate {
     fn name(&self) -> String;
