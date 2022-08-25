@@ -1768,6 +1768,7 @@ dependencies = [
  "schemars",
  "sdp-common",
  "sdp-macros",
+ "sdp-test-macros",
  "serde",
  "serde_json",
  "tokio",
@@ -1799,6 +1800,10 @@ dependencies = [
  "quote",
  "syn",
 ]
+
+[[package]]
+name = "sdp-test-macros"
+version = "0.1.0"
 
 [[package]]
 name = "secrecy"
