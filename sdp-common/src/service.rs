@@ -1,13 +1,9 @@
 pub use crate::crd::ServiceIdentity;
-use json_patch::Patch;
 use k8s_openapi::api::{apps::v1::Deployment, core::v1::Pod};
 use kube::ResourceExt;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use std::{
-    collections::{BTreeMap, HashMap},
-    error::Error,
-};
+use std::collections::{BTreeMap, HashMap};
 
 pub const SDP_INJECTOR_ANNOTATION: &str = "sdp-injector";
 
