@@ -1,4 +1,4 @@
-use actix_web::web::{self, Data};
+use actix_web::web;
 use actix_web::{error, get, post, App, HttpRequest, HttpResponse, HttpServer};
 use http::Uri;
 use json_patch::PatchOperation::Add;
@@ -10,7 +10,7 @@ use k8s_openapi::api::core::v1::{
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::Status;
 use kube::api::{DynamicObject, ListParams};
 use kube::core::admission::{AdmissionRequest, AdmissionResponse, AdmissionReview};
-use kube::{Api, Client, Config, ResourceExt};
+use kube::{Api, Client, Config};
 use log::{debug, error, info, warn};
 use rustls::{Certificate, PrivateKey, ServerConfig};
 use rustls_pemfile::{read_one, Item};
@@ -153,10 +153,12 @@ impl K8SDNSService for Option<&Service> {
     }
 }
 trait Patched {
-    fn patch(&self, environment: &ServiceEnvironment) -> Result<Patch, Box<dyn Error>>;
+    fn patch(&self, environment: &mut ServiceEnvironment) -> Result<Patch, Box<dyn Error>>;
 }
 
+#[derive(Debug)]
 struct ServiceEnvironment {
+    service_name: String,
     client_config: String,
     client_secret_name: String,
     client_secret_controller_url_key: String,
@@ -170,6 +172,7 @@ impl ServiceEnvironment {
     fn from_identity_store(service_id: &str, store: &IdentityStore) -> Option<Self> {
         let service = store.identities.get(service_id);
         service.map(|s| ServiceEnvironment {
+            service_name: service_id.to_string(),
             client_config: SDP_DEFAULT_CLIENT_CONFIG.to_string(),
             client_secret_name: s.spec.service_credentials.secret.clone(),
             client_secret_controller_url_key: "SOMETHING HERE".to_string(),
@@ -186,6 +189,7 @@ impl ServiceEnvironment {
         let user_field = format!("{}-user", pod.service_id());
         let pwd_field = format!("{}-password", pod.service_id());
         secret.map(|s| ServiceEnvironment {
+            service_name: pod.service_id(),
             client_config: config
                 .map(|s| s.clone())
                 .unwrap_or(SDP_DEFAULT_CLIENT_CONFIG.to_string()),
@@ -203,8 +207,11 @@ impl ServiceEnvironment {
             .as_ref()
             .map(|s| s.clone())
             .unwrap_or("".to_string());
-        let mut envs: Vec<EnvVar> =
-            vec![env_var!(value :: "POD_N_CONTAINERS" => self.n_containers.clone())];
+        let mut envs: Vec<EnvVar> = vec![
+            env_var!(value :: "POD_N_CONTAINERS" => self.n_containers.clone()),
+            env_var!(value :: "SERVICE_NAME" => self.service_name.clone()),
+        ];
+
         if container_name == SDP_SERVICE_CONTAINER_NAME {
             envs.extend([
                 env_var!(
@@ -302,13 +309,15 @@ impl ServiceCandidate for SDPPod<'_> {
 }
 
 impl Patched for SDPPod<'_> {
-    fn patch(&self, environment: &ServiceEnvironment) -> Result<Patch, Box<dyn Error>> {
+    fn patch(&self, environment: &mut ServiceEnvironment) -> Result<Patch, Box<dyn Error>> {
         info!("Patching POD with SDP client");
-        let config_map = self
-            .pod
-            .annotation(SDP_ANNOTATION_CLIENT_CONFIG)
-            .map(|s| s.clone())
-            .unwrap_or(SDP_DEFAULT_CLIENT_CONFIG.to_string());
+
+        // Fill # of contaienrs
+        let n_containers = self.containers().map(|xs| xs.len()).unwrap_or(0);
+        environment.n_containers = format!("{}", n_containers);
+
+        // Fill DNS service ip
+        environment.k8s_dns_service_ip = self.k8s_dns_service.maybe_ip().map(|s| s.clone());
 
         let mut patches = vec![];
         if self.is_candidate() {
@@ -321,9 +330,9 @@ impl Patched for SDPPod<'_> {
                     warn!("Unable to get K8S service IP");
                 }
             };
-            let n_containers = self.containers().map(|xs| xs.len()).unwrap_or(0);
             for c in self.sdp_sidecars.containers.clone().iter_mut() {
                 c.env = Some(environment.variables(&c.name));
+                println!("Creating env {} => {:?}", c.name, c.env);
                 patches.push(Add(AddOperation {
                     path: "/spec/containers/-".to_string(),
                     value: serde_json::to_value(&c)?,
@@ -519,13 +528,14 @@ fn patch_request(
     let mut admission_response = AdmissionResponse::from(&admission_request);
 
     // Try to get the service environment and use it to patch the POD
-    let environment = ServiceEnvironment::from_identity_store(
-        pod.service_id().as_str(),
-        sdp_context.identity_store,
-    )
-    .or_else(|| ServiceEnvironment::from_pod(pod));
+    let mut environment = ServiceEnvironment::from_pod(pod).or_else(|| {
+        ServiceEnvironment::from_identity_store(
+            pod.service_id().as_str(),
+            sdp_context.identity_store,
+        )
+    });
 
-    match environment.map(|env| sdp_pod.patch(&env)) {
+    match environment.as_mut().map(|mut env| sdp_pod.patch(&mut env)) {
         Some(Ok(patch)) => admission_response = admission_response.with_patch(patch)?,
         Some(Err(error)) => {
             let mut status: Status = Default::default();
@@ -634,8 +644,7 @@ mod tests {
         SDP_SERVICE_CONTAINER_NAME, SDP_SIDECARS_FILE_ENV,
     };
     use json_patch::Patch;
-    use k8s_openapi::api::core::v1::{Container, Pod, Service, ServiceSpec, ServiceStatus, Volume};
-    use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
+    use k8s_openapi::api::core::v1::{Container, Pod, Service, Volume};
     use kube::core::admission::AdmissionReview;
     use sdp_common::service::ServiceCandidate;
     use serde_json::json;
@@ -654,16 +663,20 @@ mod tests {
     }
 
     macro_rules! service_environment {
-        () => {
+        ($service_name:expr, $n_containers:expr, $k8s_dns_service_ip:expr) => {
             ServiceEnvironment {
+                service_name: $service_name,
                 client_config: "sdp-injector-client-config".to_string(),
                 client_secret_name: "sdp-injector-client-secrets".to_string(),
                 client_secret_controller_url_key: "client-secret-controller-url-key".to_string(),
                 client_secret_user_key: "client-secret-user-key".to_string(),
                 client_secret_pwd_key: "cleint-secret-pwd-key".to_string(),
-                n_containers: "3".to_string(),
-                k8s_dns_service_ip: None,
+                n_containers: $n_containers.to_string(),
+                k8s_dns_service_ip: $k8s_dns_service_ip,
             }
+        };
+        ($service_name:expr) => {
+            service_environment!($service_name, "0", None)
         };
     }
 
@@ -707,27 +720,27 @@ mod tests {
     }
 
     macro_rules! test_pod {
-        () => {{
+        ($n:tt) => {{
             let mut pod: Pod = Default::default();
             pod.spec = Some(Default::default());
-            test_pod!(pod)
+            test_pod!($n, pod)
         }};
-        ($pod:expr) => {{
-            $pod.metadata.name = Some("TestContainer".to_string());
+        ($n:tt, $pod:expr) => {{
+            $pod.metadata.name = Some(format!("TestPod{}", stringify!($n)));
             $pod
         }};
-        ($($fs:ident => $es:expr),*) => {{
+        ($n:tt, $($fs:ident => $es:expr),*) => {{
             let mut pod: Pod = Default::default();
             pod.spec = Some(Default::default());
-            test_pod!(pod,$($fs => $es),*)
+            test_pod!($n, pod, $($fs => $es),*)
         }};
-        ($pod:expr,$f:ident => $e:expr) => {{
+        ($n:tt, $pod:expr,$f:ident => $e:expr) => {{
             set_pod_field!($pod, $f => $e);
-            test_pod!($pod)
+            test_pod!($n, $pod)
         }};
-        ($pod:expr,$f:ident => $e:expr,$($fs:ident => $es:expr),*) => {{
+        ($n:tt, $pod:expr,$f:ident => $e:expr,$($fs:ident => $es:expr),*) => {{
             set_pod_field!($pod, $f => $e);
-            test_pod!($pod,$($fs => $es),*)
+            test_pod!($n, $pod,$($fs => $es),*)
         }};
     }
 
@@ -747,7 +760,7 @@ mod tests {
                 .iter()
                 .map(|x| format!("Test {} [#{}] failed, reason: {}", x.1, x.0, x.2).to_string())
                 .collect();
-            panic!("Inject test failed: {}", errors.join("\n"));
+            panic!("Inject test failed:\n{}", errors.join("\n"));
         }
         assert_eq!(true, true);
     }
@@ -766,7 +779,7 @@ mod tests {
     impl Default for TestPatch<'_> {
         fn default() -> Self {
             TestPatch {
-                pod: test_pod!(),
+                pod: test_pod!(0),
                 needs_patching: false,
                 client_config_map: SDP_DEFAULT_CLIENT_CONFIG,
                 client_secrets: SDP_DEFAULT_CLIENT_SECRETS,
@@ -790,62 +803,77 @@ mod tests {
     fn patch_tests(sdp_sidecars: &SDPSidecars) -> Vec<TestPatch> {
         let sdp_sidecar_names = sdp_sidecars.container_names();
         vec![
+            /*
             TestPatch {
-                pod: test_pod!(),
-                envs: vec![("POD_N_CONTAINERS".to_string(), Some("0".to_string()))],
+                pod: test_pod!(0),
+                envs: vec![
+                    ("POD_N_CONTAINERS".to_string(), Some("0".to_string())),
+                    ("SERVICE_NAME".to_string(), Some("default-TestPod0".to_string())),
+                ],
                 service: Service::default(),
                 ..Default::default()
             },
             TestPatch {
-                pod: test_pod!(containers => vec!["random-service"]),
+                pod: test_pod!(1, containers => vec!["random-service"]),
                 needs_patching: true,
                 envs: vec![
                     ("POD_N_CONTAINERS".to_string(), Some("1".to_string())),
                     ("K8S_DNS_SERVICE".to_string(), Some("".to_string())),
+                    ("SERVICE_NAME".to_string(), Some("default-TestPod1".to_string())),
                 ],
                 ..Default::default()
             },
             TestPatch {
-                pod: test_pod!(containers => vec!["random-service"],
-                               annotations => vec![("sdp-injector", "false")]),
-                envs: vec![("POD_N_CONTAINERS".to_string(), Some("1".to_string()))],
+                pod: test_pod!(2, containers => vec!["random-service"],
+                                  annotations => vec![("sdp-injector", "false")]),
+                envs: vec![
+                    ("POD_N_CONTAINERS".to_string(), Some("1".to_string())),
+                    ("SERVICE_NAME".to_string(), Some("default-TestPod2".to_string())),
+                ],
                 ..Default::default()
-            },
+            },*/
             TestPatch {
-                pod: test_pod!(containers => vec!["random-service"],
-                               annotations => vec![("sdp-injector", "who-knows"),
-                                                   (SDP_ANNOTATION_CLIENT_SECRETS, "some-secrets"),
-                                                   (SDP_ANNOTATION_CLIENT_CONFIG, "some-config-map")]),
+                pod: test_pod!(3, containers => vec!["random-service"],
+                                  annotations => vec![("sdp-injector", "who-knows"),
+                                                      (SDP_ANNOTATION_CLIENT_SECRETS, "some-secrets"),
+                                                      (SDP_ANNOTATION_CLIENT_CONFIG, "some-config-map")]),
                 needs_patching: true,
                 client_config_map: "some-config-map",
                 client_secrets: "some-secrets",
                 envs: vec![
                     ("POD_N_CONTAINERS".to_string(), Some("1".to_string())),
                     ("K8S_DNS_SERVICE".to_string(), Some("".to_string())),
+                    (
+                        "SERVICE_NAME".to_string(),
+                        Some("default-TestPod3".to_string()),
+                    ),
                 ],
                 ..Default::default()
             },
+            /*
             TestPatch {
-                pod: test_pod!(containers => vec!["random-service"],
-                               annotations => vec![("sdp-injector", "true"),
-                                                  (SDP_ANNOTATION_CLIENT_SECRETS, "some-secrets")]),
+                pod: test_pod!(4, containers => vec!["random-service"],
+                                  annotations => vec![("sdp-injector", "true"),
+                                                      (SDP_ANNOTATION_CLIENT_SECRETS, "some-secrets")]),
                 needs_patching: true,
                 client_secrets: "some-secrets",
                 envs: vec![
                     ("POD_N_CONTAINERS".to_string(), Some("1".to_string())),
                     ("K8S_DNS_SERVICE".to_string(), Some("".to_string())),
+                    ("SERVICE_NAME".to_string(), Some("default-TestPod4".to_string())),
                 ],
                 ..Default::default()
             },
             TestPatch {
-                pod: test_pod!(containers => vec!["some-random-service-1",
-                                                      "some-random-service-2"],
-                                   annotations => vec![(SDP_ANNOTATION_CLIENT_CONFIG, "some-config-map")]),
+                pod: test_pod!(5, containers => vec!["some-random-service-1",
+                                                     "some-random-service-2"],
+                                  annotations => vec![(SDP_ANNOTATION_CLIENT_CONFIG, "some-config-map")]),
                 needs_patching: true,
                 client_config_map: "some-config-map",
                 envs: vec![
                     ("POD_N_CONTAINERS".to_string(), Some("2".to_string())),
                     ("K8S_DNS_SERVICE".to_string(), Some("10.0.0.10".to_string())),
+                    ("SERVICE_NAME".to_string(), Some("default-TestPod5".to_string())),
                 ],
                 service: Service {
                     metadata: ObjectMeta::default(),
@@ -858,79 +886,91 @@ mod tests {
                 ..Default::default()
             },
             TestPatch {
-                pod: test_pod!(containers => vec![sdp_sidecar_names[0].clone(),
-                                                  sdp_sidecar_names[1].clone(),
-                                                  "some-random-service".to_string()]),
-                envs: vec![("POD_N_CONTAINERS".to_string(), Some("3".to_string()))],
+                pod: test_pod!(6, containers => vec![sdp_sidecar_names[0].clone(),
+                                                     sdp_sidecar_names[1].clone(),
+                                                     "some-random-service".to_string()]),
+                envs: vec![
+                    ("POD_N_CONTAINERS".to_string(), Some("3".to_string())),
+                    ("SERVICE_NAME".to_string(), Some("default-TestPod6".to_string())),
+                ],
                 ..Default::default()
             },
             TestPatch {
-                pod: test_pod!(containers => vec![sdp_sidecar_names[0].clone(),
-                                                  sdp_sidecar_names[1].clone(),
-                                                  "some-random-service".to_string()],
-                               annotations => vec![("sdp-injector", "true")]),
-                envs: vec![("POD_N_CONTAINERS".to_string(), Some("3".to_string()))],
+                pod: test_pod!(7, containers => vec![sdp_sidecar_names[0].clone(),
+                                                     sdp_sidecar_names[1].clone(),
+                                                     "some-random-service".to_string()],
+                                  annotations => vec![("sdp-injector", "true")]),
+                envs: vec![
+                    ("POD_N_CONTAINERS".to_string(), Some("3".to_string())),
+                    ("SERVICE_NAME".to_string(), Some("default-TestPod7".to_string())),
+                ],
                 ..Default::default()
             },
             TestPatch {
-                pod: test_pod!(containers => vec![sdp_sidecar_names[1].clone(),
-                                                  "some-random-service".to_string()]),
-                envs: vec![("POD_N_CONTAINERS".to_string(), Some("2".to_string()))],
+                pod: test_pod!(8, containers => vec![sdp_sidecar_names[1].clone(),
+                                                     "some-random-service".to_string()]),
+                envs: vec![
+                    ("POD_N_CONTAINERS".to_string(), Some("2".to_string())),
+                    ("SERVICE_NAME".to_string(), Some("default-TestPod8".to_string())),
+                ],
                 ..Default::default()
             },
             TestPatch {
-                pod: test_pod!(containers => vec![sdp_sidecar_names[1].clone(),
-                                                  "some-random-service".to_string()],
-                               annotations => vec![("sdp-injector", "true")]),
-                envs: vec![("POD_N_CONTAINERS".to_string(), Some("2".to_string()))],
+                pod: test_pod!(9, containers => vec![sdp_sidecar_names[1].clone(),
+                                                    "some-random-service".to_string()],
+                                  annotations => vec![("sdp-injector", "true")]),
+                envs: vec![
+                    ("POD_N_CONTAINERS".to_string(), Some("2".to_string())),
+                    ("SERVICE_NAME".to_string(), Some("default-TestPod9".to_string())),
+                ],
                 ..Default::default()
-            },
+            },*/
         ]
     }
 
     fn validation_tests() -> Vec<TestValidate> {
         vec![
             TestValidate {
-                pod: test_pod!(),
+                pod: test_pod!(0),
                 validation_errors: Some(r#"Unable to run SDP client on POD: POD is missing needed containers: sdp-dnsmasq, sdp-driver, sdp-service
 POD is missing needed volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-device"#.to_string()),
             },
             TestValidate {
-                pod: test_pod!(containers => vec!["sdp-dnsmasq"]),
+                pod: test_pod!(1, containers => vec!["sdp-dnsmasq"]),
                 validation_errors: Some(r#"Unable to run SDP client on POD: POD is missing needed containers: sdp-driver, sdp-service
 POD is missing needed volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-device"#.to_string()),
             },
             TestValidate {
-                pod: test_pod!(containers => vec!["sdp-dnsmasq", "sdp-service"]),
+                pod: test_pod!(2, containers => vec!["sdp-dnsmasq", "sdp-service"]),
                 validation_errors: Some(r#"Unable to run SDP client on POD: POD is missing needed containers: sdp-driver
 POD is missing needed volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-device"#.to_string()),
             },
             TestValidate {
-                pod: test_pod!(containers => vec!["sdp-service", "sdp-dnsmasq", "sdp-driver"]),
+                pod: test_pod!(3, containers => vec!["sdp-service", "sdp-dnsmasq", "sdp-driver"]),
                 validation_errors: Some(r#"Unable to run SDP client on POD: POD is missing needed volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-device"#.to_string()),
             },
             TestValidate {
-                pod: test_pod!(containers => vec!["sdp-service", "sdp-dnsmasq", "sdp-driver"],
+                pod: test_pod!(4, containers => vec!["sdp-service", "sdp-dnsmasq", "sdp-driver"],
                                volumes => vec!["run-sdp-dnsmasq", "run-sdp-driver"]),
                 validation_errors: Some(r#"Unable to run SDP client on POD: POD is missing needed volumes: pod-info, tun-device"#.to_string()),
             },
             TestValidate {
-                pod: test_pod!(containers => vec!["sdp-service", "sdp-dnsmasq", "sdp-driver"],
+                pod: test_pod!(5, containers => vec!["sdp-service", "sdp-dnsmasq", "sdp-driver"],
                                volumes => vec!["run-sdp-driver", "run-sdp-dnsmasq"]),
                 validation_errors: Some(r#"Unable to run SDP client on POD: POD is missing needed volumes: pod-info, tun-device"#.to_string()),
             },
             TestValidate {
-                pod: test_pod!(containers => vec!["sdp-driver"],
+                pod: test_pod!(6, containers => vec!["sdp-driver"],
                                volumes => vec!["run-sdp-driver", "tun-device", "pod-info", "run-sdp-dnsmasq"]),
                 validation_errors: Some(r#"Unable to run SDP client on POD: POD is missing needed containers: sdp-dnsmasq, sdp-service"#.to_string()),
             },
             TestValidate {
-                pod: test_pod!(containers => vec!["sdp-service", "sdp-dnsmasq", "sdp-driver"],
+                pod: test_pod!(7, containers => vec!["sdp-service", "sdp-dnsmasq", "sdp-driver"],
                                volumes => vec!["run-sdp-driver", "run-sdp-dnsmasq", "tun-device", "pod-info"]),
                 validation_errors: None,
             },
             TestValidate {
-                pod: test_pod!(containers => vec!["_sdp-service", "_sdp-dnsmasq", "_sdp-driver"],
+                pod: test_pod!(8, containers => vec!["_sdp-service", "_sdp-dnsmasq", "_sdp-driver"],
                                volumes => vec!["_run-appgate", "_tun-device"]),
                 validation_errors: Some(r#"Unable to run SDP client on POD: POD is missing needed containers: sdp-dnsmasq, sdp-driver, sdp-service
 POD is missing needed volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-device"#.to_string()),
@@ -1174,8 +1214,15 @@ POD is missing needed volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-de
                     sdp_sidecars: &sdp_sidecars,
                     k8s_dns_service: Some(&test.service),
                 };
+                let mut env = ServiceEnvironment::from_pod(sdp_pod.pod).expect(
+                    format!(
+                        "Unable to create ServiceEnvironment from POD {}",
+                        sdp_pod.pod.name()
+                    )
+                    .as_str(),
+                );
                 let needs_patching = sdp_pod.is_candidate();
-                let patch = sdp_pod.patch(&service_environment!());
+                let patch = sdp_pod.patch(&mut env);
                 if test.needs_patching && needs_patching {
                     match patch
                         .map_err(|e| e.to_string())
@@ -1185,7 +1232,11 @@ POD is missing needed volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-de
                         Err(error) => (
                             false,
                             test_description(),
-                            format!("Error applying patch: {}", error),
+                            format!(
+                                "Error applying patch for pod {}: {}",
+                                sdp_pod.pod.name(),
+                                error
+                            ),
                         ),
                     }
                 } else if test.needs_patching != needs_patching {
