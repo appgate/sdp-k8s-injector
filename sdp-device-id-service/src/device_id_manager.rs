@@ -231,17 +231,22 @@ impl DeviceIdManagerRunner<ServiceIdentity, DeviceId> {
 
 #[cfg(test)]
 mod tests {
-    use crate::device_id_manager::{
-        DeviceIdAPI, DeviceIdManager, DeviceIdManagerPool, DeviceIdPool, DeviceIdProvider,
+    use super::{
+        DeviceIdAPI, DeviceIdManager, DeviceIdManagerPool, DeviceIdManagerProtocol, DeviceIdPool,
+        DeviceIdProvider,
     };
+    use crate::DeviceIdCreatorProtocol;
     use crate::DeviceIdManagerRunner;
+    use crate::ServiceIdentityWatcherProtocol;
     use futures::future;
     use kube::error::Error;
-    use sdp_common::crd::{DeviceId, ServiceIdentity};
+    use sdp_common::crd::{DeviceId, DeviceIdSpec, ServiceIdentity};
+    use sdp_test_macros::assert_message;
     use std::future::Future;
     use std::pin::Pin;
-    use std::process::Output;
     use std::sync::{Arc, Mutex};
+    use tokio::sync::mpsc::channel;
+    use tokio::time::{timeout, Duration};
 
     #[derive(Default)]
     struct APICounters {
@@ -291,6 +296,49 @@ mod tests {
     ) -> DeviceIdManagerRunner<ServiceIdentity, DeviceId> {
         DeviceIdManagerRunner {
             dm: dm as Box<dyn DeviceIdManager<ServiceIdentity, DeviceId> + Send + Sync>,
+        }
+    }
+
+    macro_rules! device_id {
+        ($n: tt) => {
+            DeviceId::new(concat!(stringify!(id), $n), DeviceIdSpec { uuids: vec![] })
+        };
+    }
+
+    macro_rules! test_device_id_manager {
+        (($dm:ident($vs:expr), $external_rx:ident, $manager_tx:ident, $creator_rx:ident, $watcher_rx:ident, $counters:ident) => $e:expr) => {
+            let ($manager_tx, manager_rx) = channel::<DeviceIdManagerProtocol<ServiceIdentity, DeviceId>>(10);
+            let (creator_tx, mut $creator_rx) = channel::<DeviceIdCreatorProtocol>(10);
+            let (watcher_tx, mut $watcher_rx) = channel::<ServiceIdentityWatcherProtocol>(10);
+            let (external_tx, mut $external_rx) = channel::<DeviceIdManagerProtocol<ServiceIdentity, DeviceId>>(10);
+
+            let mut $dm = new_test_device_id_manager();
+            for device_id in $vs.clone() {
+                $dm.register(device_id);
+            }
+
+            let manager_tx_2 = $manager_tx.clone();
+            let $counters = $dm.api_counters.clone();
+            tokio::spawn(async move {
+                let runner = new_test_device_id_runner($dm);
+                runner.run(
+                    manager_rx, manager_tx_2, creator_tx, watcher_tx, Some(external_tx)
+                ).await
+            });
+            $e
+        };
+
+        (($external_rx:ident, $manager_tx:ident, $creator_rx:ident, $watcher_rx:ident, $counters:ident) => $e:expr) => {
+            let device_ids = vec![
+                device_id!(1),
+                device_id!(2),
+                device_id!(3),
+            ];
+            test_device_id_manager! {
+                (dm(device_ids), $external_rx, $manager_tx, $creator_rx, $watcher_rx, $counters) => {
+                    $e
+                }
+            }
         }
     }
 }

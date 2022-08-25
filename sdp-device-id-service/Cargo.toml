@@ -8,6 +8,7 @@ edition = "2021"
 [dependencies]
 sdp-common = {path = "../sdp-common"}
 sdp-macros = { path = "../sdp-macros" }
+sdp-test-macros = { path = "../sdp-test-macros" }
 
 clap = { version = "3.2.17", features = ["derive"] }
 tokio = { version = "~1.18", features = ["rt", "macros", "rt-multi-thread"] }
