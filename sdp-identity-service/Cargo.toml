@@ -12,6 +12,7 @@ test = true
 [dependencies]
 sdp-common = {path = "../sdp-common"}
 sdp-macros = { path = "../sdp-macros" }
+sdp-proc-macros = { path = "../sdp-proc-macros" }
 sdp-test-macros = { path = "../sdp-test-macros" }
 
 reqwest = { version = "0.11", features = ["hyper-rustls", "json"] }

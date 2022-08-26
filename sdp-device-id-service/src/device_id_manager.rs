@@ -89,8 +89,8 @@ trait DeviceIdAPI {
     fn list(&self) -> Pin<Box<dyn Future<Output = Result<Vec<DeviceId>, KError>> + Send + '_>>;
 }
 
-#[sdp_macros::device_id_provider()]
-#[derive(sdp_macros::DeviceIdProvider)]
+#[sdp_proc_macros::device_id_provider()]
+#[derive(sdp_proc_macros::DeviceIdProvider)]
 #[DeviceIdProvider(From = "ServiceIdentity", To = "DeviceId")]
 pub struct KubeDeviceIdManager {
     device_id_api: Api<DeviceId>,
@@ -255,8 +255,8 @@ mod tests {
         list_calls: usize,
     }
 
-    #[sdp_macros::device_id_provider()]
-    #[derive(sdp_macros::DeviceIdProvider, Default)]
+    #[sdp_proc_macros::device_id_provider()]
+    #[derive(sdp_proc_macros::DeviceIdProvider, Default)]
     #[DeviceIdProvider(From = "ServiceIdentity", To = "DeviceId")]
     struct TestDeviceIdManager {
         api_counters: Arc<Mutex<APICounters>>,
