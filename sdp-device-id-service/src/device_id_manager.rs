@@ -2,12 +2,14 @@ use crate::device_id_creator::DeviceIdCreatorProtocol;
 use crate::service_identity_watcher::ServiceIdentityWatcherProtocol;
 use kube::api::{DeleteParams, ListParams, PostParams};
 use kube::{Api, Client, Error as KError};
-use log::{error, info};
+use log::{error, info, warn};
 use sdp_common::crd::{DeviceId, ServiceIdentity};
 use sdp_common::device_id::DeviceIdCandidate;
 use sdp_common::kubernetes::SDP_K8S_NAMESPACE;
 use sdp_common::service::{HasCredentials, ServiceCandidate};
+use sdp_macros::queue_debug;
 use std::collections::{HashMap, VecDeque};
+use std::fmt::Debug;
 use std::future::Future;
 use std::pin::Pin;
 use tokio::sync::mpsc::{Receiver, Sender};
@@ -16,6 +18,7 @@ use tokio::sync::mpsc::{Receiver, Sender};
 pub enum DeviceIdManagerProtocol<From: ServiceCandidate + HasCredentials, To: DeviceIdCandidate> {
     RequestDeviceId { device_id_candidate: From },
     DeleteDeviceId { device_id: To },
+    DeviceIdManagerInitialized,
     DeviceIdManagerStarted,
 }
 
@@ -179,15 +182,18 @@ impl DeviceIdManagerRunner<ServiceIdentity, DeviceId> {
         }
     }
 
-    async fn run_device_id_manager<F: ServiceCandidate + HasCredentials + Send>(
+    async fn run_device_id_manager<F: ServiceCandidate + HasCredentials + Send + Debug>(
         dm: &mut Box<dyn DeviceIdManager<F, DeviceId> + Send + Sync>,
         mut manager_proto_rx: Receiver<DeviceIdManagerProtocol<F, DeviceId>>,
         manager_proto_tx: Sender<DeviceIdManagerProtocol<F, DeviceId>>,
         creator_proto_tx: Sender<DeviceIdCreatorProtocol>,
         watcher_proto_tx: Sender<ServiceIdentityWatcherProtocol>,
-        option: Option<&Sender<DeviceIdManagerProtocol<F, DeviceId>>>,
+        queue_tx: Option<&Sender<DeviceIdManagerProtocol<F, DeviceId>>>,
     ) {
         info!("Entering Device ID Manager main loop");
+
+        queue_debug!(DeviceIdManagerProtocol::<F, DeviceId>::DeviceIdManagerStarted => queue_tx);
+
         while let Some(message) = manager_proto_rx.recv().await {
             match message {
                 DeviceIdManagerProtocol::DeviceIdManagerStarted => {}
@@ -195,6 +201,9 @@ impl DeviceIdManagerRunner<ServiceIdentity, DeviceId> {
                     device_id_candidate: _,
                 } => {}
                 DeviceIdManagerProtocol::DeleteDeviceId { device_id: _ } => {}
+                _ => {
+                    warn!("Ignored message");
+                }
             }
         }
     }
@@ -209,6 +218,7 @@ impl DeviceIdManagerRunner<ServiceIdentity, DeviceId> {
     ) -> () {
         info!("Starting Device ID Manager");
         DeviceIdManagerRunner::initialize(&mut self.dm).await;
+        queue_debug!(DeviceIdManagerProtocol::<ServiceIdentity, DeviceId>::DeviceIdManagerInitialized => queue_tx);
 
         if let Err(err) = creator_proto_tx
             .send(DeviceIdCreatorProtocol::StartCreator)
@@ -337,6 +347,20 @@ mod tests {
             test_device_id_manager! {
                 (dm(device_ids), $queue_rx, $manager_tx, $creator_rx, $watcher_rx, $counters) => {
                     $e
+                }
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn test_device_id_manager_init() {
+        test_device_id_manager! {
+            (queue_rx, manager_tx, creator_rx, watcher_rx, counters) => {
+                assert_message! {
+                    (msg :: DeviceIdManagerProtocol::DeviceIdManagerInitialized in queue_rx) => {
+                        assert_eq!(counters.lock().unwrap().list_calls, 1);
+                        assert_message!(msg :: DeviceIdManagerProtocol::DeviceIdManagerStarted in queue_rx);
+                    }
                 }
             }
         }
