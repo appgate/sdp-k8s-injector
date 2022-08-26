@@ -572,10 +572,10 @@ mod tests {
     use futures::Future;
     use k8s_openapi::api::apps::v1::Deployment;
     use kube::{core::object::HasSpec, error::Error as KError};
+    use sdp_macros::{credentials_ref, deployment, service_identity};
     use sdp_test_macros::{assert_message, assert_no_message};
     use tokio::sync::mpsc::channel;
     use tokio::time::{sleep, timeout, Duration};
-    use sdp_macros::{deployment, service_identity, credentials_ref};
 
     use crate::{
         deployment_watcher::DeploymentWatcherProtocol,
