@@ -156,7 +156,7 @@ trait Patched {
     fn patch(&self, environment: &mut ServiceEnvironment) -> Result<Patch, Box<dyn Error>>;
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 struct ServiceEnvironment {
     service_name: String,
     client_config: String,
@@ -195,8 +195,8 @@ impl ServiceEnvironment {
                 .unwrap_or(SDP_DEFAULT_CLIENT_CONFIG.to_string()),
             client_secret_name: s.to_string(),
             client_secret_controller_url_key: "SOMETHING HERE".to_string(),
-            client_secret_pwd_key: user_field,
-            client_secret_user_key: pwd_field,
+            client_secret_pwd_key: pwd_field,
+            client_secret_user_key: user_field,
             n_containers: "0".to_string(),
             k8s_dns_service_ip: None,
         })
@@ -456,7 +456,7 @@ struct SDPSidecars {
 struct SDPInjectorContext {
     sdp_sidecars: SDPSidecars,
     k8s_client: Arc<Client>,
-    identity_store: IdentityStore,
+    identity_store: Arc<IdentityStore>,
 }
 
 #[derive(Debug, Clone)]
@@ -646,9 +646,11 @@ mod tests {
     use json_patch::Patch;
     use k8s_openapi::api::core::v1::{Container, Pod, Service, Volume};
     use kube::core::admission::AdmissionReview;
-    use sdp_common::service::ServiceCandidate;
+    use sdp_common::constants::SDP_IDENTITY_MANAGER_SECRETS;
+    use sdp_common::crd::{ServiceIdentity, ServiceIdentitySpec};
+    use sdp_common::service::{ServiceCandidate, ServiceCredentialsRef};
     use serde_json::json;
-    use std::collections::{BTreeMap, HashSet};
+    use std::collections::{BTreeMap, HashMap, HashSet};
     use std::iter::FromIterator;
 
     fn load_sidecar_containers_env() -> Result<SDPSidecars, String> {
@@ -660,6 +662,33 @@ mod tests {
         );
         load_sidecar_containers()
             .map_err(|e| format!("Unable to load the sidecar information {}", e.to_string()))
+    }
+
+    macro_rules! credentials_ref {
+        ($n:expr) => {
+            ServiceCredentialsRef {
+                id: format!("{}{}", stringify!(id), $n).to_string(),
+                name: format!("{}{}", stringify!(name), $n).to_string(),
+                secret: SDP_IDENTITY_MANAGER_SECRETS.to_string(),
+                user_field: format!("{}{}", stringify!(user_field), $n).to_string(),
+                password_field: format!("{}{}", stringify!(password_field), $n).to_string(),
+            }
+        };
+    }
+
+    macro_rules! service_identity {
+        ($n:tt) => {
+            ServiceIdentity::new(
+                concat!(stringify!(id), $n),
+                ServiceIdentitySpec {
+                    service_credentials: credentials_ref!($n),
+                    service_name: concat!(stringify!(srv), $n).to_string(),
+                    service_namespace: concat!(stringify!(ns), $n).to_string(),
+                    labels: HashMap::new(),
+                    disabled: false,
+                },
+            )
+        };
     }
 
     macro_rules! service_environment {
@@ -1004,6 +1033,7 @@ POD is missing needed volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-de
     #[test]
     fn test_pod_patch_sidecars() {
         let sdp_sidecars = load_sidecar_containers_env().expect("Unable to load sidecars context");
+
         let expected_containers = |vs: &[String]| -> HashSet<String> {
             let mut xs: Vec<String> = sdp_sidecars.container_names();
             xs.extend_from_slice(vs);
@@ -1391,6 +1421,97 @@ POD is missing needed volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-de
             .collect();
         assert_tests(&results)
     }
+
+    #[test]
+    fn test_service_environment_from_identity_store() {
+        let mut store = IdentityStore::default();
+        let mut env = ServiceEnvironment::from_identity_store("ns1-srv1", &store);
+        assert!(env.is_none());
+        let id = service_identity!(1);
+        store.identities.insert("ns1-srv1".to_string(), id);
+        env = ServiceEnvironment::from_identity_store("ns1-srv1", &store);
+        assert!(env.is_some());
+        if let Some(env) = env {
+            assert_eq!(env.service_name, "ns1-srv1".to_string());
+            assert_eq!(env.client_config, SDP_DEFAULT_CLIENT_CONFIG.to_string());
+            assert_eq!(
+                env.client_secret_name,
+                SDP_IDENTITY_MANAGER_SECRETS.to_string()
+            );
+            assert_eq!(
+                env.client_secret_controller_url_key,
+                "SOMETHING HERE".to_string()
+            );
+            assert_eq!(env.client_secret_pwd_key, "password_field1".to_string());
+            assert_eq!(env.client_secret_user_key, "user_field1".to_string());
+            assert_eq!(env.n_containers, "0".to_string());
+            assert_eq!(env.k8s_dns_service_ip, None);
+        };
+    }
+
+    #[test]
+    fn test_service_environment_from_pod() {
+        let mut pod = test_pod!(0);
+        let mut env = ServiceEnvironment::from_pod(&pod);
+        assert!(env.is_none());
+
+        pod = test_pod!(0, annotations => vec![
+            (SDP_ANNOTATION_CLIENT_SECRETS, "some-secrets"),
+            (SDP_ANNOTATION_CLIENT_CONFIG, "some-config-map")
+        ]);
+        env = ServiceEnvironment::from_pod(&pod);
+        assert!(env.is_some());
+        if let Some(env) = env {
+            assert_eq!(env.service_name, "default-TestPod0".to_string());
+            assert_eq!(env.client_config, "some-config-map".to_string());
+            assert_eq!(env.client_secret_name, "some-secrets".to_string());
+            assert_eq!(
+                env.client_secret_controller_url_key,
+                "SOMETHING HERE".to_string()
+            );
+            assert_eq!(
+                env.client_secret_pwd_key,
+                "default-TestPod0-password".to_string()
+            );
+            assert_eq!(
+                env.client_secret_user_key,
+                "default-TestPod0-user".to_string()
+            );
+            assert_eq!(env.n_containers, "0".to_string());
+            assert_eq!(env.k8s_dns_service_ip, None);
+        };
+
+        pod = test_pod!(1, annotations => vec![
+            (SDP_ANNOTATION_CLIENT_SECRETS, "some-secrets"),
+        ]);
+        env = ServiceEnvironment::from_pod(&pod);
+        assert!(env.is_some());
+        if let Some(env) = env {
+            assert_eq!(env.service_name, "default-TestPod1".to_string());
+            assert_eq!(env.client_config, SDP_DEFAULT_CLIENT_CONFIG.to_string());
+            assert_eq!(env.client_secret_name, "some-secrets".to_string());
+            assert_eq!(
+                env.client_secret_controller_url_key,
+                "SOMETHING HERE".to_string()
+            );
+            assert_eq!(
+                env.client_secret_pwd_key,
+                "default-TestPod1-password".to_string()
+            );
+            assert_eq!(
+                env.client_secret_user_key,
+                "default-TestPod1-user".to_string()
+            );
+            assert_eq!(env.n_containers, "0".to_string());
+            assert_eq!(env.k8s_dns_service_ip, None);
+        };
+
+        pod = test_pod!(1, annotations => vec![
+            (SDP_ANNOTATION_CLIENT_CONFIG, "some-config-map")
+        ]);
+        env = ServiceEnvironment::from_pod(&pod);
+        assert!(env.is_none());
+    }
 }
 
 fn load_ssl() -> Result<ServerConfig, Box<dyn Error>> {
@@ -1424,7 +1545,7 @@ fn load_ssl() -> Result<ServerConfig, Box<dyn Error>> {
 async fn main() -> std::io::Result<()> {
     env_logger::init();
     info!("Starting sdp-injector!!!!");
-    let identity_store = IdentityStore::default();
+    let identity_store = Arc::new(IdentityStore::default());
     let mut k8s_host = String::from("https://");
     k8s_host.push_str(&std::env::var(SDP_K8S_HOST_ENV).unwrap_or(SDP_K8S_HOST_DEFAULT.to_string()));
     let k8s_uri = k8s_host
@@ -1449,7 +1570,7 @@ async fn main() -> std::io::Result<()> {
         let sdp_injector_context = web::Data::new(SDPInjectorContext {
             sdp_sidecars: sdp_sidecars,
             k8s_client: Arc::clone(&k8s_client),
-            identity_store: IdentityStore::default(),
+            identity_store: Arc::clone(&identity_store),
         });
         App::new()
             .app_data(sdp_injector_context)
