@@ -575,6 +575,7 @@ mod tests {
     use sdp_test_macros::{assert_message, assert_no_message};
     use tokio::sync::mpsc::channel;
     use tokio::time::{sleep, timeout, Duration};
+    use sdp_macros::{deployment, service_identity, credentials_ref};
 
     use crate::{
         deployment_watcher::DeploymentWatcherProtocol,
@@ -587,42 +588,6 @@ mod tests {
         ServiceCredentialsPool, ServiceIdentity, ServiceIdentityAPI, ServiceIdentityProvider,
         ServiceIdentitySpec,
     };
-
-    macro_rules! deployment {
-        ($name:literal, $namespace:literal) => {{
-            let mut d = Deployment::default();
-            d.metadata.name = Some($name.to_string());
-            d.metadata.namespace = Some($namespace.to_string());
-            d
-        }};
-    }
-
-    macro_rules! credentials_ref {
-        ($n:expr) => {
-            ServiceCredentialsRef {
-                id: format!("{}{}", stringify!(id), $n).to_string(),
-                name: format!("{}{}", stringify!(name), $n).to_string(),
-                secret: format!("{}{}", stringify!(secret), $n).to_string(),
-                user_field: format!("{}{}", stringify!(field_field), $n).to_string(),
-                password_field: format!("{}{}", stringify!(password_field), $n).to_string(),
-            }
-        };
-    }
-
-    macro_rules! service_identity {
-        ($n:tt) => {
-            ServiceIdentity::new(
-                concat!(stringify!(id), $n),
-                ServiceIdentitySpec {
-                    service_credentials: credentials_ref!($n),
-                    service_name: concat!(stringify!(srv), $n).to_string(),
-                    service_namespace: concat!(stringify!(ns), $n).to_string(),
-                    labels: HashMap::new(),
-                    disabled: false,
-                },
-            )
-        };
-    }
 
     macro_rules! test_identity_manager {
         (($im:ident($vs:expr), $watcher_rx:ident, $identity_manager_proto_tx:ident, $identity_creator_proto_rx:ident, $deployment_watched_proto_rx:ident, $counters:ident) => $e:expr) => {

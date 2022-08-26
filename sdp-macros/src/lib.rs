@@ -65,3 +65,49 @@ macro_rules! sdp_error {
         sdp_log!(error | $protocol | ($target $(, $arg)*) => None);
     };
 }
+
+#[macro_export]
+macro_rules! deployment {
+    ($name:literal, $namespace:literal) => {{
+        let mut d = Deployment::default();
+        d.metadata.name = Some($name.to_string());
+        d.metadata.namespace = Some($namespace.to_string());
+        d
+    }};
+}
+
+#[macro_export]
+macro_rules! credentials_ref {
+    ($n:expr) => {
+        ServiceCredentialsRef {
+            id: format!("{}{}", stringify!(id), $n).to_string(),
+            name: format!("{}{}", stringify!(name), $n).to_string(),
+            secret: format!("{}{}", stringify!(secret), $n).to_string(),
+            user_field: format!("{}{}", stringify!(field_field), $n).to_string(),
+            password_field: format!("{}{}", stringify!(password_field), $n).to_string(),
+        }
+    };
+}
+
+#[macro_export]
+macro_rules! service_identity {
+    ($n:tt) => {
+        ServiceIdentity::new(
+            concat!(stringify!(id), $n),
+            ServiceIdentitySpec {
+                service_credentials: credentials_ref!($n),
+                service_name: concat!(stringify!(srv), $n).to_string(),
+                service_namespace: concat!(stringify!(ns), $n).to_string(),
+                labels: HashMap::new(),
+                disabled: false,
+            },
+        )
+    };
+}
+
+#[macro_export]
+macro_rules! device_id {
+    ($n: tt) => {
+        DeviceId::new(concat!(stringify!(id), $n), DeviceIdSpec { uuids: vec![] })
+    };
+}

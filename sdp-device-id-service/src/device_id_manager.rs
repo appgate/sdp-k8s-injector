@@ -250,8 +250,11 @@ mod tests {
     use crate::ServiceIdentityWatcherProtocol;
     use futures::future;
     use kube::error::Error;
-    use sdp_common::crd::{DeviceId, DeviceIdSpec, ServiceIdentity};
-    use sdp_test_macros::assert_message;
+    use sdp_common::crd::{DeviceId, DeviceIdSpec, ServiceIdentity, ServiceIdentitySpec};
+    use sdp_common::service::ServiceCredentialsRef;
+    use sdp_macros::{credentials_ref, device_id, service_identity};
+    use sdp_test_macros::{assert_message, assert_no_message};
+    use std::collections::HashMap;
     use std::future::Future;
     use std::pin::Pin;
     use std::sync::{Arc, Mutex};
@@ -307,12 +310,6 @@ mod tests {
         DeviceIdManagerRunner {
             dm: dm as Box<dyn DeviceIdManager<ServiceIdentity, DeviceId> + Send + Sync>,
         }
-    }
-
-    macro_rules! device_id {
-        ($n: tt) => {
-            DeviceId::new(concat!(stringify!(id), $n), DeviceIdSpec { uuids: vec![] })
-        };
     }
 
     macro_rules! test_device_id_manager {
