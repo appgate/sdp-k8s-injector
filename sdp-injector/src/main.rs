@@ -652,6 +652,9 @@ mod tests {
     use serde_json::json;
     use std::collections::{BTreeMap, HashMap, HashSet};
     use std::iter::FromIterator;
+    use std::sync::Arc;
+    use tokio::sync::mpsc::channel;
+    use tokio::sync::RwLock;
 
     fn load_sidecar_containers_env() -> Result<SDPSidecars, String> {
         let manifest_dir =
@@ -1511,6 +1514,58 @@ POD is missing needed volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-de
         ]);
         env = ServiceEnvironment::from_pod(&pod);
         assert!(env.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_identity_manager_identity_storage_async() {
+        let ch = channel::<bool>(1);
+        let store = Arc::new(RwLock::new(IdentityStore::default()));
+        let mut ch_rx = ch.1;
+        let ch_tx = ch.0;
+        let store_w = Arc::clone(&store);
+        let store_r = Arc::clone(&store);
+        let t1 = tokio::spawn(async move {
+            let id = service_identity!(1);
+            let mut store = store_w.write().await;
+            store.identities.insert("ns1-srv1".to_string(), id);
+            ch_tx
+                .send(true)
+                .await
+                .expect("Error notifying client thread in test");
+        });
+        let t2 = tokio::spawn(async move {
+            let store = store_r.read().await;
+            let env = ServiceEnvironment::from_identity_store("ns2-srv2", &store);
+            assert!(env.is_none());
+            if ch_rx
+                .recv()
+                .await
+                .expect("Error receiving notification from server thread in test")
+            {
+                let env = ServiceEnvironment::from_identity_store("ns1-srv1", &store);
+                assert!(env.is_some());
+                if let Some(env) = env {
+                    assert_eq!(env.service_name, "ns1-srv1".to_string());
+                    assert_eq!(env.client_config, SDP_DEFAULT_CLIENT_CONFIG.to_string());
+                    assert_eq!(
+                        env.client_secret_name,
+                        SDP_IDENTITY_MANAGER_SECRETS.to_string()
+                    );
+                    assert_eq!(
+                        env.client_secret_controller_url_key,
+                        "SOMETHING HERE".to_string()
+                    );
+                    assert_eq!(env.client_secret_pwd_key, "password_field1".to_string());
+                    assert_eq!(env.client_secret_user_key, "user_field1".to_string());
+                    assert_eq!(env.n_containers, "0".to_string());
+                    assert_eq!(env.k8s_dns_service_ip, None);
+                };
+            } else {
+                assert!(false, "Server thread in test failed!");
+            }
+        });
+        t1.await.unwrap();
+        t2.await.unwrap();
     }
 }
 

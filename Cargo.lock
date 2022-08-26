@@ -1795,6 +1795,7 @@ dependencies = [
  "sdp-common",
  "serde",
  "serde_json",
+ "tokio",
 ]
 
 [[package]]
