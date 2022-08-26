@@ -2,9 +2,10 @@ use futures::Future;
 use k8s_openapi::api::apps::v1::Deployment;
 use kube::api::{DeleteParams, ListParams, PostParams};
 use kube::{Api, Client, Error as KError};
-use log::{debug, error, info, warn};
+use log::{error, info, warn};
 pub use sdp_common::crd::{ServiceIdentity, ServiceIdentitySpec};
 use sdp_common::service::{HasCredentials, ServiceCandidate};
+use sdp_macros::{queue_debug, sdp_error, sdp_info, sdp_log, sdp_warn};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fmt;
 use std::iter::FromIterator;
@@ -179,8 +180,8 @@ impl ServiceIdentityProvider for IdentityManagerPool {
     }
 }
 
-#[sdp_macros::identity_provider()]
-#[derive(sdp_macros::IdentityProvider)]
+#[sdp_proc_macros::identity_provider()]
+#[derive(sdp_proc_macros::IdentityProvider)]
 #[IdentityProvider(From = "Deployment", To = "ServiceIdentity")]
 pub struct KubeIdentityManager {
     service_identity_api: Api<ServiceIdentity>,
@@ -237,68 +238,6 @@ pub struct IdentityManagerRunner<
     To: ServiceCandidate + HasCredentials + Send,
 > {
     im: Box<dyn IdentityManager<From, To> + Send + Sync>,
-}
-
-macro_rules! queue_debug {
-    ($msg:expr => $q:ident) => {
-        if cfg!(debug_assertions) {
-            if let Some(ref q) = $q {
-                if let Err(err) = q.send($msg).await {
-                    error!("Error notifying external watcher:{:?} => {}", $msg, err)
-                }
-            }
-        }
-    };
-}
-
-macro_rules! sdp_log {
-    ($logger:ident | ($target:expr $(, $arg:expr)*) => $q:ident) => {
-        if cfg!(debug_assertions) {
-            let t = format!($target $(, $arg)*);
-            queue_debug!(IdentityManagerProtocol::<F, ServiceIdentity>::IdentityManagerDebug(t.to_string()) => $q);
-        }
-        $logger!($target $(, $arg)*);
-    };
-}
-
-macro_rules! sdp_info {
-    (($target:expr $(, $arg:expr)*) => $q:ident) => {
-       sdp_log!(info | ($target $(, $arg)*) => $q);
-    };
-
-    ($target:expr $(, $arg:expr)*) => {
-        sdp_log!(info | ($target $(, $arg)*) => None);
-    };
-}
-
-macro_rules! sdp_warn {
-    (($target:expr $(, $arg:expr)*) => $q:ident) => {
-        sdp_log!(warn | ($target $(, $arg)*) => $q);
-    };
-
-    ($target:expr $(, $arg:expr)*) => {
-        sdp_log!(warn | ($target $(, $arg)*) => None);
-    }
-}
-
-macro_rules! sdp_debug {
-    (($target:expr $(, $arg:expr)*) => $q:ident) => {
-        sdp_log!(debug | ($target $(, $arg)*) => $q);
-    };
-
-    ($target:expr $(, $arg:expr)*) => {
-        sdp_log!(debug | ($target $(, $arg)*) => None);
-    }
-}
-
-macro_rules! sdp_error {
-    (($target:expr $(, $arg:expr)*) => $q:ident) => {
-        sdp_log!(debug | ($target $(, $arg)*) => $q);
-    };
-
-    ($target:expr $(, $arg:expr)*) => {
-        sdp_log!(error | ($target $(, $arg)*) => None);
-    }
 }
 
 /// Load all the current ServiceIdentity
@@ -360,11 +299,11 @@ impl IdentityManagerRunner<Deployment, ServiceIdentity> {
 
                             // Unregister the identity
                             if let Some(s) = im.unregister_identity(&service_identity) {
-                                sdp_info!(
+                                sdp_info!(IdentityManagerProtocol::<F, ServiceIdentity>::IdentityManagerDebug |
                                     ("ServiceIdentity with id {} unregistered", s.service_id()
                                 ) => external_queue_tx);
                             } else {
-                                sdp_warn!((
+                                sdp_warn!(IdentityManagerProtocol::<F, ServiceIdentity>::IdentityManagerDebug | (
                                     "ServiceIdentity with id {} was not registered", service_identity.service_id()
                                 ) => external_queue_tx);
                             }
@@ -380,13 +319,13 @@ impl IdentityManagerRunner<Deployment, ServiceIdentity> {
                                 ))
                                 .await
                             {
-                                sdp_error!((
+                                sdp_error!(IdentityManagerProtocol::<F, ServiceIdentity>::IdentityManagerDebug |(
                                     "Error when sending event to delete IdentityCredential: {}", err
                                 ) => external_queue_tx);
                             }
                         }
                         Err(err) => {
-                            sdp_error!((
+                            sdp_error!(IdentityManagerProtocol::<F, ServiceIdentity>::IdentityManagerDebug |(
                                 "Error deleting ServiceIdentity for service {}: {}",
                                 service_identity.service_id(),
                                 err
@@ -396,14 +335,14 @@ impl IdentityManagerRunner<Deployment, ServiceIdentity> {
                 }
                 IdentityManagerProtocol::RequestServiceIdentity { service_candidate } => {
                     let service_id = service_candidate.service_id();
-                    sdp_info!((
+                    sdp_info!(IdentityManagerProtocol::<F, ServiceIdentity>::IdentityManagerDebug |(
                         "New ServiceIdentity requested for ServiceCandidate {}",
                         service_id
                     ) => external_queue_tx);
                     match im.next_identity(&service_candidate) {
                         Some(identity) => match im.create(&identity).await {
                             Ok(service_identity) => {
-                                sdp_info!((
+                                sdp_info!(IdentityManagerProtocol::<F, ServiceIdentity>::IdentityManagerDebug |(
                                     "ServiceIdentity created for service {}",
                                     service_id
                                 ) => external_queue_tx);
@@ -414,7 +353,7 @@ impl IdentityManagerRunner<Deployment, ServiceIdentity> {
                                         .send(IdentityCreatorProtocol::CreateIdentity)
                                         .await
                                     {
-                                        sdp_error!((
+                                        sdp_error!(IdentityManagerProtocol::<F, ServiceIdentity>::IdentityManagerDebug |(
                                             "Error when sending IdentityCreatorMessage::CreateIdentity: {}",
                                             err
                                         ) => external_queue_tx);
@@ -434,14 +373,14 @@ impl IdentityManagerRunner<Deployment, ServiceIdentity> {
                                 }
                             }
                             Err(err) => {
-                                sdp_error!((
+                                sdp_error!(IdentityManagerProtocol::<F, ServiceIdentity>::IdentityManagerDebug |(
                                     "Error creating ServiceIdentity for service with id {}: {}",
                                     service_id, err
                             ) => external_queue_tx);
                             }
                         },
                         None => {
-                            sdp_error!((
+                            sdp_error!(IdentityManagerProtocol::<F, ServiceIdentity>::IdentityManagerDebug |(
                                 "Unable to assign service identity for service {}. Identities pool seems to be empty!",
                                  service_id
                                 ) => external_queue_tx);
@@ -450,12 +389,12 @@ impl IdentityManagerRunner<Deployment, ServiceIdentity> {
                 }
                 IdentityManagerProtocol::FoundServiceCandidate { service_candidate } => {
                     if let Some(service_identity) = im.identity(&service_candidate) {
-                        sdp_info!((
+                        sdp_info!(IdentityManagerProtocol::<F, ServiceIdentity>::IdentityManagerDebug |(
                             "Found registered ServiceCandidate {}",
                             service_identity.service_id()
                         ) => external_queue_tx);
                     } else {
-                        sdp_info!((
+                        sdp_info!(IdentityManagerProtocol::<F, ServiceIdentity>::IdentityManagerDebug |(
                             "Found unregistered ServiceCandidate {}, registering it",
                             service_candidate.service_id()
                         ) => external_queue_tx);
@@ -494,7 +433,7 @@ impl IdentityManagerRunner<Deployment, ServiceIdentity> {
                     user_credentials_ref,
                     activated,
                 } if !activated => {
-                    sdp_info!((
+                    sdp_info!(IdentityManagerProtocol::<F, ServiceIdentity>::IdentityManagerDebug |(
                         "Found deactivated UserCredentialsRef with id {}",
                         user_credentials_ref.id
                     ) => external_queue_tx);
@@ -507,7 +446,7 @@ impl IdentityManagerRunner<Deployment, ServiceIdentity> {
                     activated,
                 } if activated => {
                     existing_activated_credentials.insert(user_credentials_ref.id.clone());
-                    sdp_info!((
+                    sdp_info!(IdentityManagerProtocol::<F, ServiceIdentity>::IdentityManagerDebug |(
                         "Found activated UserCredentialsRef with id {}",
                         user_credentials_ref.id
                     ) => external_queue_tx);
@@ -516,7 +455,7 @@ impl IdentityManagerRunner<Deployment, ServiceIdentity> {
                 IdentityManagerProtocol::IdentityCreatorReady if !deployment_watcher_ready => {
                     info!("IdentityCreator is ready");
 
-                    sdp_info!(("Syncing UserCredentials") => external_queue_tx);
+                    sdp_info!(IdentityManagerProtocol::<F, ServiceIdentity>::IdentityManagerDebug |("Syncing UserCredentials") => external_queue_tx);
                     // Delete active credentials not in use by any service
                     for user_credentials_id in
                         im.extra_user_credentials(&existing_activated_credentials)
@@ -530,7 +469,7 @@ impl IdentityManagerRunner<Deployment, ServiceIdentity> {
                             .expect("Unable to delete obsolete UserCredentials");
                     }
 
-                    sdp_info!(("Syncing ServiceIdentities") => external_queue_tx);
+                    sdp_info!(IdentityManagerProtocol::<F, ServiceIdentity>::IdentityManagerDebug |("Syncing IdentityServices") => external_queue_tx);
                     // Delete Identity Services holding not active credentials
                     for identity_service in im.orphan_identities(&existing_activated_credentials) {
                         info!(
@@ -553,7 +492,7 @@ impl IdentityManagerRunner<Deployment, ServiceIdentity> {
                         .expect("Unable to notify DeploymentWatcher!");
                 }
                 IdentityManagerProtocol::IdentityCreatorReady => {
-                    sdp_info!(("IdentityCreator event ignored") => external_queue_tx);
+                    sdp_info!(IdentityManagerProtocol::<F, ServiceIdentity>::IdentityManagerDebug |("IdentityCreator event ignored") => external_queue_tx);
                     identity_creator_ready = true;
                 }
                 _ => {
@@ -761,8 +700,8 @@ mod tests {
         list_calls: usize,
     }
 
-    #[sdp_macros::identity_provider()]
-    #[derive(sdp_macros::IdentityProvider, Default)]
+    #[sdp_proc_macros::identity_provider()]
+    #[derive(sdp_proc_macros::IdentityProvider, Default)]
     #[IdentityProvider(From = "Deployment", To = "ServiceIdentity")]
     struct TestIdentityManager {
         api_counters: Arc<Mutex<APICounters>>,
