@@ -4,7 +4,6 @@ use clap::{Parser, Subcommand};
 use kube::CustomResourceExt;
 use sdp_common::crd::{DeviceId, ServiceIdentity};
 use sdp_common::kubernetes;
-use sdp_common::sdp::system::get_sdp_system;
 use service_identity_watcher::ServiceIdentityWatcher;
 use tokio::sync::mpsc::channel;
 
@@ -36,14 +35,11 @@ fn crd() {
 }
 
 async fn run() {
-    let manager_client1 = kubernetes::get_k8s_client().await;
-    let manager_client2 = kubernetes::get_k8s_client().await;
-    let manager_client3 = kubernetes::get_k8s_client().await;
+    let manager_client = kubernetes::get_k8s_client().await;
     let (manager_proto_tx_1, manager_proto_rx) =
         channel::<DeviceIdManagerProtocol<ServiceIdentity, DeviceId>>(50);
     let manager_proto_tx_2 = manager_proto_tx_1.clone();
-    let device_id_manager =
-        DeviceIdManagerRunner::kube_runner(manager_client1, manager_client2, manager_client3);
+    let device_id_manager = DeviceIdManagerRunner::kube_runner(manager_client);
 
     let watcher_client = kubernetes::get_k8s_client().await;
     let (watcher_proto_tx, watcher_proto_rx) = channel::<ServiceIdentityWatcherProtocol>(50);

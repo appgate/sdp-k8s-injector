@@ -108,10 +108,13 @@ macro_rules! service_identity {
 #[macro_export]
 macro_rules! device_id {
     ($n: tt) => {
-        DeviceId::new(concat!(stringify!(id), $n), DeviceIdSpec {
-            uuids: vec![],
-            service_name: concat!(stringify!(srv), $n).to_string(),
-            service_namespace: concat!(stringify!(ns), $n).to_string(),
-        })
+        DeviceId::new(
+            concat!(stringify!(id), $n),
+            DeviceIdSpec {
+                uuids: vec![],
+                service_name: concat!(stringify!(srv), $n).to_string(),
+                service_namespace: concat!(stringify!(ns), $n).to_string(),
+            },
+        )
     };
 }

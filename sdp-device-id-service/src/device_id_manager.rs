@@ -1,16 +1,14 @@
 use crate::service_identity_watcher::ServiceIdentityWatcherProtocol;
-use futures::TryFutureExt;
 use k8s_openapi::api::apps::v1::ReplicaSet;
 use k8s_openapi::api::core::v1::Pod;
-use kube::api::{DeleteParams, ListParams, ObjectMeta, PostParams};
-use kube::{Api, Client, Error as KError, Resource, ResourceExt};
+use kube::api::{DeleteParams, ListParams, PostParams};
+use kube::{Api, Client, Error as KError, Resource};
 use log::{error, info, warn};
 use sdp_common::crd::{DeviceId, DeviceIdSpec, ServiceIdentity};
 use sdp_common::device_id::DeviceIdCandidate;
-use sdp_common::kubernetes::SDP_K8S_NAMESPACE;
 use sdp_common::service::{HasCredentials, ServiceCandidate};
-use sdp_macros::{queue_debug, sdp_info, sdp_log};
-use std::collections::{HashMap, HashSet, VecDeque};
+use sdp_macros::{queue_debug, sdp_error, sdp_info, sdp_log};
+use std::collections::{HashMap, VecDeque};
 use std::fmt::Debug;
 use std::future::Future;
 use std::pin::Pin;
@@ -121,9 +119,7 @@ trait DeviceIdAPI {
 #[derive(sdp_proc_macros::DeviceIdProvider)]
 #[DeviceIdProvider(From = "ServiceIdentity", To = "DeviceId")]
 pub struct KubeDeviceIdManager {
-    device_id_api: Api<DeviceId>,
-    pod_api: Api<Pod>,
-    replicaset_api: Api<ReplicaSet>,
+    client: Client,
 }
 
 impl DeviceIdAPI for KubeDeviceIdManager {
@@ -133,21 +129,34 @@ impl DeviceIdAPI for KubeDeviceIdManager {
     ) -> Pin<Box<dyn Future<Output = Result<DeviceId, KError>> + Send + '_>> {
         let fut = async move {
             let mut uuids: Vec<String> = vec![];
-            let replicaset_lp = ListParams::default()
-                .fields(&format!("metadata.labels.app={}", "purple-crl-updater")); // only want results for our pod
-            for replicaset in self.replicaset_api.list(&replicaset_lp).await? {
-                // There should only be one replicaset
-                let pod_lp = ListParams::default();
-                for pod in self.pod_api.list(&pod_lp).await? {
-                    if pod
-                        .metadata
-                        .owner_references
-                        .as_ref()
-                        .unwrap()
-                        .iter()
-                        .any(|owner| owner.name == replicaset.name())
-                    {
-                        uuids.push(Uuid::new_v4().to_string());
+
+            let service_name = &device_id.spec.service_name;
+            let service_namespace = &device_id.spec.service_namespace;
+
+            let replicaset_api: Api<ReplicaSet> =
+                Api::namespaced(self.client.clone(), service_namespace);
+            let replicasets = replicaset_api
+                .list(&ListParams::default())
+                .await
+                .expect("Unable to list replicaset.");
+            for replicaset in replicasets {
+                if let Some(replicaset_owners) = &replicaset.meta().owner_references.as_ref() {
+                    let owner = &replicaset_owners[0];
+                    if owner.name == *service_name {
+                        let pod_api: Api<Pod> =
+                            Api::namespaced(self.client.clone(), service_namespace);
+                        let replicaset_pods = pod_api
+                            .list(&ListParams::default())
+                            .await
+                            .expect("Unable to list pods");
+                        for pod in replicaset_pods {
+                            if let Some(pod_owners) = pod.meta().owner_references.as_ref() {
+                                let pod_owner = &pod_owners[0];
+                                if pod_owner.name == *replicaset.meta().name.as_ref().unwrap() {
+                                    uuids.push(Uuid::new_v4().to_string());
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -155,11 +164,13 @@ impl DeviceIdAPI for KubeDeviceIdManager {
                 "purple-devops-purple-crl-updater",
                 DeviceIdSpec {
                     uuids,
-                    service_name: "purple-crl-updater".to_string(),
-                    service_namespace: SDP_K8S_NAMESPACE.to_string(),
+                    service_name: service_name.to_string(),
+                    service_namespace: service_namespace.to_string(),
                 },
             );
-            self.device_id_api
+            let device_id_api: Api<DeviceId> =
+                Api::namespaced(self.client.clone(), service_namespace);
+            device_id_api
                 .create(&PostParams::default(), &device_id)
                 .await
         };
@@ -171,7 +182,9 @@ impl DeviceIdAPI for KubeDeviceIdManager {
         device_id_name: &'a str,
     ) -> Pin<Box<dyn Future<Output = Result<(), KError>> + Send + '_>> {
         let fut = async move {
-            self.device_id_api
+            let device_id_api: Api<DeviceId> =
+                Api::namespaced(self.client.clone(), "purple-devops");
+            device_id_api
                 .delete(device_id_name, &DeleteParams::default())
                 .await
                 .map(|_| ())
@@ -181,7 +194,9 @@ impl DeviceIdAPI for KubeDeviceIdManager {
 
     fn list(&self) -> Pin<Box<dyn Future<Output = Result<Vec<DeviceId>, KError>> + Send + '_>> {
         let fut = async move {
-            self.device_id_api
+            let device_id_api: Api<DeviceId> =
+                Api::namespaced(self.client.clone(), "purple-devops");
+            device_id_api
                 .list(&ListParams::default())
                 .await
                 .map(|d| d.items)
@@ -205,23 +220,14 @@ pub struct DeviceIdManagerRunner<
 }
 
 impl DeviceIdManagerRunner<ServiceIdentity, DeviceId> {
-    pub fn kube_runner(
-        client1: Client,
-        client2: Client,
-        client3: Client,
-    ) -> DeviceIdManagerRunner<ServiceIdentity, DeviceId> {
-        let device_id_api: Api<DeviceId> = Api::namespaced(client1, SDP_K8S_NAMESPACE);
-        let pod_api: Api<Pod> = Api::namespaced(client2, SDP_K8S_NAMESPACE);
-        let replicaset_api: Api<ReplicaSet> = Api::namespaced(client3, SDP_K8S_NAMESPACE);
+    pub fn kube_runner(client: Client) -> DeviceIdManagerRunner<ServiceIdentity, DeviceId> {
         DeviceIdManagerRunner {
             dm: Box::new(KubeDeviceIdManager {
                 pool: DeviceIdManagerPool {
                     pool: VecDeque::with_capacity(30),
                     device_id_map: HashMap::new(),
                 },
-                device_id_api,
-                pod_api,
-                replicaset_api,
+                client,
             }),
         }
     }
@@ -248,12 +254,10 @@ impl DeviceIdManagerRunner<ServiceIdentity, DeviceId> {
         dm: &mut Box<dyn DeviceIdManager<F, DeviceId> + Send + Sync>,
         mut manager_proto_rx: Receiver<DeviceIdManagerProtocol<F, DeviceId>>,
         manager_proto_tx: Sender<DeviceIdManagerProtocol<F, DeviceId>>,
-        watcher_proto_tx: Sender<ServiceIdentityWatcherProtocol>,
+        _watcher_proto_tx: Sender<ServiceIdentityWatcherProtocol>,
         queue_tx: Option<&Sender<DeviceIdManagerProtocol<F, DeviceId>>>,
     ) {
         info!("Entering Device ID Manager main loop");
-        let mut inactive_service_identities: HashSet<ServiceIdentity> = HashSet::new();
-
         queue_debug!(DeviceIdManagerProtocol::<F, DeviceId>::DeviceIdManagerStarted => queue_tx);
 
         while let Some(message) = manager_proto_rx.recv().await {
@@ -267,12 +271,18 @@ impl DeviceIdManagerRunner<ServiceIdentity, DeviceId> {
                         "Received request for new DeviceId for ServiceIdentity {}", service_identity_ref.service_id()
                     ) => queue_tx);
 
-                    /// Just return an empty DeviceId in dm.next_device_id() to get over type check
-                    /// KubeDeviceIdManager figure out the Pod -> DeviceId mapping in dm.create()
                     match dm.next_device_id(&service_identity_ref) {
-                        Some(device_id) => match dm.create(&device_id).await {
-                            Ok(device_id) => {}
-                            Err(err) => {}
+                        Some(d) => match dm.create(&d).await {
+                            Ok(device_id) => {
+                                sdp_info!(DeviceIdManagerProtocol::<F, DeviceId>::DeviceIdManagerDebug | (
+                                    "Created DeviceID {} for ServiceIdentity {}", device_id.name(), service_identity_ref.name()
+                                ) => queue_tx);
+                            }
+                            Err(error) => {
+                                sdp_error!(DeviceIdManagerProtocol::<F, DeviceId>::DeviceIdManagerDebug | (
+                                    "Error creating DeviceId for ServiceIdentity {}: {}", service_identity_ref.name(), error
+                                ) => queue_tx);
+                            }
                         },
                         _ => {}
                     }
@@ -313,6 +323,11 @@ impl DeviceIdManagerRunner<ServiceIdentity, DeviceId> {
         info!("Starting Device ID Manager");
         DeviceIdManagerRunner::initialize(&mut self.dm).await;
         queue_debug!(DeviceIdManagerProtocol::<ServiceIdentity, DeviceId>::DeviceIdManagerInitialized => queue_tx);
+
+        watcher_proto_tx
+            .send(ServiceIdentityWatcherProtocol::DeviceIdManagerReady)
+            .await
+            .expect("Unable to send DeviceIdManagerReady message");
 
         DeviceIdManagerRunner::run_device_id_manager(
             &mut self.dm,
@@ -477,6 +492,14 @@ mod tests {
                 }
 
                 assert_eq!(counters.lock().unwrap().create_calls, 1);
+
+                assert_message! {
+                    (m :: DeviceIdManagerProtocol::DeviceIdManagerDebug(_) in queue_rx) => {
+                        if let DeviceIdManagerProtocol::DeviceIdManagerDebug(msg) = m {
+                            assert!(msg.eq("Created DeviceID id1 for ServiceIdentity srv1"), "Wrong message, got {}", msg)
+                        }
+                    }
+                }
             }
         }
     }

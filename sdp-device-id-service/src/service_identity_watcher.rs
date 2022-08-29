@@ -10,7 +10,9 @@ use sdp_common::service::{HasCredentials, ServiceCandidate};
 use tokio::sync::mpsc::{Receiver, Sender};
 
 #[derive(Debug)]
-pub enum ServiceIdentityWatcherProtocol {}
+pub enum ServiceIdentityWatcherProtocol {
+    DeviceIdManagerReady,
+}
 
 pub struct ServiceIdentityWatcher<D: ServiceCandidate + HasCredentials> {
     service_identity_api: Api<D>,
@@ -20,7 +22,12 @@ impl<'a> ServiceIdentityWatcher<ServiceIdentity> {
     async fn init(&self, mut receiver: Receiver<ServiceIdentityWatcherProtocol>) {
         info!("Waiting for DeviceIdManager to be ready");
         while let Some(message) = receiver.recv().await {
-            match message {}
+            match message {
+                ServiceIdentityWatcherProtocol::DeviceIdManagerReady => {
+                    info!("DeviceIdManager is ready. Starting ServiceIdentityWatcher.");
+                    break;
+                }
+            }
         }
     }
 
@@ -33,10 +40,19 @@ impl<'a> ServiceIdentityWatcher<ServiceIdentity> {
         watcher::watcher(self.service_identity_api.clone(), ListParams::default())
             .for_each_concurrent(5, |result| async move {
                 match result {
-                    Ok(Event::Applied(_)) => {}
+                    Ok(Event::Applied(service_identity)) => {
+                        if let Err(err) = tx
+                            .send(DeviceIdManagerProtocol::CreateDeviceId {
+                                service_identity_ref: service_identity,
+                            })
+                            .await
+                        {
+                            error!("Error requesting new DeviceId: {}", err);
+                        }
+                    }
                     Ok(Event::Restarted(_)) => {}
                     Ok(Event::Deleted(_)) => {}
-                    Err(err) => {
+                    Err(_) => {
                         error!("Error")
                     }
                 }

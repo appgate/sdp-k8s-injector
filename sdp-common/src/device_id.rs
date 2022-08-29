@@ -6,7 +6,7 @@ pub trait DeviceIdCandidate {
     fn name(&self) -> String;
     fn namespace(&self) -> String;
     fn service_identity_id(&self) -> String {
-        format!("{}-{}", self.namespace(), self.name()).to_string()
+        self.name()
     }
 }
 
