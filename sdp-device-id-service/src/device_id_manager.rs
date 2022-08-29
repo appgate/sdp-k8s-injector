@@ -1,8 +1,11 @@
 use crate::service_identity_watcher::ServiceIdentityWatcherProtocol;
-use kube::api::{DeleteParams, ListParams, PostParams};
-use kube::{Api, Client, Error as KError};
+use futures::TryFutureExt;
+use k8s_openapi::api::apps::v1::ReplicaSet;
+use k8s_openapi::api::core::v1::Pod;
+use kube::api::{DeleteParams, ListParams, ObjectMeta, PostParams};
+use kube::{Api, Client, Error as KError, Resource, ResourceExt};
 use log::{error, info, warn};
-use sdp_common::crd::{DeviceId, ServiceIdentity};
+use sdp_common::crd::{DeviceId, DeviceIdSpec, ServiceIdentity};
 use sdp_common::device_id::DeviceIdCandidate;
 use sdp_common::kubernetes::SDP_K8S_NAMESPACE;
 use sdp_common::service::{HasCredentials, ServiceCandidate};
@@ -12,6 +15,7 @@ use std::fmt::Debug;
 use std::future::Future;
 use std::pin::Pin;
 use tokio::sync::mpsc::{Receiver, Sender};
+use uuid::Uuid;
 
 #[derive(Debug)]
 pub enum DeviceIdManagerProtocol<From: ServiceCandidate + HasCredentials, To: DeviceIdCandidate> {
@@ -63,6 +67,7 @@ trait DeviceIdProvider {
     fn unregister(&mut self, to: &Self::To) -> Option<Self::To>;
     fn device_id(&self, from: &Self::From) -> Option<&Self::To>;
     fn device_ids(&self) -> Vec<&Self::To>;
+    fn next_device_id(&self, from: &Self::From) -> Option<Self::To>;
 }
 
 impl DeviceIdProvider for DeviceIdManagerPool {
@@ -83,6 +88,18 @@ impl DeviceIdProvider for DeviceIdManagerPool {
 
     fn device_ids(&self) -> Vec<&Self::To> {
         self.device_id_map.values().collect()
+    }
+
+    fn next_device_id(&self, from: &Self::From) -> Option<Self::To> {
+        let id = from.service_identity_id();
+        Some(DeviceId::new(
+            &id,
+            DeviceIdSpec {
+                uuids: vec![],
+                service_name: ServiceCandidate::name(from),
+                service_namespace: ServiceCandidate::namespace(from),
+            },
+        ))
     }
 }
 
@@ -105,6 +122,8 @@ trait DeviceIdAPI {
 #[DeviceIdProvider(From = "ServiceIdentity", To = "DeviceId")]
 pub struct KubeDeviceIdManager {
     device_id_api: Api<DeviceId>,
+    pod_api: Api<Pod>,
+    replicaset_api: Api<ReplicaSet>,
 }
 
 impl DeviceIdAPI for KubeDeviceIdManager {
@@ -113,8 +132,35 @@ impl DeviceIdAPI for KubeDeviceIdManager {
         device_id: &'a DeviceId,
     ) -> Pin<Box<dyn Future<Output = Result<DeviceId, KError>> + Send + '_>> {
         let fut = async move {
+            let mut uuids: Vec<String> = vec![];
+            let replicaset_lp = ListParams::default()
+                .fields(&format!("metadata.labels.app={}", "purple-crl-updater")); // only want results for our pod
+            for replicaset in self.replicaset_api.list(&replicaset_lp).await? {
+                // There should only be one replicaset
+                let pod_lp = ListParams::default();
+                for pod in self.pod_api.list(&pod_lp).await? {
+                    if pod
+                        .metadata
+                        .owner_references
+                        .as_ref()
+                        .unwrap()
+                        .iter()
+                        .any(|owner| owner.name == replicaset.name())
+                    {
+                        uuids.push(Uuid::new_v4().to_string());
+                    }
+                }
+            }
+            let device_id = DeviceId::new(
+                "purple-devops-purple-crl-updater",
+                DeviceIdSpec {
+                    uuids,
+                    service_name: "purple-crl-updater".to_string(),
+                    service_namespace: SDP_K8S_NAMESPACE.to_string(),
+                },
+            );
             self.device_id_api
-                .create(&PostParams::default(), device_id)
+                .create(&PostParams::default(), &device_id)
                 .await
         };
         Box::pin(fut)
@@ -159,8 +205,14 @@ pub struct DeviceIdManagerRunner<
 }
 
 impl DeviceIdManagerRunner<ServiceIdentity, DeviceId> {
-    pub fn kube_runner(client: Client) -> DeviceIdManagerRunner<ServiceIdentity, DeviceId> {
-        let device_id_api: Api<DeviceId> = Api::namespaced(client, SDP_K8S_NAMESPACE);
+    pub fn kube_runner(
+        client1: Client,
+        client2: Client,
+        client3: Client,
+    ) -> DeviceIdManagerRunner<ServiceIdentity, DeviceId> {
+        let device_id_api: Api<DeviceId> = Api::namespaced(client1, SDP_K8S_NAMESPACE);
+        let pod_api: Api<Pod> = Api::namespaced(client2, SDP_K8S_NAMESPACE);
+        let replicaset_api: Api<ReplicaSet> = Api::namespaced(client3, SDP_K8S_NAMESPACE);
         DeviceIdManagerRunner {
             dm: Box::new(KubeDeviceIdManager {
                 pool: DeviceIdManagerPool {
@@ -168,6 +220,8 @@ impl DeviceIdManagerRunner<ServiceIdentity, DeviceId> {
                     device_id_map: HashMap::new(),
                 },
                 device_id_api,
+                pod_api,
+                replicaset_api,
             }),
         }
     }
@@ -179,7 +233,7 @@ impl DeviceIdManagerRunner<ServiceIdentity, DeviceId> {
             Ok(device_ids) => {
                 info!("Restoring existing DeviceId");
                 device_ids.iter().for_each(|d| {
-                    info!("Restoring Device ID: {}", d.name());
+                    info!("Restoring Device ID");
                     dm.register(d.clone());
                 });
                 info!("Restored {} Device IDs", device_ids.len())
@@ -208,7 +262,21 @@ impl DeviceIdManagerRunner<ServiceIdentity, DeviceId> {
 
                 DeviceIdManagerProtocol::CreateDeviceId {
                     service_identity_ref,
-                } => {}
+                } => {
+                    sdp_info!(DeviceIdManagerProtocol::<F, DeviceId>::DeviceIdManagerDebug | (
+                        "Received request for new DeviceId for ServiceIdentity {}", service_identity_ref.service_id()
+                    ) => queue_tx);
+
+                    /// Just return an empty DeviceId in dm.next_device_id() to get over type check
+                    /// KubeDeviceIdManager figure out the Pod -> DeviceId mapping in dm.create()
+                    match dm.next_device_id(&service_identity_ref) {
+                        Some(device_id) => match dm.create(&device_id).await {
+                            Ok(device_id) => {}
+                            Err(err) => {}
+                        },
+                        _ => {}
+                    }
+                }
 
                 DeviceIdManagerProtocol::DeleteDeviceId { device_id: _ } => {}
 
@@ -217,9 +285,10 @@ impl DeviceIdManagerRunner<ServiceIdentity, DeviceId> {
                     activated,
                 } if !activated => {
                     sdp_info!(DeviceIdManagerProtocol::<F, DeviceId>::DeviceIdManagerDebug | (
-                        "Found inactive ServiceIdentity with id {}",
+                        "Found inactive ServiceIdentity {}",
                         service_identity_ref.service_id()
                     ) => queue_tx);
+
                     manager_proto_tx
                         .send(DeviceIdManagerProtocol::CreateDeviceId {
                             service_identity_ref,
@@ -394,10 +463,20 @@ mod tests {
                 assert_message! {
                     (m :: DeviceIdManagerProtocol::DeviceIdManagerDebug(_) in queue_rx) => {
                         if let DeviceIdManagerProtocol::DeviceIdManagerDebug(msg) = m {
-                            assert!(msg.eq("Found inactive ServiceIdentity with id ns1-srv1"), "Wrong message, got {}", msg);
+                            assert!(msg.eq("Found inactive ServiceIdentity ns1-srv1"), "Wrong message, got {}", msg);
                         }
                     }
                 }
+
+                assert_message! {
+                    (m :: DeviceIdManagerProtocol::DeviceIdManagerDebug(_) in queue_rx) => {
+                        if let DeviceIdManagerProtocol::DeviceIdManagerDebug(msg) = m {
+                            assert!(msg.eq("Received request for new DeviceId for ServiceIdentity ns1-srv1"), "Wrong message, got {}", msg)
+                        }
+                    }
+                }
+
+                assert_eq!(counters.lock().unwrap().create_calls, 1);
             }
         }
     }

@@ -281,6 +281,10 @@ pub fn derive_device_id_provider(input: proc_macro::TokenStream) -> proc_macro::
             fn device_ids(&self) -> Vec<&Self::To> {
                 self.pool.device_ids()
             }
+
+            fn next_device_id(&self, from: &Self::From) -> Option<Self::To> {
+                self.pool.next_device_id(from)
+            }
         }
         impl DeviceIdPool for #name {
             fn pop(&mut self) -> Option<String> {

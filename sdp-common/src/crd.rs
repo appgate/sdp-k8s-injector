@@ -40,4 +40,6 @@ pub struct ServiceIdentitySpec {
 pub struct DeviceIdSpec {
     /// List of uuid assigned to a ServiceIdentity
     pub uuids: Vec<String>,
+    pub service_name: String,
+    pub service_namespace: String,
 }
