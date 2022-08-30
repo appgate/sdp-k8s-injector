@@ -6,6 +6,7 @@ use kube::{Api, Client, Error as KError, Resource};
 use log::{error, info, warn};
 use sdp_common::crd::{DeviceId, DeviceIdSpec, ServiceIdentity};
 use sdp_common::device_id::DeviceIdCandidate;
+use sdp_common::kubernetes::SDP_K8S_NAMESPACE;
 use sdp_common::service::{HasCredentials, ServiceCandidate};
 use sdp_macros::{queue_debug, sdp_error, sdp_info, sdp_log};
 use std::collections::HashMap;
@@ -14,22 +15,15 @@ use std::future::Future;
 use std::pin::Pin;
 use tokio::sync::mpsc::{Receiver, Sender};
 use uuid::Uuid;
-use sdp_common::kubernetes::SDP_K8S_NAMESPACE;
 
 #[derive(Debug)]
 pub enum DeviceIdManagerProtocol<From: ServiceCandidate + HasCredentials, To: DeviceIdCandidate> {
     DeviceIdManagerDebug(String),
-    CreateDeviceId {
-        service_identity_ref: From,
-    },
-    DeleteDeviceId {
-        device_id: To,
-    },
+    CreateDeviceId { service_identity_ref: From },
+    DeleteDeviceId { device_id: To },
     DeviceIdManagerInitialized,
     DeviceIdManagerStarted,
-    FoundServiceIdentity {
-        service_identity_ref: From,
-    },
+    FoundServiceIdentity { service_identity_ref: From },
 }
 
 #[derive(Default)]
@@ -124,13 +118,18 @@ impl DeviceIdAPI for KubeDeviceIdManager {
                 if let Some(replicaset_owners) = &replicaset.meta().owner_references.as_ref() {
                     let owner = &replicaset_owners[0];
                     if owner.name == *service_name {
-
+                        let service_identity_api: Api<ServiceIdentity> =
+                            Api::namespaced(self.client.clone(), SDP_K8S_NAMESPACE);
+                        let service_identity = service_identity_api
+                            .get(device_id_name)
+                            .await
+                            .expect("Unable to get service identity");
                         owner_ref.controller = Default::default();
                         owner_ref.block_owner_deletion = Some(true);
-                        owner_ref.name = replicaset.metadata.name.unwrap();
-                        owner_ref.api_version = "app/v1".to_string();
-                        owner_ref.kind = "replicaset".to_string();
-                        owner_ref.uid = replicaset.metadata.uid.clone().unwrap_or_default();
+                        owner_ref.name = service_identity.metadata.name.unwrap();
+                        owner_ref.api_version = "injector.sdp.com/v1".to_string();
+                        owner_ref.kind = "ServiceIdentity".to_string();
+                        owner_ref.uid = service_identity.metadata.uid.clone().unwrap_or_default();
 
                         if let Some(num_replicas) = replicaset.spec.unwrap().replicas {
                             for _ in 0..num_replicas {
@@ -177,8 +176,7 @@ impl DeviceIdAPI for KubeDeviceIdManager {
 
     fn list(&self) -> Pin<Box<dyn Future<Output = Result<Vec<DeviceId>, KError>> + Send + '_>> {
         let fut = async move {
-            let device_id_api: Api<DeviceId> =
-                Api::all(self.client.clone());
+            let device_id_api: Api<DeviceId> = Api::all(self.client.clone());
             device_id_api
                 .list(&ListParams::default())
                 .await
@@ -271,7 +269,9 @@ impl DeviceIdManagerRunner<ServiceIdentity, DeviceId> {
 
                 DeviceIdManagerProtocol::DeleteDeviceId { device_id: _ } => {}
 
-                DeviceIdManagerProtocol::FoundServiceIdentity { service_identity_ref} => {
+                DeviceIdManagerProtocol::FoundServiceIdentity {
+                    service_identity_ref,
+                } => {
                     sdp_info!(DeviceIdManagerProtocol::<F, DeviceId>::DeviceIdManagerDebug | (
                         "Found ServiceIdentity {}",
                         service_identity_ref.service_id()
@@ -321,7 +321,8 @@ impl DeviceIdManagerRunner<ServiceIdentity, DeviceId> {
 #[cfg(test)]
 mod tests {
     use super::{
-        DeviceIdAPI, DeviceIdManager, DeviceIdManagerPool, DeviceIdManagerProtocol, DeviceIdProvider
+        DeviceIdAPI, DeviceIdManager, DeviceIdManagerPool, DeviceIdManagerProtocol,
+        DeviceIdProvider,
     };
     use crate::DeviceIdManagerRunner;
     use crate::ServiceIdentityWatcherProtocol;
