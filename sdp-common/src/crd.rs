@@ -29,7 +29,7 @@ pub struct ServiceIdentitySpec {
 
 /// DeviceId
 /// DeviceId represents the UUIDs assigned to a ServiceIdentity. There are N uuids stored
-/// in the DeviceId where N equals to the number of pods in a deployment/replicaset. The
+/// in the DeviceId where N equals to the number of replicas in a replicaset. The
 /// combination of the service_name and service_namespace is unique to the cluster.
 #[derive(Debug, CustomResource, Serialize, Deserialize, Clone, JsonSchema, PartialEq)]
 #[kube(
@@ -39,7 +39,7 @@ pub struct ServiceIdentitySpec {
     namespaced
 )]
 pub struct DeviceIdSpec {
-    /// Mapping of pod <-> uuid
+    /// List of UUIDs
     pub uuids: Vec<String>,
     /// Name of the deployment that this is assigned to
     pub service_name: String,
