@@ -40,7 +40,7 @@ pub struct ServiceIdentitySpec {
 )]
 pub struct DeviceIdSpec {
     /// Mapping of pod <-> uuid
-    pub uuids: HashMap<String, String>,
+    pub uuids: Vec<String>,
     /// Name of the deployment that this is assigned to
     pub service_name: String,
     /// Namespace of the deployment that this is assigned to

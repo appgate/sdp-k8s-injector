@@ -1,6 +1,6 @@
 use crate::service_identity_watcher::ServiceIdentityWatcherProtocol;
 use k8s_openapi::api::apps::v1::ReplicaSet;
-use k8s_openapi::api::core::v1::Pod;
+use k8s_openapi::apimachinery::pkg::apis::meta::v1::OwnerReference;
 use kube::api::{DeleteParams, ListParams, PostParams};
 use kube::{Api, Client, Error as KError, Resource};
 use log::{error, info, warn};
@@ -14,6 +14,7 @@ use std::future::Future;
 use std::pin::Pin;
 use tokio::sync::mpsc::{Receiver, Sender};
 use uuid::Uuid;
+use sdp_common::kubernetes::SDP_K8S_NAMESPACE;
 
 #[derive(Debug)]
 pub enum DeviceIdManagerProtocol<From: ServiceCandidate + HasCredentials, To: DeviceIdCandidate> {
@@ -71,7 +72,7 @@ impl DeviceIdProvider for DeviceIdManagerPool {
         Some(DeviceId::new(
             &id,
             DeviceIdSpec {
-                uuids: HashMap::new(),
+                uuids: vec![],
                 service_name: ServiceCandidate::name(from),
                 service_namespace: ServiceCandidate::namespace(from),
             },
@@ -106,10 +107,12 @@ impl DeviceIdAPI for KubeDeviceIdManager {
         device_id: &'a DeviceId,
     ) -> Pin<Box<dyn Future<Output = Result<DeviceId, KError>> + Send + '_>> {
         let fut = async move {
-            let mut uuids = HashMap::new();
-
             let service_name = &device_id.spec.service_name;
             let service_namespace = &device_id.spec.service_namespace;
+
+            let mut uuids: Vec<String> = vec![];
+            let mut owner_ref = OwnerReference::default();
+            let device_id_name = &format!("{}-{}", service_namespace, service_name);
 
             let replicaset_api: Api<ReplicaSet> =
                 Api::namespaced(self.client.clone(), service_namespace);
@@ -121,36 +124,35 @@ impl DeviceIdAPI for KubeDeviceIdManager {
                 if let Some(replicaset_owners) = &replicaset.meta().owner_references.as_ref() {
                     let owner = &replicaset_owners[0];
                     if owner.name == *service_name {
-                        let pod_api: Api<Pod> =
-                            Api::namespaced(self.client.clone(), service_namespace);
-                        let replicaset_pods = pod_api
-                            .list(&ListParams::default())
-                            .await
-                            .expect("Unable to list pods");
-                        for pod in replicaset_pods {
-                            if let Some(pod_owners) = pod.meta().owner_references.as_ref() {
-                                let pod_owner = &pod_owners[0];
-                                if pod_owner.name == *replicaset.meta().name.as_ref().unwrap() {
-                                    let uuid = Uuid::new_v4().to_string();
-                                    let pod_name = pod.metadata.name.unwrap();
-                                    info!("Assigning device id {} to pod {}", uuid, pod_name);
-                                    uuids.insert(pod_name, uuid);
-                                }
+
+                        owner_ref.controller = Default::default();
+                        owner_ref.block_owner_deletion = Some(true);
+                        owner_ref.name = replicaset.metadata.name.unwrap();
+                        owner_ref.api_version = "app/v1".to_string();
+                        owner_ref.kind = "replicaset".to_string();
+                        owner_ref.uid = replicaset.metadata.uid.clone().unwrap_or_default();
+
+                        if let Some(num_replicas) = replicaset.spec.unwrap().replicas {
+                            for _ in 0..num_replicas {
+                                let uuid = Uuid::new_v4().to_string();
+                                info!("Assigning uuid {} to DeviceID {}", uuid, device_id_name);
+                                uuids.push(uuid);
                             }
                         }
                     }
                 }
             }
-            let device_id = DeviceId::new(
-                &format!("{}-{}", service_namespace, service_name),
+            let mut device_id = DeviceId::new(
+                device_id_name,
                 DeviceIdSpec {
                     uuids,
                     service_name: service_name.to_string(),
                     service_namespace: service_namespace.to_string(),
                 },
             );
+            device_id.metadata.owner_references = Some(vec![owner_ref]);
             let device_id_api: Api<DeviceId> =
-                Api::namespaced(self.client.clone(), service_namespace);
+                Api::namespaced(self.client.clone(), SDP_K8S_NAMESPACE);
             device_id_api
                 .create(&PostParams::default(), &device_id)
                 .await
