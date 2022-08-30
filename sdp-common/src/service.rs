@@ -69,9 +69,9 @@ impl ServiceCandidate for ServiceIdentity {
     }
 }
 
-impl Annotated for &Pod {
+impl Annotated for Pod {
     fn annotations(&self) -> &BTreeMap<String, String> {
-        ResourceExt::annotations(*self)
+        ResourceExt::annotations(self)
     }
 }
 

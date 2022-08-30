@@ -13,13 +13,16 @@ bench = false
 sdp-common = {path = "../sdp-common"}
 
 tokio = { version = "~1.18", features = ["rt", "macros", "rt-multi-thread"] }
-actix-web = { version = "4", features = ["rustls"] }
+hyper = { version = "0.14", features = ["server"]}
+tls-listener = { version = "^0.5.0",  features = [ "rustls", "hyper-h1", "hyper-h2", "tokio-net", "rt" ] }
+tokio-rustls = { version = "^0.23.0", features = [] }
 serde_json = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 kube = { version = "0.73.1", default-features = false, features = ["admission", "rustls-tls", "derive", "client", "runtime"] }
 k8s-openapi = { version = "0.15.0", default-features = false, features = ["v1_20"] }
 rustls = "0.20.6"
 rustls-pemfile = "1.0.0"
+futures-util = "0.3"
 http = "0.2"
 log = "0.4.0"
 env_logger = "0.7.1"
