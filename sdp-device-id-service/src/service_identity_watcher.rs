@@ -42,7 +42,7 @@ impl<'a> ServiceIdentityWatcher<ServiceIdentity> {
                 match result {
                     Ok(Event::Applied(service_identity)) => {
                         if let Err(err) = tx
-                            .send(DeviceIdManagerProtocol::CreateDeviceId {
+                            .send(DeviceIdManagerProtocol::FoundServiceIdentity {
                                 service_identity_ref: service_identity,
                             })
                             .await

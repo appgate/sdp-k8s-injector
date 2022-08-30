@@ -8,7 +8,7 @@ use sdp_common::crd::{DeviceId, DeviceIdSpec, ServiceIdentity};
 use sdp_common::device_id::DeviceIdCandidate;
 use sdp_common::service::{HasCredentials, ServiceCandidate};
 use sdp_macros::{queue_debug, sdp_error, sdp_info, sdp_log};
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
 use std::fmt::Debug;
 use std::future::Future;
 use std::pin::Pin;
@@ -28,34 +28,12 @@ pub enum DeviceIdManagerProtocol<From: ServiceCandidate + HasCredentials, To: De
     DeviceIdManagerStarted,
     FoundServiceIdentity {
         service_identity_ref: From,
-        activated: bool,
     },
 }
 
 #[derive(Default)]
 struct DeviceIdManagerPool {
-    pool: VecDeque<String>,
     device_id_map: HashMap<String, DeviceId>,
-}
-
-trait DeviceIdPool {
-    fn pop(&mut self) -> Option<String>;
-    fn push(&mut self, device_id: String) -> ();
-    fn needs_new_device_id(&self) -> bool;
-}
-
-impl DeviceIdPool for DeviceIdManagerPool {
-    fn pop(&mut self) -> Option<String> {
-        self.pool.pop_front()
-    }
-
-    fn push(&mut self, device_id: String) -> () {
-        self.pool.push_back(device_id)
-    }
-
-    fn needs_new_device_id(&self) -> bool {
-        self.pool.len() < 10
-    }
 }
 
 trait DeviceIdProvider {
@@ -93,7 +71,7 @@ impl DeviceIdProvider for DeviceIdManagerPool {
         Some(DeviceId::new(
             &id,
             DeviceIdSpec {
-                uuids: vec![],
+                uuids: HashMap::new(),
                 service_name: ServiceCandidate::name(from),
                 service_namespace: ServiceCandidate::namespace(from),
             },
@@ -128,7 +106,7 @@ impl DeviceIdAPI for KubeDeviceIdManager {
         device_id: &'a DeviceId,
     ) -> Pin<Box<dyn Future<Output = Result<DeviceId, KError>> + Send + '_>> {
         let fut = async move {
-            let mut uuids: Vec<String> = vec![];
+            let mut uuids = HashMap::new();
 
             let service_name = &device_id.spec.service_name;
             let service_namespace = &device_id.spec.service_namespace;
@@ -138,7 +116,7 @@ impl DeviceIdAPI for KubeDeviceIdManager {
             let replicasets = replicaset_api
                 .list(&ListParams::default())
                 .await
-                .expect("Unable to list replicaset.");
+                .expect("Unable to list replicaset");
             for replicaset in replicasets {
                 if let Some(replicaset_owners) = &replicaset.meta().owner_references.as_ref() {
                     let owner = &replicaset_owners[0];
@@ -153,7 +131,10 @@ impl DeviceIdAPI for KubeDeviceIdManager {
                             if let Some(pod_owners) = pod.meta().owner_references.as_ref() {
                                 let pod_owner = &pod_owners[0];
                                 if pod_owner.name == *replicaset.meta().name.as_ref().unwrap() {
-                                    uuids.push(Uuid::new_v4().to_string());
+                                    let uuid = Uuid::new_v4().to_string();
+                                    let pod_name = pod.metadata.name.unwrap();
+                                    info!("Assigning device id {} to pod {}", uuid, pod_name);
+                                    uuids.insert(pod_name, uuid);
                                 }
                             }
                         }
@@ -161,7 +142,7 @@ impl DeviceIdAPI for KubeDeviceIdManager {
                 }
             }
             let device_id = DeviceId::new(
-                "purple-devops-purple-crl-updater",
+                &format!("{}-{}", service_namespace, service_name),
                 DeviceIdSpec {
                     uuids,
                     service_name: service_name.to_string(),
@@ -195,7 +176,7 @@ impl DeviceIdAPI for KubeDeviceIdManager {
     fn list(&self) -> Pin<Box<dyn Future<Output = Result<Vec<DeviceId>, KError>> + Send + '_>> {
         let fut = async move {
             let device_id_api: Api<DeviceId> =
-                Api::namespaced(self.client.clone(), "purple-devops");
+                Api::all(self.client.clone());
             device_id_api
                 .list(&ListParams::default())
                 .await
@@ -224,7 +205,6 @@ impl DeviceIdManagerRunner<ServiceIdentity, DeviceId> {
         DeviceIdManagerRunner {
             dm: Box::new(KubeDeviceIdManager {
                 pool: DeviceIdManagerPool {
-                    pool: VecDeque::with_capacity(30),
                     device_id_map: HashMap::new(),
                 },
                 client,
@@ -237,7 +217,6 @@ impl DeviceIdManagerRunner<ServiceIdentity, DeviceId> {
     ) -> () {
         match dm.list().await {
             Ok(device_ids) => {
-                info!("Restoring existing DeviceId");
                 device_ids.iter().for_each(|d| {
                     info!("Restoring Device ID");
                     dm.register(d.clone());
@@ -290,12 +269,9 @@ impl DeviceIdManagerRunner<ServiceIdentity, DeviceId> {
 
                 DeviceIdManagerProtocol::DeleteDeviceId { device_id: _ } => {}
 
-                DeviceIdManagerProtocol::FoundServiceIdentity {
-                    service_identity_ref,
-                    activated,
-                } if !activated => {
+                DeviceIdManagerProtocol::FoundServiceIdentity { service_identity_ref} => {
                     sdp_info!(DeviceIdManagerProtocol::<F, DeviceId>::DeviceIdManagerDebug | (
-                        "Found inactive ServiceIdentity {}",
+                        "Found ServiceIdentity {}",
                         service_identity_ref.service_id()
                     ) => queue_tx);
 
@@ -304,7 +280,7 @@ impl DeviceIdManagerRunner<ServiceIdentity, DeviceId> {
                             service_identity_ref,
                         })
                         .await
-                        .expect("Unable to send RequstDeviceId message");
+                        .expect("Unable to send CreateDeviceId message");
                 }
                 _ => {
                     warn!("Ignored message");
@@ -343,8 +319,7 @@ impl DeviceIdManagerRunner<ServiceIdentity, DeviceId> {
 #[cfg(test)]
 mod tests {
     use super::{
-        DeviceIdAPI, DeviceIdManager, DeviceIdManagerPool, DeviceIdManagerProtocol, DeviceIdPool,
-        DeviceIdProvider,
+        DeviceIdAPI, DeviceIdManager, DeviceIdManagerPool, DeviceIdManagerProtocol, DeviceIdProvider
     };
     use crate::DeviceIdManagerRunner;
     use crate::ServiceIdentityWatcherProtocol;
@@ -353,7 +328,7 @@ mod tests {
     use sdp_common::crd::{DeviceId, DeviceIdSpec, ServiceIdentity, ServiceIdentitySpec};
     use sdp_common::service::ServiceCredentialsRef;
     use sdp_macros::{credentials_ref, device_id, service_identity};
-    use sdp_test_macros::{assert_message, assert_no_message};
+    use sdp_test_macros::assert_message;
     use std::collections::HashMap;
     use std::future::Future;
     use std::pin::Pin;
@@ -416,7 +391,7 @@ mod tests {
         (($dm:ident($vs:expr), $queue_rx:ident, $manager_tx:ident, $watcher_rx:ident, $counters:ident) => $e:expr) => {
             let ($manager_tx, manager_rx) =
                 channel::<DeviceIdManagerProtocol<ServiceIdentity, DeviceId>>(10);
-            let (watcher_tx, mut $watcher_rx) = channel::<ServiceIdentityWatcherProtocol>(10);
+            let (watcher_tx, $watcher_rx) = channel::<ServiceIdentityWatcherProtocol>(10);
             let (queue_tx, mut $queue_rx) =
                 channel::<DeviceIdManagerProtocol<ServiceIdentity, DeviceId>>(10);
 
@@ -449,7 +424,7 @@ mod tests {
     #[tokio::test]
     async fn test_device_id_manager_init() {
         test_device_id_manager! {
-            (queue_rx, manager_tx, watcher_rx, counters) => {
+            (queue_rx, manager_tx, _watcher_rx, counters) => {
                 assert_message! {
                     (msg :: DeviceIdManagerProtocol::DeviceIdManagerInitialized in queue_rx) => {
                         assert_eq!(counters.lock().unwrap().list_calls, 1);
@@ -463,7 +438,7 @@ mod tests {
     #[tokio::test]
     async fn test_device_id_manager_request_device_id() {
         test_device_id_manager! {
-            (queue_rx, manager_tx, watcher_rx, counters) => {
+            (queue_rx, manager_tx, _watcher_rx, counters) => {
                 assert_message!(m :: DeviceIdManagerProtocol::DeviceIdManagerInitialized in queue_rx);
                 assert_message!(m :: DeviceIdManagerProtocol::DeviceIdManagerStarted in queue_rx);
 
@@ -472,13 +447,12 @@ mod tests {
                 // Watcher notifies the manager about a new inactive ServiceIdentity
                 tx.send(DeviceIdManagerProtocol::FoundServiceIdentity {
                     service_identity_ref: service_identity!(1),
-                    activated: false
                 }).await.expect("Unable to send FoundServiceIdentity message");
 
                 assert_message! {
                     (m :: DeviceIdManagerProtocol::DeviceIdManagerDebug(_) in queue_rx) => {
                         if let DeviceIdManagerProtocol::DeviceIdManagerDebug(msg) = m {
-                            assert!(msg.eq("Found inactive ServiceIdentity ns1-srv1"), "Wrong message, got {}", msg);
+                            assert!(msg.eq("Found ServiceIdentity ns1-srv1"), "Wrong message, got {}", msg);
                         }
                     }
                 }

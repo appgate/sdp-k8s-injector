@@ -286,19 +286,7 @@ pub fn derive_device_id_provider(input: proc_macro::TokenStream) -> proc_macro::
                 self.pool.next_device_id(from)
             }
         }
-        impl DeviceIdPool for #name {
-            fn pop(&mut self) -> Option<String> {
-                self.pool.pop()
-            }
 
-            fn push(&mut self, device_id: String) -> () {
-                self.pool.push(device_id)
-            }
-
-            fn needs_new_device_id(&self) -> bool {
-                self.pool.needs_new_device_id()
-            }
-        }
         impl DeviceIdManager<#from, #to> for #name {}
     };
     expanded.into()

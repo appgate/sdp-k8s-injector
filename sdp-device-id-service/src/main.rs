@@ -11,8 +11,6 @@ mod device_id_errors;
 mod device_id_manager;
 mod service_identity_watcher;
 
-const DEVICE_ID_POOL_SIZE: usize = 10;
-
 #[derive(Debug, Subcommand)]
 enum DeviceIdCommands {
     /// Prints the DeviceId CRD in YAML

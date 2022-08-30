@@ -111,7 +111,7 @@ macro_rules! device_id {
         DeviceId::new(
             concat!(stringify!(id), $n),
             DeviceIdSpec {
-                uuids: vec![],
+                uuids: HashMap::new(),
                 service_name: concat!(stringify!(srv), $n).to_string(),
                 service_namespace: concat!(stringify!(ns), $n).to_string(),
             },
