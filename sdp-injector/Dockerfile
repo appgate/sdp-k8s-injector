@@ -7,14 +7,9 @@ LABEL sdp=true
 LABEL project=sdp-injector
 WORKDIR /usr/src/sdp-injector
 RUN apk add --no-cache musl-dev && apk add --no-cache openssl-dev && apk add --no-cache gettext
-RUN cargo init
-COPY Cargo.lock .
-COPY Cargo.toml .
-RUN cargo build $([ "$PROFILE" = "release" ] && echo --release)
-RUN rm src/*rs
-COPY src src
+COPY . .
 COPY tests/sdp-sidecars.json tests/sdp-sidecars.json
-RUN cargo test $([ "$PROFILE" = "release" ] && echo --release) --all-targets
+RUN cargo test $([ "$PROFILE" = "release" ] && echo --release) --all-targets --bin sdp-injector
 RUN cargo build $([ "$PROFILE" = "release" ] && echo --release) --bin sdp-injector
 
 FROM alpine:3.14.0
