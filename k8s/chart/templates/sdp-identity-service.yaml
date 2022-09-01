@@ -12,10 +12,6 @@ spec:
       {{- include "sdp-k8s-client.selectorLabels" . | nindent 6 }}-identity-service
   template:
     metadata:
-      {{- with .Values.podAnnotations }}
-      annotations:
-        {{- toYaml . | nindent 8 }}
-      {{- end }}
       labels:
         {{- include "sdp-k8s-client.selectorLabels" . | nindent 8 }}-identity-service
     spec:
@@ -23,32 +19,14 @@ spec:
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      securityContext:
-        {{- toYaml .Values.podSecurityContext | nindent 8 }}
       serviceAccountName: {{ include "sdp-k8s-client.serviceAccountName" .}}
       containers:
         - name: {{ .Chart.Name }}-identity-service
           env:
             - name: RUST_LOG
               value: {{ .Values.sdp.identityService.logLevel | default "info" }}
-          securityContext:
-            {{- toYaml .Values.securityContext | nindent 12 }}
           image: "{{ default .Values.global.image.repository .Values.sdp.identityService.image.repository }}/sdp-identity-service:{{ default (include "sdp-k8s-client.defaultTag" .) .Values.sdp.identityService.image.tag }}"
           imagePullPolicy: {{ default .Values.global.image.pullPolicy .Values.sdp.identityService.image.pullPolicy }}
-          resources:
-            {{- toYaml .Values.resources | nindent 12 }}
-      {{- with .Values.nodeSelector }}
-      nodeSelector:
-        {{- toYaml . | nindent 8 }}
-      {{- end }}
-      {{- with .Values.affinity }}
-      affinity:
-        {{- toYaml . | nindent 8 }}
-      {{- end }}
-      {{- with .Values.tolerations }}
-      tolerations:
-        {{- toYaml . | nindent 8 }}
-      {{- end }}
 ---
 apiVersion: v1
 kind: Service
