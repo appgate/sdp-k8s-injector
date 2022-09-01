@@ -22,7 +22,7 @@ global:
     pullSecrets: []
 
 cert-manager:
-  ## @param cert-manager.installCRDs Whether or not to install cert-manager CRDs.
+  ## @param cert-manager.installCRDs Whether to install cert-manager CRDs.
   installCRDs: true
 
 sdp:
@@ -62,6 +62,7 @@ sdp:
   ## @param sdp.dnsmasq.image.repository SDP Dnsmasq image repository. If set, it overrides `.global.image.repository`.
   ## @param sdp.dnsmasq.image.tag SDP Dnsmasq image tag. If set, it overrides `.global.image.tag`.
   ## @param sdp.dnsmasq.image.pullPolicy SDP Dnsmasq image pull policy. If set, it overrides `.global.image.pullPolicy`.
+  ## @param sdp.dnsmasq.dnsConfig.searches Search domains to add to the Pod DNS configuration
   dnsmasq:
     image:
       repository: ""
@@ -69,6 +70,7 @@ sdp:
       pullPolicy: Always
     dnsConfig:
       searches: "svc.cluster.local cluster.local"
+
 ## @section Kubernetes parameters
 
 ## Specifies whether a ServiceAccount should be created

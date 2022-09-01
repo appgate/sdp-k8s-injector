@@ -111,28 +111,29 @@ When running on GKE, the firewall needs to be configured to allow traffic from t
 
 ### SDP parameters
 
-| Name                                   | Description                                                                              | Value                               |
-|----------------------------------------|------------------------------------------------------------------------------------------|-------------------------------------|
-| `global.image.repository`              | Image registry to use for all SDP images.                                                | `ghcr.io/appgate/sdp-k8s-client`    |
-| `global.image.tag`                     | Image tag to use for all SDP images. If not set, it defaults to `.Chart.appVersion`.     | `""`                                |
-| `global.image.pullPolicy`              | Image pull policy to use for all SDP images.                                             | `IfNotPresent`                      |
-| `global.image.pullSecrets`             | Image pull secret to use for all SDP images.                                             | `[]`                                |
-| `cert-manager.installCRDs`             | Whether or not to install cert-manager CRDs.                                             | `true`                              |
-| `sdp.injector.logLevel`                | SDP Injector log level.                                                                  | `info`                              |
-| `sdp.injector.image.repository`        | SDP Injector image repository. If set, it overrides `.global.image.repository`.          | `""`                                |
-| `sdp.injector.image.tag`               | SDP Injector image tag. If set, it overrides `.global.image.tag`.                        | `""`                                |
-| `sdp.injector.image.pullPolicy`        | SDP Injector pull policy. If set, it overrides `.global.image.pullPolicy`.               | `Always`                            |
-| `sdp.injector.certDays`                | How many days will be the SDP Injector certificate be valid.                             | `365`                               |
-| `sdp.headlessService.image.tag`        | SDP Headless Service image repository. If set, it overrides `.global.image.repository`.  | `""`                                |
-| `sdp.headlessService.image.repository` | SDP Headless Service image tag. If set, it overrides `.global.image.tag`.                | `""`                                |
-| `sdp.headlessService.image.pullPolicy` | SDP Headless Service image pull policy. If set, it overrides `.global.image.pullPolicy`. | `Always`                            |
-| `sdp.headlessDriver.image.repository`  | SDP Headless Driver image repository. If set, it overrides `.global.image.repository`.   | `""`                                |
-| `sdp.headlessDriver.image.tag`         | SDP Headless Driver image tag. If set, it overrides `.global.image.tag`.                 | `""`                                |
-| `sdp.headlessDriver.image.pullPolicy`  | SDP Headless Service image pull policy. If set, it overrides `.global.image.pullPolicy`. | `Always`                            |
-| `sdp.dnsmasq.image.repository`         | SDP Dnsmasq image repository. If set, it overrides `.global.image.repository`.           | `""`                                |
-| `sdp.dnsmasq.image.tag`                | SDP Dnsmasq image tag. If set, it overrides `.global.image.tag`.                         | `""`                                |
-| `sdp.dnsmasq.image.pullPolicy`         | SDP Dnsmasq image pull policy. If set, it overrides `.global.image.pullPolicy`.          | `Always`                            |
-| `sdp.dnsmasq.config.searches`          | SDP Dnsmasq config search domains.                                                       | `"svc.cluster.local cluster.local"` |
+| Name                                   | Description                                                                              | Value                             |
+| -------------------------------------- | ---------------------------------------------------------------------------------------- | --------------------------------- |
+| `global.image.repository`              | Image registry to use for all SDP images.                                                | `ghcr.io/appgate/sdp-k8s-client`  |
+| `global.image.tag`                     | Image tag to use for all SDP images. If not set, it defaults to `.Chart.appVersion`.     | `""`                              |
+| `global.image.pullPolicy`              | Image pull policy to use for all SDP images.                                             | `IfNotPresent`                    |
+| `global.image.pullSecrets`             | Image pull secret to use for all SDP images.                                             | `[]`                              |
+| `cert-manager.installCRDs`             | Whether to install cert-manager CRDs.                                                    | `true`                            |
+| `sdp.injector.logLevel`                | SDP Injector log level.                                                                  | `info`                            |
+| `sdp.injector.replica`                 | Number of Device ID Service replicas to deploy                                           | `1`                               |
+| `sdp.injector.certDays`                | How many days will be the SDP Injector certificate be valid.                             | `365`                             |
+| `sdp.injector.image.repository`        | SDP Injector image repository. If set, it overrides `.global.image.repository`.          | `""`                              |
+| `sdp.injector.image.tag`               | SDP Injector image tag. If set, it overrides `.global.image.tag`.                        | `""`                              |
+| `sdp.injector.image.pullPolicy`        | SDP Injector pull policy. If set, it overrides `.global.image.pullPolicy`.               | `Always`                          |
+| `sdp.headlessService.image.tag`        | SDP Headless Service image repository. If set, it overrides `.global.image.repository`.  | `""`                              |
+| `sdp.headlessService.image.repository` | SDP Headless Service image tag. If set, it overrides `.global.image.tag`.                | `""`                              |
+| `sdp.headlessService.image.pullPolicy` | SDP Headless Service image pull policy. If set, it overrides `.global.image.pullPolicy`. | `Always`                          |
+| `sdp.headlessDriver.image.repository`  | SDP Headless Driver image repository. If set, it overrides `.global.image.repository`.   | `""`                              |
+| `sdp.headlessDriver.image.tag`         | SDP Headless Driver image tag. If set, it overrides `.global.image.tag`.                 | `""`                              |
+| `sdp.headlessDriver.image.pullPolicy`  | SDP Headless Service image pull policy. If set, it overrides `.global.image.pullPolicy`. | `Always`                          |
+| `sdp.dnsmasq.image.repository`         | SDP Dnsmasq image repository. If set, it overrides `.global.image.repository`.           | `""`                              |
+| `sdp.dnsmasq.image.tag`                | SDP Dnsmasq image tag. If set, it overrides `.global.image.tag`.                         | `""`                              |
+| `sdp.dnsmasq.image.pullPolicy`         | SDP Dnsmasq image pull policy. If set, it overrides `.global.image.pullPolicy`.          | `Always`                          |
+| `sdp.dnsmasq.dnsConfig.searches`       | Search domains to add to the Pod DNS configuration                                       | `svc.cluster.local cluster.local` |
 
 
 ### Kubernetes parameters
@@ -143,7 +144,6 @@ When running on GKE, the firewall needs to be configured to allow traffic from t
 | `rbac.create`           | Whether to create & use RBAC resources or not        | `true`      |
 | `service.type`          | Type of the service                                  | `ClusterIP` |
 | `service.port`          | Port of the service                                  | `443`       |
-| `replicaCount`          | Number of SDP Client replicas to deploy              | `1`         |
 
 
 This table above was generated using [readme-generator-for-helm](https://github.com/bitnami-labs/readme-generator-for-helm)
