@@ -30,7 +30,7 @@ sdp:
   ## @param sdp.injector.replica Number of Device ID Service replicas to deploy
   ## @param sdp.injector.certDays How many days will be the SDP Injector certificate be valid.
   ## @param sdp.injector.image.repository SDP Injector image repository. If set, it overrides `.global.image.repository`.
-  ## @param sdp.injector.image.tag SDP Injector image tag. If set, it overrides `.global.image.tag`.
+  ## @param sdp.injector.image.tag SDP Injector image tag.
   ## @param sdp.injector.image.pullPolicy SDP Injector pull policy. If set, it overrides `.global.image.pullPolicy`.
   injector:
     logLevel: info
@@ -38,33 +38,33 @@ sdp:
     certDays: 365
     image:
       repository: ""
-      tag: ""
+      tag: 5.5.1
       pullPolicy: Always
 
   ## @param sdp.deviceIdService.logLevel SDP Device ID Service log level.
   ## @param sdp.deviceIdService.replica Number of SDP Device ID Service replicas to deploy
   ## @param sdp.deviceIdService.image.repository SDP Device ID Service image repository. If set, it overrides `.global.image.repository`.
-  ## @param sdp.deviceIdService.image.tag SDP Device ID Service image tag. If set, it overrides `.global.image.tag`.
+  ## @param sdp.deviceIdService.image.tag SDP Device ID Service image tag.
   ## @param sdp.deviceIdService.image.pullPolicy SDP Device ID Service pull policy. If set, it overrides `.global.image.pullPolicy`.
   deviceIdService:
     logLevel: info
     replica: 1
     image:
       repository: ""
-      tag: ""
+      tag: 0.1.0
       pullPolicy: Always
 
   ## @param sdp.identityService.logLevel SDP Identity Service log level.
   ## @param sdp.identityService.replica Number of SDP Identity Service replicas to deploy
   ## @param sdp.identityService.image.repository SDP Identity Service image repository. If set, it overrides `.global.image.repository`.
-  ## @param sdp.identityService.image.tag SDP Identity Service image tag. If set, it overrides `.global.image.tag`.
+  ## @param sdp.identityService.image.tag SDP Identity Service image tag.
   ## @param sdp.identityService.image.pullPolicy SDP Identity Service pull policy. If set, it overrides `.global.image.pullPolicy`.
   identityService:
     logLevel: info
     replica: 1
     image:
       repository: ""
-      tag: ""
+      tag: 0.1.0
       pullPolicy: Always
 
   ## @param sdp.headlessService.image.tag SDP Headless Service image repository. If set, it overrides `.global.image.repository`.

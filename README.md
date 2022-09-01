@@ -122,17 +122,17 @@ When running on GKE, the firewall needs to be configured to allow traffic from t
 | `sdp.injector.replica`                 | Number of Device ID Service replicas to deploy                                           | `1`                               |
 | `sdp.injector.certDays`                | How many days will be the SDP Injector certificate be valid.                             | `365`                             |
 | `sdp.injector.image.repository`        | SDP Injector image repository. If set, it overrides `.global.image.repository`.          | `""`                              |
-| `sdp.injector.image.tag`               | SDP Injector image tag. If set, it overrides `.global.image.tag`.                        | `""`                              |
+| `sdp.injector.image.tag`               | SDP Injector image tag.                                                                  | `5.5.1`                           |
 | `sdp.injector.image.pullPolicy`        | SDP Injector pull policy. If set, it overrides `.global.image.pullPolicy`.               | `Always`                          |
 | `sdp.deviceIdService.logLevel`         | SDP Device ID Service log level.                                                         | `info`                            |
 | `sdp.deviceIdService.replica`          | Number of SDP Device ID Service replicas to deploy                                       | `1`                               |
 | `sdp.deviceIdService.image.repository` | SDP Device ID Service image repository. If set, it overrides `.global.image.repository`. | `""`                              |
-| `sdp.deviceIdService.image.tag`        | SDP Device ID Service image tag. If set, it overrides `.global.image.tag`.               | `""`                              |
+| `sdp.deviceIdService.image.tag`        | SDP Device ID Service image tag.                                                         | `0.1.0`                           |
 | `sdp.deviceIdService.image.pullPolicy` | SDP Device ID Service pull policy. If set, it overrides `.global.image.pullPolicy`.      | `Always`                          |
 | `sdp.identityService.logLevel`         | SDP Identity Service log level.                                                          | `info`                            |
 | `sdp.identityService.replica`          | Number of SDP Identity Service replicas to deploy                                        | `1`                               |
 | `sdp.identityService.image.repository` | SDP Identity Service image repository. If set, it overrides `.global.image.repository`.  | `""`                              |
-| `sdp.identityService.image.tag`        | SDP Identity Service image tag. If set, it overrides `.global.image.tag`.                | `""`                              |
+| `sdp.identityService.image.tag`        | SDP Identity Service image tag.                                                          | `0.1.0`                           |
 | `sdp.identityService.image.pullPolicy` | SDP Identity Service pull policy. If set, it overrides `.global.image.pullPolicy`.       | `Always`                          |
 | `sdp.headlessService.image.tag`        | SDP Headless Service image repository. If set, it overrides `.global.image.repository`.  | `""`                              |
 | `sdp.headlessService.image.repository` | SDP Headless Service image tag. If set, it overrides `.global.image.tag`.                | `""`                              |
