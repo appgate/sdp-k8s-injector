@@ -27,21 +27,19 @@ cert-manager:
 
 sdp:
   ## @param sdp.injector.logLevel SDP Injector log level.
+  ## @param sdp.injector.replica Number of Device ID Service replicas to deploy
+  ## @param sdp.injector.certDays How many days will be the SDP Injector certificate be valid.
   ## @param sdp.injector.image.repository SDP Injector image repository. If set, it overrides `.global.image.repository`.
   ## @param sdp.injector.image.tag SDP Injector image tag. If set, it overrides `.global.image.tag`.
   ## @param sdp.injector.image.pullPolicy SDP Injector pull policy. If set, it overrides `.global.image.pullPolicy`.
-  ## @param sdp.injector.certDays How many days will be the SDP Injector certificate be valid.
   injector:
     logLevel: info
+    replica: 1
+    certDays: 365
     image:
       repository: ""
       tag: ""
-      ## Specify a imagePullPolicy
-      ## Defaults to 'Always' if image tag is 'latest', else set to 'IfNotPresent'
-      ## ref: http://kubernetes.io/docs/user-guide/images/#pre-pulling-images
-      ##
       pullPolicy: Always
-    certDays: 365
 
   ## @param sdp.headlessService.image.tag SDP Headless Service image repository. If set, it overrides `.global.image.repository`.
   ## @param sdp.headlessService.image.repository SDP Headless Service image tag. If set, it overrides `.global.image.tag`.
@@ -95,6 +93,3 @@ service:
   type: ClusterIP
   port: 443
 
-## Number of SDP Client replicas to deploy
-## @param replicaCount Number of SDP Client replicas to deploy
-replicaCount: 1
