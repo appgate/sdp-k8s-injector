@@ -1,4 +1,4 @@
-name: SDP k8s client
+name: SDP Kubernetes Client
 
 on:
   push:
@@ -8,102 +8,58 @@ on:
     branches:
       - main
 
-env:
-  CLIENT_VERSION: 5.5.1
-
 jobs:
-  sdp-injector:
+  test:
     runs-on: ubuntu-latest
     steps:
-      - name: Get build profile
+      - uses: actions/checkout@v2
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+      - uses: actions-rs/cargo@v1
+        with:
+          command: check
+      - uses: actions-rs/cargo@v1
+        with:
+          command: test
+
+  docker:
+    needs:
+      - test
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        bin:
+          - "sdp-device-id-service"
+          - "sdp-identity-service"
+          - "sdp-injector"
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+      - name: Read package version
         run: |
-          if [ "${{ github.ref }}" = "refs/heads/main" ]; then
-              echo '::set-output name=PROFILE::release'
-          else
-              echo '::set-output name=PROFILE::debug'
-          fi
-        id: build-profile
-      - uses: actions/checkout@v2
+          echo BIN_VERSION=$(cargo metadata | jq --raw-output '.packages[] | select(.name == "${{ matrix.bin }}") | .version') >> $GITHUB_ENV
       - name: Login to GitHub Container Registry
         uses: docker/login-action@v1
         with:
           registry: ghcr.io
           username: ${{ github.repository_owner }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Push image
-        uses: docker/build-push-action@v2
-        with:
-          build-args: |
-            PROFILE=${{ steps.build-profile.outputs.PROFILE }}
-          context: .
-          file: docker/sdp-injector-Dockerfile
-          push: ${{ github.ref == 'refs/heads/main' }}
-          tags: |
-            ghcr.io/${{ github.repository }}/sdp-injector:latest
-            ghcr.io/${{ github.repository }}/sdp-injector:${{ env.CLIENT_VERSION }}
-
-  sdp-dnsmasq:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v2
-      - name: Login to GitHub Container Registry
-        uses: docker/login-action@v1
-        with:
-          registry: ghcr.io
-          username: ${{ github.repository_owner }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Push image
+      - name: Build and push image
         uses: docker/build-push-action@v2
         with:
           context: .
-          file: docker/sdp-dnsmasq-Dockerfile
+          file: ${{ matrix.bin }}/Dockerfile
           push: ${{ github.ref == 'refs/heads/main' }}
           tags: |
-            ghcr.io/${{ github.repository }}/sdp-dnsmasq:latest
-            ghcr.io/${{ github.repository }}/sdp-dnsmasq:${{ env.CLIENT_VERSION }}
-
-  sdp-headless-driver:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v2
-      - name: Login to GitHub Container Registry
-        uses: docker/login-action@v1
-        with:
-          registry: ghcr.io
-          username: ${{ github.repository_owner }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Push image
-        uses: docker/build-push-action@v2
-        with:
-          context: .
-          file: docker/sdp-headless-driver-Dockerfile
-          push: ${{ github.ref == 'refs/heads/main' }}
-          tags: |
-            ghcr.io/${{ github.repository }}/sdp-headless-driver:latest
-            ghcr.io/${{ github.repository }}/sdp-headless-driver:${{ env.CLIENT_VERSION }}
-
-  sdp-headless-service:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v2
-      - name: Login to GitHub Container Registry
-        uses: docker/login-action@v1
-        with:
-          registry: ghcr.io
-          username: ${{ github.repository_owner }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Push image
-        uses: docker/build-push-action@v2
-        with:
-          context: .
-          file: docker/sdp-headless-service-Dockerfile
-          push: ${{ github.ref == 'refs/heads/main' }}
-          tags: |
-            ghcr.io/${{ github.repository }}/sdp-headless-service:latest
-            ghcr.io/${{ github.repository }}/sdp-headless-service:${{ env.CLIENT_VERSION }}
+            ghcr.io/${{ github.repository }}/${{ matrix.bin }}:${{ env.BIN_VERSION }}
 
   helm:
     runs-on: ubuntu-latest
+    needs:
+      - docker
     env:
       HELM_EXPERIMENTAL_OCI: 1
     steps:
