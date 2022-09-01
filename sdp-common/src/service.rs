@@ -1,4 +1,4 @@
-pub use crate::crd::ServiceIdentity;
+pub use crate::crd::{ServiceDeviceIds, ServiceIdentity};
 use k8s_openapi::api::{apps::v1::Deployment, core::v1::Pod};
 use kube::ResourceExt;
 use schemars::JsonSchema;
@@ -69,6 +69,24 @@ impl ServiceCandidate for ServiceIdentity {
     }
 }
 
+impl ServiceCandidate for ServiceDeviceIds {
+    fn name(&self) -> String {
+        self.spec.service_name.clone()
+    }
+
+    fn namespace(&self) -> String {
+        self.spec.service_namespace.clone()
+    }
+
+    fn labels(&self) -> HashMap<String, String> {
+        HashMap::new()
+    }
+
+    fn is_candidate(&self) -> bool {
+        false
+    }
+}
+
 impl Annotated for Pod {
     fn annotations(&self) -> &BTreeMap<String, String> {
         ResourceExt::annotations(self)
@@ -109,7 +127,9 @@ impl ServiceCandidate for Deployment {
 /// Final ServiceIdentity are created from Pod
 impl ServiceCandidate for Pod {
     fn name(&self) -> String {
-        ResourceExt::name(self)
+        let name = ResourceExt::name(self);
+        let xs: Vec<&str> = name.split("-").collect();
+        xs[0..(xs.len() - 2)].join("-")
     }
 
     fn namespace(&self) -> String {

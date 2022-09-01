@@ -599,7 +599,7 @@ mod tests {
                 channel::<DeploymentWatcherProtocol>(10);
             let (watcher_tx, mut $watcher_rx) =
                 channel::<IdentityManagerProtocol<Deployment, ServiceIdentity>>(10);
-            let mut $im = new_test_identity_manager();
+            let mut $im = Box::new(TestIdentityManager::default());
             for i in $vs.clone() {
                 $im.register_identity(i);
             }
@@ -637,7 +637,7 @@ mod tests {
 
     macro_rules! test_service_identity_provider {
         ($im:ident($vs:expr) => $e:expr) => {
-            let mut $im = new_test_identity_manager();
+            let mut $im = Box::new(TestIdentityManager::default());
             assert_eq!($im.identities().len(), 0);
             // register new identities
             for i in $vs.clone() {
@@ -705,10 +705,6 @@ mod tests {
             self.api_counters.lock().unwrap().list_calls += 1;
             Box::pin(future::ready(Ok(vec![])))
         }
-    }
-
-    fn new_test_identity_manager() -> Box<TestIdentityManager> {
-        Box::new(TestIdentityManager::default())
     }
 
     fn new_test_identity_runner(
