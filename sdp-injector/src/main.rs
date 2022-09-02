@@ -19,7 +19,7 @@ use kube::{Api, Client, Config, Resource};
 use log::{debug, error, info, warn};
 use rustls::{Certificate, PrivateKey, ServerConfig};
 use rustls_pemfile::{read_one, Item};
-use sdp_common::crd::ServiceDeviceIds;
+use sdp_common::crd::DeviceId;
 use serde::Deserialize;
 use std::collections::hash_map::RandomState;
 use std::collections::{HashMap, HashSet};
@@ -111,13 +111,13 @@ trait IdentityStore {
     fn identity<'a>(
         &'a self,
         service_id: &'a str,
-    ) -> Pin<Box<dyn Future<Output = Option<(ServiceIdentity, ServiceDeviceIds)>> + Send + '_>>;
+    ) -> Pin<Box<dyn Future<Output = Option<(ServiceIdentity, DeviceId)>> + Send + '_>>;
 }
 
 #[derive(Default)]
 struct InMemoryIdentityStore {
     identities: Mutex<HashMap<String, ServiceIdentity>>,
-    device_ids: Mutex<HashMap<String, ServiceDeviceIds>>,
+    device_ids: Mutex<HashMap<String, DeviceId>>,
 }
 
 impl InMemoryIdentityStore {
@@ -126,7 +126,7 @@ impl InMemoryIdentityStore {
         hm.insert(service_identity.service_id(), service_identity);
     }
 
-    async fn register_service_device_ids(&self, service_device_ids: ServiceDeviceIds) -> () {
+    async fn register_service_device_ids(&self, service_device_ids: DeviceId) -> () {
         let mut hm = self.device_ids.lock().await;
         hm.insert(service_device_ids.service_id(), service_device_ids);
     }
@@ -136,8 +136,7 @@ impl IdentityStore for InMemoryIdentityStore {
     fn identity<'a>(
         &'a self,
         service_id: &'a str,
-    ) -> Pin<Box<dyn Future<Output = Option<(ServiceIdentity, ServiceDeviceIds)>> + Send + '_>>
-    {
+    ) -> Pin<Box<dyn Future<Output = Option<(ServiceIdentity, DeviceId)>> + Send + '_>> {
         let fut = async move {
             let hm = self.identities.lock().await;
             let sid = hm.get(service_id);
@@ -154,15 +153,14 @@ impl IdentityStore for InMemoryIdentityStore {
 
 struct KubeIdentityStore {
     service_identity_api: Api<ServiceIdentity>,
-    service_device_ids_api: Api<ServiceDeviceIds>,
+    service_device_ids_api: Api<DeviceId>,
 }
 
 impl IdentityStore for KubeIdentityStore {
     fn identity<'a>(
         &'a self,
         service_id: &'a str,
-    ) -> Pin<Box<dyn Future<Output = Option<(ServiceIdentity, ServiceDeviceIds)>> + Send + '_>>
-    {
+    ) -> Pin<Box<dyn Future<Output = Option<(ServiceIdentity, DeviceId)>> + Send + '_>> {
         let fut = async move {
             // List all the service identities
             let ss = self
@@ -735,9 +733,7 @@ mod tests {
     use kube::core::admission::AdmissionReview;
     use kube::core::ObjectMeta;
     use sdp_common::constants::SDP_IDENTITY_MANAGER_SECRETS;
-    use sdp_common::crd::{
-        ServiceDeviceIds, ServiceDeviceIdsSpec, ServiceIdentity, ServiceIdentitySpec,
-    };
+    use sdp_common::crd::{DeviceId, DeviceIdSpec, ServiceIdentity, ServiceIdentitySpec};
     use sdp_common::service::{ServiceCandidate, ServiceCredentialsRef};
     use serde_json::json;
     use std::collections::{BTreeMap, HashMap, HashSet};
@@ -786,12 +782,12 @@ mod tests {
 
     macro_rules! service_device_ids {
         ($n:tt) => {
-            ServiceDeviceIds::new(
+            DeviceId::new(
                 format!("{}{}", stringify!(id), $n).as_str(),
-                ServiceDeviceIdsSpec {
+                DeviceIdSpec {
                     service_name: format!("{}{}", stringify!(srv), $n),
                     service_namespace: format!("{}{}", stringify!(ns), $n),
-                    device_ids: vec![],
+                    uuids: vec![],
                 },
             )
         };
@@ -1775,8 +1771,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let k8s_client_cp = k8s_client.clone();
     let k8s_client_cp2 = k8s_client.clone();
     let service_identity_api: Api<ServiceIdentity> = Api::namespaced(k8s_client, "sdp-system");
-    let service_device_ids_api: Api<ServiceDeviceIds> =
-        Api::namespaced(k8s_client_cp, "sdp-system");
+    let service_device_ids_api: Api<DeviceId> = Api::namespaced(k8s_client_cp, "sdp-system");
     let store = KubeIdentityStore {
         service_identity_api,
         service_device_ids_api,

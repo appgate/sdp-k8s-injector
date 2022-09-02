@@ -5,7 +5,6 @@ use kube::api::{DeleteParams, ListParams, PostParams};
 use kube::{Api, Client, Error as KError, Resource};
 use log::{error, info, warn};
 use sdp_common::crd::{DeviceId, DeviceIdSpec, ServiceIdentity};
-use sdp_common::device_id::DeviceIdCandidate;
 use sdp_common::kubernetes::SDP_K8S_NAMESPACE;
 use sdp_common::service::{HasCredentials, ServiceCandidate};
 use sdp_macros::{queue_debug, sdp_error, sdp_info, sdp_log};
@@ -17,7 +16,7 @@ use tokio::sync::mpsc::{Receiver, Sender};
 use uuid::Uuid;
 
 #[derive(Debug)]
-pub enum DeviceIdManagerProtocol<From: ServiceCandidate + HasCredentials, To: DeviceIdCandidate> {
+pub enum DeviceIdManagerProtocol<From: ServiceCandidate + HasCredentials, To: ServiceCandidate> {
     DeviceIdManagerDebug(String),
     CreateDeviceId { service_identity_ref: From },
     DeleteDeviceId { device_id: To },
@@ -33,7 +32,7 @@ struct DeviceIdManagerPool {
 
 trait DeviceIdProvider {
     type From: ServiceCandidate + HasCredentials + Send;
-    type To: DeviceIdCandidate + Send;
+    type To: ServiceCandidate + Send;
     fn register(&mut self, to: Self::To) -> ();
     fn unregister(&mut self, to: &Self::To) -> Option<Self::To>;
     fn device_id(&self, from: &Self::From) -> Option<&Self::To>;
@@ -46,15 +45,15 @@ impl DeviceIdProvider for DeviceIdManagerPool {
     type To = DeviceId;
 
     fn register(&mut self, to: Self::To) -> () {
-        self.device_id_map.insert(to.service_identity_id(), to);
+        self.device_id_map.insert(to.service_id(), to);
     }
 
     fn unregister(&mut self, to: &Self::To) -> Option<Self::To> {
-        self.device_id_map.remove(&to.service_identity_id())
+        self.device_id_map.remove(&to.service_id())
     }
 
     fn device_id(&self, from: &Self::From) -> Option<&Self::To> {
-        self.device_id_map.get(&from.service_identity_id())
+        self.device_id_map.get(&from.service_id())
     }
 
     fn device_ids(&self) -> Vec<&Self::To> {
@@ -62,7 +61,7 @@ impl DeviceIdProvider for DeviceIdManagerPool {
     }
 
     fn next_device_id(&self, from: &Self::From) -> Option<Self::To> {
-        let id = from.service_identity_id();
+        let id = from.service_id();
         Some(DeviceId::new(
             &id,
             DeviceIdSpec {
@@ -188,14 +187,14 @@ impl DeviceIdAPI for KubeDeviceIdManager {
 
 trait DeviceIdManager<
     From: ServiceCandidate + HasCredentials + Send + Sync,
-    To: DeviceIdCandidate + Send + Sync,
+    To: ServiceCandidate + Send + Sync,
 >: DeviceIdAPI + DeviceIdProvider<From = From, To = To>
 {
 }
 
 pub struct DeviceIdManagerRunner<
     From: ServiceCandidate + HasCredentials + Send,
-    To: DeviceIdCandidate + Send,
+    To: ServiceCandidate + Send,
 > {
     dm: Box<dyn DeviceIdManager<From, To> + Send + Sync>,
 }
@@ -254,12 +253,12 @@ impl DeviceIdManagerRunner<ServiceIdentity, DeviceId> {
                         Some(d) => match dm.create(&d).await {
                             Ok(device_id) => {
                                 sdp_info!(DeviceIdManagerProtocol::<F, DeviceId>::DeviceIdManagerDebug | (
-                                    "Created DeviceID {} for ServiceIdentity {}", device_id.name(), service_identity_ref.name()
+                                    "Created DeviceID {} for ServiceIdentity {}", device_id.service_id(), service_identity_ref.service_id()
                                 ) => queue_tx);
                             }
                             Err(error) => {
                                 sdp_error!(DeviceIdManagerProtocol::<F, DeviceId>::DeviceIdManagerDebug | (
-                                    "Error creating DeviceId for ServiceIdentity {}: {}", service_identity_ref.name(), error
+                                    "Error creating DeviceId for ServiceIdentity {}: {}", service_identity_ref.service_id(), error
                                 ) => queue_tx);
                             }
                         },
@@ -473,7 +472,7 @@ mod tests {
                 assert_message! {
                     (m :: DeviceIdManagerProtocol::DeviceIdManagerDebug(_) in queue_rx) => {
                         if let DeviceIdManagerProtocol::DeviceIdManagerDebug(msg) = m {
-                            assert!(msg.eq("Created DeviceID id1 for ServiceIdentity srv1"), "Wrong message, got {}", msg)
+                            assert!(msg.eq("Created DeviceID ns1-srv1 for ServiceIdentity ns1-srv1"), "Wrong message, got {}", msg)
                         }
                     }
                 }

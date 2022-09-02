@@ -91,18 +91,22 @@ macro_rules! credentials_ref {
 
 #[macro_export]
 macro_rules! service_identity {
-    ($n:tt) => {
-        ServiceIdentity::new(
-            concat!(stringify!(id), $n),
+    ($n:tt) => {{
+        let service_name = concat!(stringify!(srv), $n);
+        let service_ns = concat!(stringify!(ns), $n);
+        let mut id: ServiceIdentity = ServiceIdentity::new(
+            format!("{}-{}", &service_ns, &service_name).as_str(),
             ServiceIdentitySpec {
                 service_credentials: credentials_ref!($n),
-                service_name: concat!(stringify!(srv), $n).to_string(),
-                service_namespace: concat!(stringify!(ns), $n).to_string(),
+                service_name: service_name.to_string(),
+                service_namespace: service_ns.to_string(),
                 labels: HashMap::new(),
                 disabled: false,
             },
-        )
-    };
+        );
+        id.metadata.namespace = Some("sdp-system".to_string());
+        id
+    }};
 }
 
 #[macro_export]

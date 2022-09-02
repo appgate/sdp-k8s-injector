@@ -1,30 +1,40 @@
+use std::collections::HashMap;
+
 pub use crate::crd::{DeviceId, ServiceIdentity};
-use crate::kubernetes::SDP_K8S_NAMESPACE;
-use kube::ResourceExt;
+use crate::{kubernetes::SDP_K8S_NAMESPACE, service::ServiceCandidate};
+use kube::{core::object::HasSpec, ResourceExt};
 
-pub trait DeviceIdCandidate {
-    fn name(&self) -> String;
-    fn namespace(&self) -> String;
-    fn service_identity_id(&self) -> String {
-        self.name()
+impl ServiceCandidate for ServiceIdentity {
+    fn name(&self) -> String {
+        self.spec().service_name.clone()
+    }
+    fn namespace(&self) -> String {
+        self.spec().service_namespace.clone()
+    }
+
+    fn labels(&self) -> std::collections::HashMap<String, String> {
+        HashMap::new()
+    }
+
+    fn is_candidate(&self) -> bool {
+        false
     }
 }
 
-impl DeviceIdCandidate for ServiceIdentity {
+impl ServiceCandidate for DeviceId {
     fn name(&self) -> String {
-        ResourceExt::name(self)
-    }
-    fn namespace(&self) -> String {
-        ResourceExt::namespace(self).unwrap_or("default".to_string())
-    }
-}
-
-impl DeviceIdCandidate for DeviceId {
-    fn name(&self) -> String {
-        ResourceExt::name(self)
+        self.spec().service_name.clone()
     }
 
     fn namespace(&self) -> String {
-        ResourceExt::namespace(self).unwrap_or(SDP_K8S_NAMESPACE.to_string())
+        self.spec().service_namespace.clone()
+    }
+
+    fn labels(&self) -> HashMap<String, String> {
+        HashMap::new()
+    }
+
+    fn is_candidate(&self) -> bool {
+        false
     }
 }

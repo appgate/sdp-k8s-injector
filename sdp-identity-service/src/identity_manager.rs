@@ -775,6 +775,7 @@ mod tests {
             im(identities) => {
                 // service not registered but we don't have any credentials so we can not create
                 // new identities for it.
+                id1.service_id();
                 assert_eq!(im.identities().len(), 1);
                 assert!(im.next_identity(&d1_2).is_none());
                 assert!(im.next_identity(&d2_2).is_none());

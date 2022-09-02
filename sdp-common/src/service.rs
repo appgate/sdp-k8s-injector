@@ -1,4 +1,4 @@
-pub use crate::crd::{ServiceDeviceIds, ServiceIdentity};
+pub use crate::crd::ServiceIdentity;
 use k8s_openapi::api::{apps::v1::Deployment, core::v1::Pod};
 use kube::ResourceExt;
 use schemars::JsonSchema;
@@ -47,43 +47,6 @@ pub trait ServiceCandidate {
     fn is_candidate(&self) -> bool;
     fn service_id(&self) -> String {
         format!("{}-{}", self.namespace(), self.name()).to_string()
-    }
-}
-
-/// ServiceIdentity is a ServiceCandidate by definition :D
-impl ServiceCandidate for ServiceIdentity {
-    fn name(&self) -> String {
-        self.spec.service_name.clone()
-    }
-
-    fn namespace(&self) -> String {
-        self.spec.service_namespace.clone()
-    }
-
-    fn labels(&self) -> HashMap<String, String> {
-        self.spec.labels.clone()
-    }
-
-    fn is_candidate(&self) -> bool {
-        true
-    }
-}
-
-impl ServiceCandidate for ServiceDeviceIds {
-    fn name(&self) -> String {
-        self.spec.service_name.clone()
-    }
-
-    fn namespace(&self) -> String {
-        self.spec.service_namespace.clone()
-    }
-
-    fn labels(&self) -> HashMap<String, String> {
-        HashMap::new()
-    }
-
-    fn is_candidate(&self) -> bool {
-        false
     }
 }
 
