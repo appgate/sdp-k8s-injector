@@ -41,6 +41,13 @@ jobs:
       - name: Read package version
         run: |
           echo BIN_VERSION=$(cargo metadata | jq --raw-output '.packages[] | select(.name == "${{ matrix.bin }}") | .version') >> $GITHUB_ENV
+      - name: Get build profile
+        run: |
+          if [ "${{ github.ref }}" = "refs/heads/main" ]; then
+           echo '::set-output name=PROFILE::release'
+          else
+           echo '::set-output name=PROFILE::debug'
+          fi
       - name: Login to GitHub Container Registry
         uses: docker/login-action@v1
         with:
@@ -50,6 +57,8 @@ jobs:
       - name: Build and push image
         uses: docker/build-push-action@v2
         with:
+          build-args: |
+            PROFILE=${{ steps.build-profile.outputs.PROFILE }}
           context: .
           file: ${{ matrix.bin }}/Dockerfile
           push: ${{ github.ref == 'refs/heads/main' }}
@@ -68,8 +77,6 @@ jobs:
         id: chartVersion
         with:
           cmd: yq eval .version k8s/chart/Chart.yaml
-      - run: |
-          echo "chart_version=${{ steps.chartVersion.outputs.result }}" >> $GITHUB_ENV
       - uses: azure/setup-helm@v1
         with:
           version: 3.7.2
@@ -81,4 +88,4 @@ jobs:
         run: helm package k8s/chart --dependency-update
       - name: Push chart
         if: ${{ github.ref == 'refs/heads/main' }}
-        run: helm push sdp-k8s-client-${{ env.chart_version }}.tgz oci://ghcr.io/appgate/charts
+        run: helm push sdp-k8s-client-${{ steps.chartVersion.outputs.result }}.tgz oci://ghcr.io/appgate/charts
