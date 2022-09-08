@@ -101,7 +101,11 @@ impl<'a> DeploymentWatcher<Deployment> {
                         );
                     }
                     Err(err) => {
-                        error!("Some error: {}", err);
+                        error!(
+                            "Found error watching deployments: {}. Trying again in 30 secs.",
+                            err
+                        );
+                        sleep(Duration::from_secs(30)).await;
                     }
                 }
             })
