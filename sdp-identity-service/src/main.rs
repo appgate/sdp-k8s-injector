@@ -1,11 +1,16 @@
 use clap::{Parser, Subcommand};
 use k8s_openapi::api::apps::v1::Deployment;
 use kube::CustomResourceExt;
-use log::info;
+use log::{error, info};
 use sdp_common::crd::ServiceIdentity;
 use sdp_common::kubernetes::get_k8s_client;
 use sdp_common::sdp::system::get_sdp_system;
-use tokio::sync::mpsc::channel;
+use std::{
+    panic,
+    process::{abort, exit},
+    time::Duration,
+};
+use tokio::{sync::mpsc::channel, time::sleep};
 
 use crate::{
     deployment_watcher::{DeploymentWatcher, DeploymentWatcherProtocol},
@@ -44,6 +49,13 @@ struct IdentityService {
 #[tokio::main]
 async fn main() -> () {
     env_logger::init();
+
+    // Exit on panics from other threads
+    panic::set_hook(Box::new(|info| {
+        error!("Got panic. @info:{}", info);
+        exit(1);
+    }));
+
     let args = IdentityService::parse();
     match args.command {
         IdentityServiceCommands::Crd => {
@@ -51,9 +63,10 @@ async fn main() -> () {
         }
         IdentityServiceCommands::Run => {
             info!("Starting sdp identity service ...");
-            let identity_manager_client = get_k8s_client().await;
-            let deployment_watcher_client = get_k8s_client().await;
-            let identity_creator_client = get_k8s_client().await;
+            let client = get_k8s_client().await;
+            let identity_manager_client = client.clone();
+            let deployment_watcher_client = client.clone();
+            let identity_creator_client = client;
             let identity_manager_runner =
                 IdentityManagerRunner::kube_runner(identity_manager_client);
             let identity_creator =
@@ -86,7 +99,7 @@ async fn main() -> () {
                 .run(
                     identity_manager_proto_rx,
                     identity_manager_proto_tx_cp2,
-                    identity_creator_proto_tx,
+                    identity_creator_proto_tx.clone(),
                     deployment_watched_proto_tx,
                     None,
                 )
