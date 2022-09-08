@@ -1,6 +1,7 @@
 pub use crate::crd::ServiceIdentity;
 use k8s_openapi::api::{apps::v1::Deployment, core::v1::Pod};
 use kube::ResourceExt;
+use log::{error, warn};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
@@ -90,9 +91,20 @@ impl ServiceCandidate for Deployment {
 /// Final ServiceIdentity are created from Pod
 impl ServiceCandidate for Pod {
     fn name(&self) -> String {
-        let name = ResourceExt::name(self);
-        let xs: Vec<&str> = name.split("-").collect();
-        xs[0..(xs.len() - 2)].join("-")
+        let name: Option<String> = self.metadata.name.as_ref()
+            .map(|n| (n.split("-").collect::<Vec<&str>>(), 2))
+            .or_else(|| {
+                let os = self.owner_references();
+                (os.len() > 0).then_some((os[0].name.split("-").collect(), 1))
+            })
+            .or_else(|| (self.metadata.generate_name.as_ref().map(|s| (s.split("-").collect(), 2))))
+            .map(|(xs, n)| xs[0 .. (xs.len() - n)].join("-"));
+        if let None = name {
+            error!("Unable to find service name for Pod, ignoring it");
+        }
+        // Since a ServiceCandidate needs always a name in this case we return a random uuid, it will never match
+        // with a registered service
+        name.expect("Found POD without service information")
     }
 
     fn namespace(&self) -> String {
