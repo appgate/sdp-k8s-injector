@@ -189,7 +189,7 @@ impl IdentityCreator {
         let service_user = ServiceUser::new();
         let (user_field_exists, passwd_field_exists) =
             self.exists_user_crendentials_ref(&service_user.id).await;
-        info!("Deleting ServiceUser with id {}", service_user.id);
+        info!("Creating ServiceUser with id {}", service_user.id);
         let _ = system.create_user(&service_user).await.map_err(|e| {
             IdentityServiceError::from_service(e.to_string(), SERVICE_NAME.to_string())
         })?;
