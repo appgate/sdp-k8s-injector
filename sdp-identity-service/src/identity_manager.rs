@@ -545,7 +545,8 @@ impl IdentityManagerRunner<Deployment, ServiceIdentity> {
             .send(IdentityCreatorProtocol::StartService)
             .await
         {
-            error!("Error awakening Identity Creator: {}", err)
+            error!("Error awakening Identity Creator: {}", err);
+            panic!();
         }
         // We are not ready to process events
         IdentityManagerRunner::run_identity_manager(
