@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use futures::StreamExt;
 use k8s_openapi::api::apps::v1::Deployment;
 use kube::{
@@ -8,7 +10,10 @@ use kube::{
 use log::{debug, error, info};
 use sdp_common::crd::ServiceIdentity;
 use sdp_common::service::ServiceCandidate;
-use tokio::sync::mpsc::{Receiver, Sender};
+use tokio::{
+    sync::mpsc::{Receiver, Sender},
+    time::sleep,
+};
 
 use crate::identity_manager::IdentityManagerProtocol;
 
@@ -48,7 +53,7 @@ impl<'a> DeploymentWatcher<Deployment> {
         info!("Starting Deployments watcher!");
         let tx = &queue;
         watcher::watcher(self.deployment_api.clone(), ListParams::default())
-            .for_each_concurrent(5, |res| async move {
+            .for_each_concurrent(1, |res| async move {
                 match res {
                     Ok(Event::Restarted(deployments)) => {
                         for deployment in deployments {
