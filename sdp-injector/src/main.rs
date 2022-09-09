@@ -8,6 +8,7 @@ use hyper::service::{make_service_fn, service_fn};
 use hyper::{Body, Request, Response, Server};
 use json_patch::PatchOperation::Add;
 use json_patch::{AddOperation, Patch};
+use k8s_openapi::api::apps::v1::Deployment;
 use k8s_openapi::api::core::v1::{
     ConfigMapKeySelector, Container, EnvVar, EnvVarSource, ObjectFieldSelector, Pod, PodDNSConfig,
     SecretKeySelector, Service, Volume,
@@ -19,7 +20,7 @@ use kube::{Api, Client, Config, Resource};
 use log::{debug, error, info, warn};
 use rustls::{Certificate, PrivateKey, ServerConfig};
 use rustls_pemfile::{read_one, Item};
-use sdp_common::crd::DeviceId;
+use sdp_common::crd::{DeviceId, DeviceIdSpec};
 use serde::Deserialize;
 use std::collections::hash_map::RandomState;
 use std::collections::{HashMap, HashSet};
@@ -162,6 +163,7 @@ impl IdentityStore for KubeIdentityStore {
         service_id: &'a str,
     ) -> Pin<Box<dyn Future<Output = Option<(ServiceIdentity, DeviceId)>> + Send + '_>> {
         let fut = async move {
+            info!("Getting list of ServiceIdentites");
             // List all the service identities
             let ss = self
                 .service_identity_api
@@ -178,6 +180,7 @@ impl IdentityStore for KubeIdentityStore {
             // Search the service identity for service_id
             let sid = ss.iter().find(|s| s.service_id().eq(service_id));
 
+            info!("Getting list of DeviceIds");
             // List all the service device ids
             let ds = self
                 .service_device_ids_api
@@ -200,9 +203,31 @@ impl IdentityStore for KubeIdentityStore {
                 });
                 owner_ref.is_some()
             });
+            let extra_did = if sid.is_some() {
+                Some(DeviceId::new("dd",
+                    DeviceIdSpec {
+                        uuids: vec!["a547df74-0edc-48f8-9f2d-99998b39bb48".to_string()],
+                        service_name: sid.unwrap().name().clone(),
+                        service_namespace: sid.unwrap().namespace().clone()
+                    }))
+            } else {
+                None
+            };
+            let did = did.or(extra_did.as_ref());
             match (sid, did) {
-                (Some(sid), Some(did)) => Some((sid.clone(), did.clone())),
-                _ => None,
+                (Some(sid), Some(did)) => {
+                    info!("Found service id and device id");
+                    Some((sid.clone(), did.clone()))
+                },
+                _ => {
+                    if sid.is_none() {
+                        error!("Not found service identity for service: {}", service_id);
+                    }
+                    if did.is_none() {
+                        error!("Not found devide ids for service: {}", service_id);
+                    }
+                    None
+                },
             }
         };
         Box::pin(fut)
@@ -284,7 +309,7 @@ impl ServiceEnvironment {
                 service_name: service_id.to_string(),
                 client_config: SDP_DEFAULT_CLIENT_CONFIG.to_string(),
                 client_secret_name: s.spec.service_credentials.secret.clone(),
-                client_secret_controller_url_key: "SOMETHING HERE".to_string(),
+                client_secret_controller_url_key: s.spec.service_credentials.password_field.to_string(),
                 client_secret_pwd_key: s.spec.service_credentials.password_field.clone(),
                 client_secret_user_key: s.spec.service_credentials.user_field.clone(),
                 n_containers: "0".to_string(),
@@ -303,7 +328,7 @@ impl ServiceEnvironment {
                 .map(|s| s.clone())
                 .unwrap_or(SDP_DEFAULT_CLIENT_CONFIG.to_string()),
             client_secret_name: s.to_string(),
-            client_secret_controller_url_key: "SOMETHING HERE".to_string(),
+            client_secret_controller_url_key: pwd_field.to_string(),
             client_secret_pwd_key: pwd_field,
             client_secret_user_key: user_field,
             n_containers: "0".to_string(),
@@ -625,7 +650,20 @@ fn load_cert_files() -> Result<(Option<Item>, Option<Item>), Box<dyn Error>> {
     ))
 }
 
-async fn patch_request<E: IdentityStore>(
+async fn patch_deployment(
+    admission_request: AdmissionRequest<Deployment>
+) -> Result<AdmissionReview<DynamicObject>, Box<dyn Error>> {
+    let admission_response = AdmissionResponse::from(&admission_request);
+    let mut patches = vec![];
+    patches.push(Add(AddOperation {
+        path: "/metadata/annotations/sdp-injection".to_string(),
+        value: serde_json::to_value("enabled")?
+    }));
+    let admission_response = admission_response.with_patch(Patch(patches))?;
+    Ok(admission_response.into_review())
+}
+
+async fn patch_pod<E: IdentityStore>(
     admission_request: AdmissionRequest<Pod>,
     sdp_patch_context: SDPPatchContext<E>,
 ) -> Result<AdmissionReview<DynamicObject>, Box<dyn Error>> {
@@ -644,8 +682,12 @@ async fn patch_request<E: IdentityStore>(
     let mut environment =
         ServiceEnvironment::create(pod, Arc::clone(&sdp_patch_context.identity_store)).await;
     match environment.as_mut().map(|mut env| sdp_pod.patch(&mut env)) {
-        Some(Ok(patch)) => admission_response = admission_response.with_patch(patch)?,
+        Some(Ok(patch)) => {
+            info!("POD for service {} has {} patches", pod.service_id(), patch.0.len());
+            admission_response = admission_response.with_patch(patch)?
+        },
         Some(Err(error)) => {
+            warn!("Unable to patch POD for service {}: {}", pod.service_id(), error.to_string());
             let mut status: Status = Default::default();
             status.code = Some(400);
             status.message = Some(format!("This POD can not be patched {}", error.to_string()));
@@ -653,6 +695,7 @@ async fn patch_request<E: IdentityStore>(
             admission_response.result = status;
         }
         None => {
+            warn!("Unable to patch POD for service {}. Service is not registered, trying later.", pod.service_id());
             let mut status: Status = Default::default();
             status.code = Some(503);
             status.message =
@@ -675,15 +718,38 @@ async fn mutate<E: IdentityStore>(
         identity_store: Arc::clone(&sdp_injector_context.identity_store),
     };
     let body = from_utf8(&body).map(|s| s.to_string())?;
-    let admission_review = serde_json::from_str::<AdmissionReview<Pod>>(&body)?;
-    let admission_response = patch_request(
-        admission_review
-            .request
-            .ok_or("Not found request in admission review")?,
-        sdp_patch_context,
-    )
-    .await?;
-    Ok(Body::from(serde_json::to_string(&admission_response)?))
+    let admission_review = serde_json::from_str::<AdmissionReview<DynamicObject>>(&body)?;
+    match admission_review.request.as_ref().map(|r| r.resource.resource.as_str()) {
+        Some("pods") => {
+            let admission_review: AdmissionReview<Pod> = serde_json::from_str(&body)?;
+            let admission_request: AdmissionRequest<Pod> = admission_review.try_into()?;
+            let service_id = admission_request.object.as_ref().map(|p| p.service_id()).unwrap_or("unknown".to_string());
+            info!("Patching POD for service {}", service_id);
+            let admission_response = patch_pod(
+                admission_request,
+                sdp_patch_context,
+            )
+            .await?;
+            Ok(Body::from(serde_json::to_string(&admission_response)?))
+        },
+        Some("deployments") => {
+            let admission_review: AdmissionReview<Deployment> = serde_json::from_str(&body)?;
+            let admission_request: AdmissionRequest<Deployment> = admission_review.try_into()?;
+            let service_id = admission_request.object.as_ref().map(|d| d.service_id()).unwrap_or("unknown".to_string());
+            info!("Patching Deployment: {}", service_id);
+            let admission_response = patch_deployment(
+                admission_request,
+            )
+            .await?;
+            Ok(Body::from(serde_json::to_string(&admission_response)?))
+        },
+        _ => {
+            let err_str = "Unknown resource to patch";
+            error!("{}", err_str);
+            let err = Box::<dyn Error>::from(err_str.to_string());
+            Err(err)
+        }
+    }
 }
 
 async fn validate(body: Bytes, sdp_sidecars: Arc<SDPSidecars>) -> Result<Body, Box<dyn Error>> {
@@ -723,7 +789,7 @@ async fn get_dns_service(k8s_client: &Client) -> Result<Option<Body>, Box<dyn Er
 #[cfg(test)]
 mod tests {
     use crate::{
-        load_sidecar_containers, patch_request, InMemoryIdentityStore, Patched, SDPPatchContext,
+        load_sidecar_containers, patch_pod, InMemoryIdentityStore, Patched, SDPPatchContext,
         SDPPod, SDPSidecars, ServiceEnvironment, Validated, SDP_ANNOTATION_CLIENT_CONFIG,
         SDP_ANNOTATION_CLIENT_SECRETS, SDP_DEFAULT_CLIENT_CONFIG, SDP_SERVICE_CONTAINER_NAME,
         SDP_SIDECARS_FILE_ENV,
@@ -1436,7 +1502,7 @@ POD is missing needed volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-de
                     identity_store: Arc::clone(&identity_storage),
                     k8s_dns_service: None,
                 };
-                patch_request(admission_review.request.unwrap(), sdp_patch_context)
+                patch_pod(admission_review.request.unwrap(), sdp_patch_context)
                     .await
                     .map_err(|e| format!("Could not generate a response: {}", e.to_string()))
             };
@@ -1563,7 +1629,7 @@ POD is missing needed volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-de
             );
             assert_eq!(
                 env.client_secret_controller_url_key,
-                "SOMETHING HERE".to_string()
+                "password_field1".to_string()
             );
             assert_eq!(env.client_secret_pwd_key, "password_field1".to_string());
             assert_eq!(env.client_secret_user_key, "user_field1".to_string());
@@ -1590,7 +1656,7 @@ POD is missing needed volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-de
             assert_eq!(env.client_secret_name, "some-secrets".to_string());
             assert_eq!(
                 env.client_secret_controller_url_key,
-                "SOMETHING HERE".to_string()
+                "ns0-srv0-password".to_string()
             );
             assert_eq!(env.client_secret_pwd_key, "ns0-srv0-password".to_string());
             assert_eq!(env.client_secret_user_key, "ns0-srv0-user".to_string());
@@ -1609,7 +1675,7 @@ POD is missing needed volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-de
             assert_eq!(env.client_secret_name, "some-secrets".to_string());
             assert_eq!(
                 env.client_secret_controller_url_key,
-                "SOMETHING HERE".to_string()
+                "ns1-srv1-password".to_string()
             );
             assert_eq!(env.client_secret_pwd_key, "ns1-srv1-password".to_string());
             assert_eq!(env.client_secret_user_key, "ns1-srv1-user".to_string());
@@ -1662,7 +1728,7 @@ POD is missing needed volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-de
                     );
                     assert_eq!(
                         env.client_secret_controller_url_key,
-                        "SOMETHING HERE".to_string()
+                        "password_field1".to_string()
                     );
                     assert_eq!(env.client_secret_pwd_key, "password_field1".to_string());
                     assert_eq!(env.client_secret_user_key, "user_field1".to_string());
@@ -1713,11 +1779,16 @@ async fn injector_handler<E: IdentityStore>(
         (&Method::POST, "/mutate") => {
             let bs = hyper::body::to_bytes(req).await?;
             match mutate(bs, sdp_context).await {
-                Ok(body) => Ok(Response::new(body)),
-                Err(e) => Ok(Response::builder()
+                Ok(body) => {
+                    Ok(Response::new(body))
+                },
+                Err(e) => {
+                    error!("Error processing /mutate admission request: {}", e.to_string());
+                    Ok(Response::builder()
                     .status(StatusCode::UNPROCESSABLE_ENTITY)
                     .body(Body::from(e.to_string()))
-                    .unwrap()),
+                    .unwrap())
+                },
             }
         }
         (&Method::POST, "/validate") => {
