@@ -26,6 +26,9 @@ cert-manager:
   installCRDs: true
 
 sdp:
+  ## @param sdp.host Hostname of the SDP controller
+  host: ""
+
   ## @param sdp.injector.logLevel SDP Injector log level.
   ## @param sdp.injector.replica Number of Device ID Service replicas to deploy
   ## @param sdp.injector.certDays How many days will be the SDP Injector certificate be valid.
