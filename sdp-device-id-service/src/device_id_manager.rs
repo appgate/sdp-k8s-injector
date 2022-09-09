@@ -100,60 +100,87 @@ impl DeviceIdAPI for KubeDeviceIdManager {
         device_id: &'a DeviceId,
     ) -> Pin<Box<dyn Future<Output = Result<DeviceId, KError>> + Send + '_>> {
         let fut = async move {
-            let service_name = &device_id.spec.service_name;
-            let service_namespace = &device_id.spec.service_namespace;
+            let device_id_api: Api<DeviceId> =
+                Api::namespaced(self.client.clone(), SDP_K8S_NAMESPACE);
+            match device_id_api.get_opt(&device_id.service_id()).await {
+                Ok(None) => {
+                    info!(
+                        "DeviceIds {} does not exist, creating it.",
+                        device_id.service_id()
+                    );
+                    let service_name = &device_id.spec.service_name;
+                    let service_namespace = &device_id.spec.service_namespace;
 
-            let mut uuids: Vec<String> = vec![];
-            let mut owner_ref = OwnerReference::default();
-            let device_id_name = &format!("{}-{}", service_namespace, service_name);
+                    let mut uuids: Vec<String> = vec![];
+                    let mut owner_ref = OwnerReference::default();
+                    let device_id_name = &format!("{}-{}", service_namespace, service_name);
 
-            let replicaset_api: Api<ReplicaSet> =
-                Api::namespaced(self.client.clone(), service_namespace);
-            let replicasets = replicaset_api
-                .list(&ListParams::default())
-                .await
-                .expect("Unable to list replicaset");
-            for replicaset in replicasets {
-                if let Some(replicaset_owners) = &replicaset.meta().owner_references.as_ref() {
-                    let owner = &replicaset_owners[0];
-                    if owner.name == *service_name {
-                        let service_identity_api: Api<ServiceIdentity> =
-                            Api::namespaced(self.client.clone(), SDP_K8S_NAMESPACE);
-                        let service_identity = service_identity_api
-                            .get(device_id_name)
-                            .await
-                            .expect("Unable to get service identity");
-                        owner_ref.controller = Default::default();
-                        owner_ref.block_owner_deletion = Some(true);
-                        owner_ref.name = service_identity.metadata.name.unwrap();
-                        owner_ref.api_version = "injector.sdp.com/v1".to_string();
-                        owner_ref.kind = "ServiceIdentity".to_string();
-                        owner_ref.uid = service_identity.metadata.uid.clone().unwrap_or_default();
+                    let replicaset_api: Api<ReplicaSet> =
+                        Api::namespaced(self.client.clone(), service_namespace);
+                    let replicasets = replicaset_api
+                        .list(&ListParams::default())
+                        .await
+                        .expect("Unable to list replicaset");
+                    for replicaset in replicasets {
+                        if let Some(replicaset_owners) =
+                            &replicaset.meta().owner_references.as_ref()
+                        {
+                            let owner = &replicaset_owners[0];
+                            if owner.name == *service_name {
+                                let service_identity_api: Api<ServiceIdentity> =
+                                    Api::namespaced(self.client.clone(), SDP_K8S_NAMESPACE);
+                                let service_identity = service_identity_api
+                                    .get(device_id_name)
+                                    .await
+                                    .expect("Unable to get service identity");
+                                owner_ref.controller = Default::default();
+                                owner_ref.block_owner_deletion = Some(true);
+                                owner_ref.name = service_identity.metadata.name.unwrap();
+                                owner_ref.api_version = "injector.sdp.com/v1".to_string();
+                                owner_ref.kind = "ServiceIdentity".to_string();
+                                owner_ref.uid =
+                                    service_identity.metadata.uid.clone().unwrap_or_default();
 
-                        if let Some(num_replicas) = replicaset.spec.unwrap().replicas {
-                            for _ in 0..num_replicas {
-                                let uuid = Uuid::new_v4().to_string();
-                                info!("Assigning uuid {} to DeviceID {}", uuid, device_id_name);
-                                uuids.push(uuid);
+                                if let Some(num_replicas) = replicaset.spec.unwrap().replicas {
+                                    for _ in 0..num_replicas {
+                                        let uuid = Uuid::new_v4().to_string();
+                                        info!(
+                                            "Assigning uuid {} to DeviceID {}",
+                                            uuid, device_id_name
+                                        );
+                                        uuids.push(uuid);
+                                    }
+                                }
                             }
                         }
                     }
+                    let mut device_id = DeviceId::new(
+                        device_id_name,
+                        DeviceIdSpec {
+                            uuids,
+                            service_name: service_name.to_string(),
+                            service_namespace: service_namespace.to_string(),
+                        },
+                    );
+                    device_id.metadata.owner_references = Some(vec![owner_ref]);
+                    let device_id_api: Api<DeviceId> =
+                        Api::namespaced(self.client.clone(), SDP_K8S_NAMESPACE);
+                    device_id_api
+                        .create(&PostParams::default(), &device_id)
+                        .await
+                }
+                Ok(_) => {
+                    info!("DeviceIds {} already exists.", device_id.service_id());
+                    Ok(device_id.clone())
+                }
+                Err(e) => {
+                    error!(
+                        "Error checking if device ids {} exists.",
+                        device_id.service_id()
+                    );
+                    Err(e)
                 }
             }
-            let mut device_id = DeviceId::new(
-                device_id_name,
-                DeviceIdSpec {
-                    uuids,
-                    service_name: service_name.to_string(),
-                    service_namespace: service_namespace.to_string(),
-                },
-            );
-            device_id.metadata.owner_references = Some(vec![owner_ref]);
-            let device_id_api: Api<DeviceId> =
-                Api::namespaced(self.client.clone(), SDP_K8S_NAMESPACE);
-            device_id_api
-                .create(&PostParams::default(), &device_id)
-                .await
         };
         Box::pin(fut)
     }
