@@ -204,19 +204,6 @@ impl IdentityStore for KubeIdentityStore {
                 });
                 owner_ref.is_some()
             });
-            let extra_did = if sid.is_some() {
-                Some(DeviceId::new(
-                    "dd",
-                    DeviceIdSpec {
-                        uuids: vec!["a547df74-0edc-48f8-9f2d-99998b39bb48".to_string()],
-                        service_name: sid.unwrap().name().clone(),
-                        service_namespace: sid.unwrap().namespace().clone(),
-                    },
-                ))
-            } else {
-                None
-            };
-            let did = did.or(extra_did.as_ref());
             match (sid, did) {
                 (Some(sid), Some(did)) => {
                     info!("Found service id and device id");
