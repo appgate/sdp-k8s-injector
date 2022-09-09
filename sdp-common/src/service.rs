@@ -82,8 +82,9 @@ impl ServiceCandidate for Deployment {
     }
 
     fn is_candidate(&self) -> bool {
-        ResourceExt::namespace(self) == Some("purple-devops".to_string())
-        //self.annotations().get("sdp-injector").map(|v| v.eq("true")).unwrap_or(false)
+        Annotated::annotation(self, "sdp-injection")
+            .map(|v| v.eq("enabled"))
+            .unwrap_or(false)
     }
 }
 
@@ -102,8 +103,7 @@ impl ServiceCandidate for Pod {
         if let None = name {
             error!("Unable to find service name for Pod, ignoring it");
         }
-        // Since a ServiceCandidate needs always a name in this case we return a random uuid, it will never match
-        // with a registered service
+        // A ServiceCandidate needs always a name
         name.expect("Found POD without service information")
     }
 
