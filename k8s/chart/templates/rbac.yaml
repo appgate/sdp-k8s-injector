@@ -17,9 +17,9 @@ rules:
   - apiGroups: [""]
     resources: ["secrets", "configmaps" ]
     verbs: ["get", "create", "delete", "patch"]
-  - apiGroups: [""]
-    resources: ["deviceids", "serviceidentities" ]
-    verbs: ["get", "create", "delete", "patch"]
+  - apiGroups: [ "injector.sdp.com" ]
+    resources: [ "deviceids", "serviceidentities" ]
+    verbs: [ "get", "list", "create", "delete" ]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
