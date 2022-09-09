@@ -92,14 +92,23 @@ impl ServiceCandidate for Deployment {
 /// Final ServiceIdentity are created from Pod
 impl ServiceCandidate for Pod {
     fn name(&self) -> String {
-        let name: Option<String> = self.metadata.name.as_ref()
+        let name: Option<String> = self
+            .metadata
+            .name
+            .as_ref()
             .map(|n| (n.split("-").collect::<Vec<&str>>(), 2))
             .or_else(|| {
                 let os = self.owner_references();
                 (os.len() > 0).then_some((os[0].name.split("-").collect(), 1))
             })
-            .or_else(|| (self.metadata.generate_name.as_ref().map(|s| (s.split("-").collect(), 2))))
-            .map(|(xs, n)| xs[0 .. (xs.len() - n)].join("-"));
+            .or_else(|| {
+                (self
+                    .metadata
+                    .generate_name
+                    .as_ref()
+                    .map(|s| (s.split("-").collect(), 2)))
+            })
+            .map(|(xs, n)| xs[0..(xs.len() - n)].join("-"));
         if let None = name {
             error!("Unable to find service name for Pod, ignoring it");
         }

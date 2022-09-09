@@ -4,8 +4,9 @@ use futures::{StreamExt, TryStreamExt};
 use k8s_openapi::api::apps::v1::Deployment;
 use kube::{
     api::ListParams,
+    core::{watch, WatchEvent},
     runtime::watcher::{self, Event},
-    Api, Client, core::{watch, WatchEvent},
+    Api, Client,
 };
 use log::{debug, error, info, warn};
 use schemars::_private::NoSerialize;
@@ -53,14 +54,21 @@ impl<'a> DeploymentWatcher<Deployment> {
     ) -> () {
         info!("Starting Deployments watcher!");
         let tx = &queue;
-        let xs = self.deployment_api.clone().watch(&ListParams::default(), "0").await;
+        let xs = self
+            .deployment_api
+            .clone()
+            .watch(&ListParams::default(), "0")
+            .await;
         if let Err(e) = xs {
-            let err_str = format!("Unable to create deployment watcher: {}. Exiting.", e.to_string());
+            let err_str = format!(
+                "Unable to create deployment watcher: {}. Exiting.",
+                e.to_string()
+            );
             error!("{}", err_str);
             panic!("{}", err_str);
         }
         let mut xs = xs.unwrap().boxed();
-            //.for_each_concurrent(1, |res| async move {
+        //.for_each_concurrent(1, |res| async move {
         loop {
             match xs.try_next().await.expect("Error!") {
                 Some(WatchEvent::Added(deployment)) if deployment.is_candidate() => {
@@ -75,8 +83,10 @@ impl<'a> DeploymentWatcher<Deployment> {
                     }
                 }
                 Some(WatchEvent::Added(deployment)) => {
-                    info!("Ignoring service {}, not a candidate", deployment.service_id());
-
+                    info!(
+                        "Ignoring service {}, not a candidate",
+                        deployment.service_id()
+                    );
                 }
                 Some(WatchEvent::Deleted(deployment)) if deployment.is_candidate() => {
                     info!("Deleted service candidate {}", deployment.service_id());
@@ -90,9 +100,7 @@ impl<'a> DeploymentWatcher<Deployment> {
                 Some(ev) => {
                     warn!("Ignored event: {:?}", ev);
                 }
-                None => {
-                
-                }
+                None => {}
             }
         }
     }

@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 pub use crate::crd::{DeviceId, ServiceIdentity};
 use crate::service::ServiceCandidate;
-use kube::{core::object::HasSpec};
+use kube::core::object::HasSpec;
 
 impl ServiceCandidate for ServiceIdentity {
     fn name(&self) -> String {

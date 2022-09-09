@@ -204,12 +204,14 @@ impl IdentityStore for KubeIdentityStore {
                 owner_ref.is_some()
             });
             let extra_did = if sid.is_some() {
-                Some(DeviceId::new("dd",
+                Some(DeviceId::new(
+                    "dd",
                     DeviceIdSpec {
                         uuids: vec!["a547df74-0edc-48f8-9f2d-99998b39bb48".to_string()],
                         service_name: sid.unwrap().name().clone(),
-                        service_namespace: sid.unwrap().namespace().clone()
-                    }))
+                        service_namespace: sid.unwrap().namespace().clone(),
+                    },
+                ))
             } else {
                 None
             };
@@ -218,7 +220,7 @@ impl IdentityStore for KubeIdentityStore {
                 (Some(sid), Some(did)) => {
                     info!("Found service id and device id");
                     Some((sid.clone(), did.clone()))
-                },
+                }
                 _ => {
                     if sid.is_none() {
                         error!("Not found service identity for service: {}", service_id);
@@ -227,7 +229,7 @@ impl IdentityStore for KubeIdentityStore {
                         error!("Not found devide ids for service: {}", service_id);
                     }
                     None
-                },
+                }
             }
         };
         Box::pin(fut)
@@ -309,7 +311,11 @@ impl ServiceEnvironment {
                 service_name: service_id.to_string(),
                 client_config: SDP_DEFAULT_CLIENT_CONFIG.to_string(),
                 client_secret_name: s.spec.service_credentials.secret.clone(),
-                client_secret_controller_url_key: s.spec.service_credentials.password_field.to_string(),
+                client_secret_controller_url_key: s
+                    .spec
+                    .service_credentials
+                    .password_field
+                    .to_string(),
                 client_secret_pwd_key: s.spec.service_credentials.password_field.clone(),
                 client_secret_user_key: s.spec.service_credentials.user_field.clone(),
                 n_containers: "0".to_string(),
@@ -651,13 +657,13 @@ fn load_cert_files() -> Result<(Option<Item>, Option<Item>), Box<dyn Error>> {
 }
 
 async fn patch_deployment(
-    admission_request: AdmissionRequest<Deployment>
+    admission_request: AdmissionRequest<Deployment>,
 ) -> Result<AdmissionReview<DynamicObject>, Box<dyn Error>> {
     let admission_response = AdmissionResponse::from(&admission_request);
     let mut patches = vec![];
     patches.push(Add(AddOperation {
         path: "/metadata/annotations/sdp-injection".to_string(),
-        value: serde_json::to_value("enabled")?
+        value: serde_json::to_value("enabled")?,
     }));
     let admission_response = admission_response.with_patch(Patch(patches))?;
     Ok(admission_response.into_review())
@@ -683,11 +689,19 @@ async fn patch_pod<E: IdentityStore>(
         ServiceEnvironment::create(pod, Arc::clone(&sdp_patch_context.identity_store)).await;
     match environment.as_mut().map(|mut env| sdp_pod.patch(&mut env)) {
         Some(Ok(patch)) => {
-            info!("POD for service {} has {} patches", pod.service_id(), patch.0.len());
+            info!(
+                "POD for service {} has {} patches",
+                pod.service_id(),
+                patch.0.len()
+            );
             admission_response = admission_response.with_patch(patch)?
-        },
+        }
         Some(Err(error)) => {
-            warn!("Unable to patch POD for service {}: {}", pod.service_id(), error.to_string());
+            warn!(
+                "Unable to patch POD for service {}: {}",
+                pod.service_id(),
+                error.to_string()
+            );
             let mut status: Status = Default::default();
             status.code = Some(400);
             status.message = Some(format!("This POD can not be patched {}", error.to_string()));
@@ -695,7 +709,10 @@ async fn patch_pod<E: IdentityStore>(
             admission_response.result = status;
         }
         None => {
-            warn!("Unable to patch POD for service {}. Service is not registered, trying later.", pod.service_id());
+            warn!(
+                "Unable to patch POD for service {}. Service is not registered, trying later.",
+                pod.service_id()
+            );
             let mut status: Status = Default::default();
             status.code = Some(503);
             status.message =
@@ -719,30 +736,35 @@ async fn mutate<E: IdentityStore>(
     };
     let body = from_utf8(&body).map(|s| s.to_string())?;
     let admission_review = serde_json::from_str::<AdmissionReview<DynamicObject>>(&body)?;
-    match admission_review.request.as_ref().map(|r| r.resource.resource.as_str()) {
+    match admission_review
+        .request
+        .as_ref()
+        .map(|r| r.resource.resource.as_str())
+    {
         Some("pods") => {
             let admission_review: AdmissionReview<Pod> = serde_json::from_str(&body)?;
             let admission_request: AdmissionRequest<Pod> = admission_review.try_into()?;
-            let service_id = admission_request.object.as_ref().map(|p| p.service_id()).unwrap_or("unknown".to_string());
+            let service_id = admission_request
+                .object
+                .as_ref()
+                .map(|p| p.service_id())
+                .unwrap_or("unknown".to_string());
             info!("Patching POD for service {}", service_id);
-            let admission_response = patch_pod(
-                admission_request,
-                sdp_patch_context,
-            )
-            .await?;
+            let admission_response = patch_pod(admission_request, sdp_patch_context).await?;
             Ok(Body::from(serde_json::to_string(&admission_response)?))
-        },
+        }
         Some("deployments") => {
             let admission_review: AdmissionReview<Deployment> = serde_json::from_str(&body)?;
             let admission_request: AdmissionRequest<Deployment> = admission_review.try_into()?;
-            let service_id = admission_request.object.as_ref().map(|d| d.service_id()).unwrap_or("unknown".to_string());
+            let service_id = admission_request
+                .object
+                .as_ref()
+                .map(|d| d.service_id())
+                .unwrap_or("unknown".to_string());
             info!("Patching Deployment: {}", service_id);
-            let admission_response = patch_deployment(
-                admission_request,
-            )
-            .await?;
+            let admission_response = patch_deployment(admission_request).await?;
             Ok(Body::from(serde_json::to_string(&admission_response)?))
-        },
+        }
         _ => {
             let err_str = "Unknown resource to patch";
             error!("{}", err_str);
@@ -1779,16 +1801,17 @@ async fn injector_handler<E: IdentityStore>(
         (&Method::POST, "/mutate") => {
             let bs = hyper::body::to_bytes(req).await?;
             match mutate(bs, sdp_context).await {
-                Ok(body) => {
-                    Ok(Response::new(body))
-                },
+                Ok(body) => Ok(Response::new(body)),
                 Err(e) => {
-                    error!("Error processing /mutate admission request: {}", e.to_string());
+                    error!(
+                        "Error processing /mutate admission request: {}",
+                        e.to_string()
+                    );
                     Ok(Response::builder()
-                    .status(StatusCode::UNPROCESSABLE_ENTITY)
-                    .body(Body::from(e.to_string()))
-                    .unwrap())
-                },
+                        .status(StatusCode::UNPROCESSABLE_ENTITY)
+                        .body(Body::from(e.to_string()))
+                        .unwrap())
+                }
             }
         }
         (&Method::POST, "/validate") => {
