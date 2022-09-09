@@ -193,9 +193,22 @@ impl ServiceIdentityAPI for KubeIdentityManager {
         identity: &'a ServiceIdentity,
     ) -> Pin<Box<dyn Future<Output = Result<ServiceIdentity, KError>> + Send + '_>> {
         let fut = async move {
-            self.service_identity_api
-                .create(&PostParams::default(), identity)
-                .await
+            match self.service_identity_api.get_opt(&identity.service_id()).await {
+                Ok(None) => {
+                    info!("ServiceIdentity {} does not exist, creating it.", identity.service_id());
+                    self.service_identity_api
+                        .create(&PostParams::default(), identity)
+                        .await
+                },
+                Ok(_) => {
+                    info!("ServiceIdentity {} already exists.", identity.service_id());
+                    Ok(identity.clone())
+                },
+                Err(e) => {
+                    error!("Error checking if service identity {} exists.", identity.service_id());
+                    Err(e)
+                }
+            }
         };
         Box::pin(fut)
     }
