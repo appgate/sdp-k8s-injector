@@ -1,13 +1,14 @@
 use std::time::Duration;
 
-use futures::StreamExt;
+use futures::{StreamExt, TryStreamExt};
 use k8s_openapi::api::apps::v1::Deployment;
 use kube::{
     api::ListParams,
     runtime::watcher::{self, Event},
-    Api, Client,
+    Api, Client, core::{watch, WatchEvent},
 };
-use log::{debug, error, info};
+use log::{debug, error, info, warn};
+use schemars::_private::NoSerialize;
 use sdp_common::crd::ServiceIdentity;
 use sdp_common::service::ServiceCandidate;
 use tokio::{
@@ -52,64 +53,48 @@ impl<'a> DeploymentWatcher<Deployment> {
     ) -> () {
         info!("Starting Deployments watcher!");
         let tx = &queue;
-        watcher::watcher(self.deployment_api.clone(), ListParams::default())
-            .for_each_concurrent(1, |res| async move {
-                match res {
-                    Ok(Event::Restarted(deployments)) => {
-                        for deployment in deployments {
-                            if deployment.is_candidate() {
-                                info!("Found service candidate: {}", deployment.service_id());
-                                let msg = IdentityManagerProtocol::FoundServiceCandidate {
-                                    service_candidate: deployment,
-                                };
-                                if let Err(err) = tx.send(msg).await {
-                                    error!("Error reporting found ServiceIdentity: {}", err);
-                                }
-                            }
-                        }
-                        if let Err(err) = tx
-                            .send(IdentityManagerProtocol::DeploymentWatcherReady)
-                            .await
-                        {
-                            error!("Error reporting  {}", err);
-                        }
-                    }
-                    Ok(Event::Applied(deployment)) if deployment.is_candidate() => {
-                        info!("New service candidate: {}", deployment.service_id());
-                        if let Err(err) = tx
-                            .send(IdentityManagerProtocol::RequestServiceIdentity {
-                                service_candidate: deployment,
-                            })
-                            .await
-                        {
-                            error!("Error requesting new ServiceIdentity: {}", err);
-                        }
-                    }
-                    Ok(Event::Applied(deployment)) => {
-                        debug!(
-                            "Ignoring service not being candidate {}",
-                            deployment.service_id()
-                        );
-                    }
-                    Ok(Event::Deleted(deployment)) if deployment.is_candidate() => {
-                        info!("Deleted service candidate {}", deployment.service_id());
-                    }
-                    Ok(Event::Deleted(deployment)) => {
-                        debug!(
-                            "Ignoring service not being candidate {}",
-                            deployment.service_id()
-                        );
-                    }
-                    Err(err) => {
-                        error!(
-                            "Found error watching deployments: {}. Trying again in 30 secs.",
-                            err
-                        );
-                        sleep(Duration::from_secs(30)).await;
+        let xs = self.deployment_api.clone().watch(&ListParams::default(), "0").await;
+        if let Err(e) = xs {
+            let err_str = format!("Unable to create deployment watcher: {}. Exiting.", e.to_string());
+            error!("{}", err_str);
+            panic!("{}", err_str);
+        }
+        let mut xs = xs.unwrap().boxed();
+            //.for_each_concurrent(1, |res| async move {
+        loop {
+            match xs.try_next().await.expect("Error!") {
+                Some(WatchEvent::Added(deployment)) if deployment.is_candidate() => {
+                    info!("New service candidate: {}", deployment.service_id());
+                    if let Err(err) = tx
+                        .send(IdentityManagerProtocol::RequestServiceIdentity {
+                            service_candidate: deployment,
+                        })
+                        .await
+                    {
+                        error!("Error requesting new ServiceIdentity: {}", err);
                     }
                 }
-            })
-            .await
+                Some(WatchEvent::Added(deployment)) => {
+                    info!("Ignoring service {}, not a candidate", deployment.service_id());
+
+                }
+                Some(WatchEvent::Deleted(deployment)) if deployment.is_candidate() => {
+                    info!("Deleted service candidate {}", deployment.service_id());
+                }
+                Some(WatchEvent::Deleted(deployment)) => {
+                    debug!(
+                        "Ignoring service not being candidate {}",
+                        deployment.service_id()
+                    );
+                }
+                Some(ev) => {
+                    warn!("Ignored event: {:?}", ev);
+                }
+                None => {
+                
+                }
+            }
+        }
     }
 
     pub async fn run(
