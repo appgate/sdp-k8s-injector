@@ -10,7 +10,15 @@ The following tools are required to install the k8s service Client:
 * kubectl - https://kubernetes.io/docs/tasks/tools/#kubectl
 
 ## Getting Started
-1. Install the k8s service Client with Helm
+1. Install SDP Kubernetes Client CRD
+	```bash
+	$ export HELM_EXPERIMENTAL_OCI=1
+	$ helm install sdp-k8s-client-crd oci://ghcr.io/appgate/charts/sdp-k8s-client-crd --version <VERSION>
+	```
+    Browse the available versions on [Appgate GitHub Container Registry](https://github.com/appgate/sdp-k8s-client/pkgs/container/charts%2Fsdp-k8s-client)
+
+
+2. Install the k8s service Client with Helm
 	```bash
 	$ export HELM_EXPERIMENTAL_OCI=1
 	$ helm install sdp-k8s-client oci://ghcr.io/appgate/charts/sdp-k8s-client --version <VERSION>
@@ -18,14 +26,14 @@ The following tools are required to install the k8s service Client:
 	Browse the available versions on [Appgate GitHub Container Registry](https://github.com/appgate/sdp-k8s-client/pkgs/container/charts%2Fsdp-k8s-client)
 
 
-2. Create a `sdp-demo` namespace and label the namespace with `sdp-injection="enabled"` for k8s service Client injection
+3. Create a `sdp-demo` namespace and label the namespace with `sdp-injection="enabled"` for k8s service Client injection
 	```bash
 	$ kubectl create namespace sdp-demo
 	$ kubectl label namespace sdp-demo --overwrite sdp-injection="enabled"
 	```
 
 
-3. Create a secret containing username, password, and profile URL for default authentication
+4. Create a secret containing username, password, and profile URL for default authentication
 	```bash
 	$ kubectl create secret generic sdp-injector-client-secrets \
 	   --namespace sdp-demo \
@@ -50,7 +58,7 @@ The following tools are required to install the k8s service Client:
 | `client-device-id` | The device ID to use for the Client in UUID v4 format. If empty, the injector will generate a random UUID | `860ab4cc-50f4-4c18-9e9c-1709d5419f1d` |
 
 
-5. Test the deployment by creating a busybox pod, verify a route through an SDP Gateway (via tun0), and ping a resource behind an SDP Gateway
+6. Test the deployment by creating a busybox pod, verify a route through an SDP Gateway (via tun0), and ping a resource behind an SDP Gateway
 	```bash
 	$ kubectl run --namespace sdp-demo -i --tty busybox --image=busybox -- sh
 	$ /# ip route | grep tun0
