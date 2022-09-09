@@ -354,7 +354,7 @@ impl ServiceEnvironment {
                 env_var!(
                     value :: "CLIENT_DEVICE_ID" => self.client_device_id.clone()),
                 env_var!(
-                    secrets :: "CLIENT_CONTROLLER_URL" => (self.client_secret_name, self.client_secret_controller_url_key)),
+                    configMap :: "CLIENT_CONTROLLER_URL" => self.client_config),
                 env_var!(
                     secrets :: "CLIENT_USERNAME" => (self.client_secret_name, self.client_secret_user_key)),
                 env_var!(
