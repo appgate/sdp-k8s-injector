@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: sdp-injector-client-config
+  namespace: {{ include "sdp-k8s-client.namespace" . }}
+  labels:
+  {{- include "sdp-k8s-client.labels" . | nindent 4 }}
+data:
+  client-log-level: {{ .Values.sdp.injector.logLevel }}
+  client-controller-url: {{ required ".Values.sdp.host is required" .Values.sdp.host }}
