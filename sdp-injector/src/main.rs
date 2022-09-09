@@ -54,6 +54,7 @@ const SDP_KEY_FILE: &str = "/opt/sdp-injector/k8s/sdp-injector-key.pem";
 const SDP_SERVICE_CONTAINER_NAME: &str = "sdp-service";
 const SDP_ANNOTATION_CLIENT_CONFIG: &str = "sdp-injector-client-config";
 const SDP_ANNOTATION_CLIENT_SECRETS: &str = "sdp-injector-client-secrets";
+const SDP_ANNOTATION_CLIENT_DEVICE_ID: &str = "sdp-injector-client-device-id";
 const SDP_DEFAULT_CLIENT_CONFIG: &str = "sdp-injector-client-config";
 const SDP_DNS_SERVICE_NAMES: [&str; 2] = ["kube-dns", "coredns"];
 
@@ -287,6 +288,7 @@ struct ServiceEnvironment {
     client_secret_controller_url_key: String,
     client_secret_user_key: String,
     client_secret_pwd_key: String,
+    client_device_id: String,
     n_containers: String,
     k8s_dns_service_ip: Option<String>,
 }
@@ -307,7 +309,7 @@ impl ServiceEnvironment {
         store
             .identity(service_id)
             .await
-            .map(|(s, _d)| ServiceEnvironment {
+            .map(|(s, d)| ServiceEnvironment {
                 service_name: service_id.to_string(),
                 client_config: SDP_DEFAULT_CLIENT_CONFIG.to_string(),
                 client_secret_name: s.spec.service_credentials.secret.clone(),
@@ -318,6 +320,7 @@ impl ServiceEnvironment {
                     .to_string(),
                 client_secret_pwd_key: s.spec.service_credentials.password_field.clone(),
                 client_secret_user_key: s.spec.service_credentials.user_field.clone(),
+                client_device_id: d.spec.uuids[0].to_string(),
                 n_containers: "0".to_string(),
                 k8s_dns_service_ip: None,
             })
@@ -326,6 +329,7 @@ impl ServiceEnvironment {
     fn from_pod(pod: &Pod) -> Option<Self> {
         let config = pod.annotation(SDP_ANNOTATION_CLIENT_CONFIG);
         let secret = pod.annotation(SDP_ANNOTATION_CLIENT_SECRETS);
+        let device_id = pod.annotation(SDP_ANNOTATION_CLIENT_DEVICE_ID);
         let user_field = format!("{}-user", pod.service_id());
         let pwd_field = format!("{}-password", pod.service_id());
         secret.map(|s| ServiceEnvironment {
@@ -337,6 +341,9 @@ impl ServiceEnvironment {
             client_secret_controller_url_key: pwd_field.to_string(),
             client_secret_pwd_key: pwd_field,
             client_secret_user_key: user_field,
+            client_device_id: device_id
+                .map(|s| s.clone())
+                .unwrap_or(uuid::Uuid::new_v4().to_string()),
             n_containers: "0".to_string(),
             k8s_dns_service_ip: None,
         })
