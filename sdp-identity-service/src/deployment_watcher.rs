@@ -1,21 +1,10 @@
-use std::time::Duration;
-
 use futures::{StreamExt, TryStreamExt};
 use k8s_openapi::api::apps::v1::Deployment;
-use kube::{
-    api::ListParams,
-    core::{watch, WatchEvent},
-    runtime::watcher::{self, Event},
-    Api, Client,
-};
+use kube::{api::ListParams, core::WatchEvent, Api, Client};
 use log::{debug, error, info, warn};
-use schemars::_private::NoSerialize;
 use sdp_common::crd::ServiceIdentity;
 use sdp_common::service::ServiceCandidate;
-use tokio::{
-    sync::mpsc::{Receiver, Sender},
-    time::sleep,
-};
+use tokio::sync::mpsc::{Receiver, Sender};
 
 use crate::identity_manager::IdentityManagerProtocol;
 
@@ -68,7 +57,6 @@ impl<'a> DeploymentWatcher<Deployment> {
             panic!("{}", err_str);
         }
         let mut xs = xs.unwrap().boxed();
-        //.for_each_concurrent(1, |res| async move {
         loop {
             match xs.try_next().await.expect("Error!") {
                 Some(WatchEvent::Added(deployment)) if deployment.is_candidate() => {

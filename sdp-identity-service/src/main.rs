@@ -5,12 +5,8 @@ use log::{error, info};
 use sdp_common::crd::ServiceIdentity;
 use sdp_common::kubernetes::get_k8s_client;
 use sdp_common::sdp::system::get_sdp_system;
-use std::{
-    panic,
-    process::{abort, exit},
-    time::Duration,
-};
-use tokio::{sync::mpsc::channel, time::sleep};
+use std::{panic, process::exit};
+use tokio::sync::mpsc::channel;
 
 use crate::{
     deployment_watcher::{DeploymentWatcher, DeploymentWatcherProtocol},

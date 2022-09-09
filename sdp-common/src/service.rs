@@ -1,7 +1,7 @@
 pub use crate::crd::ServiceIdentity;
 use k8s_openapi::api::{apps::v1::Deployment, core::v1::Pod};
 use kube::ResourceExt;
-use log::{error, warn};
+use log::error;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
@@ -102,11 +102,10 @@ impl ServiceCandidate for Pod {
                 (os.len() > 0).then_some((os[0].name.split("-").collect(), 1))
             })
             .or_else(|| {
-                (self
-                    .metadata
+                self.metadata
                     .generate_name
                     .as_ref()
-                    .map(|s| (s.split("-").collect(), 2)))
+                    .map(|s| (s.split("-").collect(), 2))
             })
             .map(|(xs, n)| xs[0..(xs.len() - n)].join("-"));
         if let None = name {
