@@ -36,18 +36,26 @@ impl<'a> ServiceIdentityWatcher<ServiceIdentity> {
     ) {
         info!("Starting ServiceIdentity Watcher");
         let tx = &sender;
-        let xs = self.service_identity_api.clone().watch(&ListParams::default(), "0").await;
+        let xs = self
+            .service_identity_api
+            .clone()
+            .watch(&ListParams::default(), "0")
+            .await;
         if let Err(e) = xs {
             let err_str = format!(
                 "Unable to create deployment watcher: {}. Exiting.",
                 e.to_string()
             );
             error!("{}", err_str);
-            panic!("{}", err_str);   
+            panic!("{}", err_str);
         }
         let mut xs = xs.unwrap().boxed();
         loop {
-            match xs.try_next().await.expect("Error watching for service identity events") {
+            match xs
+                .try_next()
+                .await
+                .expect("Error watching for service identity events")
+            {
                 Some(WatchEvent::Added(service_identity)) => {
                     if let Err(err) = tx
                         .send(DeviceIdManagerProtocol::FoundServiceIdentity {
