@@ -1,0 +1,11 @@
+apiVersion: v2
+name: sdp-k8s-client-crd
+description: A Helm chart to deploy CRDs for SDP Kubernetes Client
+
+type: application
+
+# Chart version should remain consistent with ../chart/Chart.yaml
+version: 0.3.0
+
+# Chart appVersion should be the same as ../chart/Chart.yaml
+appVersion: "5.5.1"
