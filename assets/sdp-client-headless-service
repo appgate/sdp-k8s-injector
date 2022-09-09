@@ -7,7 +7,7 @@ fi
 
 cat > /sdp-service/appgate.conf <<EOF
 [Settings]
-LogLevel = $CLIENT_LOGLEVEL
+LogLevel = $CLIENT_LOG_LEVEL
 [Credentials]
 ControllerUrl = $CLIENT_CONTROLLER_URL
 Username = $CLIENT_USERNAME
