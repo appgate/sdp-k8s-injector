@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 
 pub use crate::crd::{DeviceId, ServiceIdentity};
-use crate::{kubernetes::SDP_K8S_NAMESPACE, service::ServiceCandidate};
-use kube::{core::object::HasSpec, ResourceExt};
+use crate::service::ServiceCandidate;
+use kube::{core::object::HasSpec};
 
 impl ServiceCandidate for ServiceIdentity {
     fn name(&self) -> String {
