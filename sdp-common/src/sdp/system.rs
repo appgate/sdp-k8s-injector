@@ -107,6 +107,10 @@ pub struct ClientProfile {
     pub tags: Vec<String>,
 }
 
+pub struct ClientProfileUrl {
+    pub url: String,
+}
+
 #[derive(Debug)]
 pub struct System {
     hosts: Vec<Url>,
@@ -296,10 +300,10 @@ impl System {
 
     // GET /client-profiles
     pub async fn get_client_profiles(&mut self, tag: Option<&str>) -> Result<Vec<ClientProfile>, SDPClientError> {
-        info!("Getting user");
+        info!("Getting client profile");
         let _ = self.maybe_refresh_login().await?;
         let mut url = Url::from(self.hosts[0].clone());
-        url.set_path(&format!("/admin/client-profiles", service_user_id));
+        url.set_path(&format!("/admin/client-profiles"));
         let xs: Vec<ClientProfile> = self.get(url).await?;
         if tag {
             Ok(xs.iter().filter(|p| p.tags.contains(tag)).collect())
@@ -308,6 +312,7 @@ impl System {
         }
     }
 
+    // POST /client-profiles
     pub async fn create_client_profile(&mut self, client_profile: &ClientProfile) -> Result<ClientProfile, SDPClientError> {
         let mut url = Url::from(self.hosts[0].clone());
         url.set_path(&format!("/admin/client-profiles"));
@@ -318,4 +323,14 @@ impl System {
         );
         self.post::<ServiceUser>(url, service_user).await
     }
+
+    // GET /client-profiles/{id}/url
+    pub async fn get_profile_client_url(&mut self, client_profile_id: &str) -> Result<ClientProfileUrl, SDPClientError> {
+        info!("Getting user");
+        let _ = self.maybe_refresh_login().await?;
+        let mut url = Url::from(self.hosts[0].clone());
+        url.set_path(&format!("/admin/client-profiles/{}/url", client_profile_id));
+        self.get(url).await
+    }
+
 }

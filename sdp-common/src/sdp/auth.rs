@@ -75,7 +75,7 @@ impl ServiceUser {
 }
 
 impl From<&ServiceUser> for ServiceCredentialsRef {
-    fn from(service_user: &ServiceUser) -> Self {
+    fn from(service_user: &ServiceUser, client_profile_url: &str) -> Self {
         let pw_field = format!("{}-pw", service_user.id);
         let user_field = format!("{}-user", service_user.id);
         Self {
@@ -84,6 +84,7 @@ impl From<&ServiceUser> for ServiceCredentialsRef {
             secret: SDP_IDENTITY_MANAGER_SECRETS.to_string(),
             user_field: user_field,
             password_field: pw_field,
+            client_profile_url: client_profile_url.to_string(),
         }
     }
 }

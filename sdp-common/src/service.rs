@@ -15,6 +15,7 @@ pub struct ServiceCredentialsRef {
     pub secret: String,
     pub user_field: String,
     pub password_field: String,
+    pub client_profile_url: String,
 }
 
 pub fn is_injection_disabled<A: Annotated>(entity: &A) -> bool {

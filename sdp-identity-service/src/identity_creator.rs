@@ -10,7 +10,7 @@ use log::{error, info, warn};
 use sdp_common::constants::{SDP_IDENTITY_MANAGER_SECRETS, SERVICE_NAME, CLIENT_PROFILE_TAG};
 pub use sdp_common::crd::ServiceCredentialsRef;
 use sdp_common::sdp::auth::ServiceUser;
-use sdp_common::sdp::system::{System, ClientProfile};
+use sdp_common::sdp::system::{System, ClientProfile, ClientProfileUrl};
 use tokio::sync::mpsc::{Receiver, Sender};
 
 use crate::errors::IdentityServiceError;
@@ -219,7 +219,7 @@ impl IdentityCreator {
         &self,
         system: &mut System,
         identity_manager_proto_tx: Sender<IdentityManagerProtocol<Deployment, ServiceIdentity>>,
-    ) -> Result<(), IdentityServiceError> {
+    ) -> Result<ClientProfileUrl, IdentityServiceError> {
         let users = system.get_users().await.map_err(|e| {
             IdentityServiceError::new(e.to_string(), Some("IdentityCreator".to_string()))
         })?;
@@ -311,7 +311,10 @@ impl IdentityCreator {
             }).await?;
             system.create_client_profile(&p).await?;
         } 
-        Ok(())
+        if p.is_none() {
+            Err("Unable to discover client profile url")
+        }
+        get_profile_client_url(&p.unwrap().id).await
     }
 
     pub async fn run(
@@ -334,12 +337,12 @@ impl IdentityCreator {
             }
         }
         info!("Intializing IdentityCreator");
-        if let Err(E) = self.initialize(system, identity_manager_proto_tx.clone())
-            .await {
-                error!("Error while initializing IdentityCreator: {}", e.to_string());
-                panic!();
-            }
-
+        let client_profile_url = self.initialize(system, identity_manager_proto_tx.clone()).await;
+        if let Err(e) = client_profile_url {
+            error!("Error while initializing IdentityCreator: {}", e.to_string());
+            panic!();
+        }
+        let client_profile_url = client_profile_url.unwrap().url;
         // Notify IdentityManager that we are ready
         identity_manager_proto_tx
             .send(IdentityManagerProtocol::IdentityCreatorReady)
