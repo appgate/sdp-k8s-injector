@@ -17,9 +17,6 @@ rules:
   - apiGroups: [""]
     resources: ["secrets", "configmaps" ]
     verbs: ["get", "create", "delete", "patch"]
-  - apiGroups: [ "injector.sdp.com" ]
-    resources: [ "deviceids", "serviceidentities" ]
-    verbs: [ "get", "list", "create", "delete" ]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
@@ -77,7 +74,7 @@ roleRef:
   name: {{ include "sdp-k8s-client.name" . }}-injector-ext
   apiGroup: rbac.authorization.k8s.io
 ---
-# Role used to create the admission hook
+# Role used to create the admission hook and SDP services
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
@@ -91,6 +88,12 @@ rules:
   - apiGroups: ["admissionregistration.k8s.io"]
     resources: ["mutatingwebhookconfigurations"]
     verbs: ["get", "create", "delete"]
+  - apiGroups: [ "injector.sdp.com" ]
+    resources: [ "deviceids", "serviceidentities" ]
+    verbs: [ "get", "list", "create", "delete", "watch" ]
+  - apiGroups: [ "apps" ]
+    resources: [ "deployments" ]
+    verbs: [ "get", "list", "create", "delete", "watch" ]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
