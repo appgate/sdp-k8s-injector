@@ -1,4 +1,4 @@
-use crate::sdp::auth::{Credentials, Login, ServiceUser, ServiceUsers};
+use crate::sdp::auth::{Credentials, Login, ServiceUser, ServiceUsers, ClientProfile};
 use crate::sdp::errors::{error_for_status, SDPClientError};
 use http::header::{InvalidHeaderValue, ACCEPT};
 use http::{HeaderValue, StatusCode};
@@ -97,6 +97,14 @@ impl SystemConfig {
                 login: None,
             })
     }
+}
+
+/// struct representing a client profile
+pub struct ClientProfile {
+    pub id: String,
+    pub name: String,
+    pub identityProvidertName: String,
+    pub tags: Vec<String>,
 }
 
 #[derive(Debug)]
@@ -284,5 +292,25 @@ impl System {
         let mut url = Url::from(self.hosts[0].clone());
         url.set_path(&format!("/admin/service-users/{}", service_user_id));
         self.delete(url).await
+    }
+
+    // GET /client-profiles
+    pub async fn get_client_profiles(&mut self) -> Result<Vec<ClientProfile>, SDPClientError> {
+        info!("Getting user");
+        let _ = self.maybe_refresh_login().await?;
+        let mut url = Url::from(self.hosts[0].clone());
+        url.set_path(&format!("/admin/client-profiles", service_user_id));
+        self.get(url).await
+    }
+
+    pub async fn create_client_profile(&mut self, client_profile: &ClientProfile) -> Result<ClientProfile, SDPClientError> {
+        let mut url = Url::from(self.hosts[0].clone());
+        url.set_path(&format!("/admin/client-profiles"));
+        info!(
+            "Creating new ClientProfile in SDP system: {} [{}]",
+            client_profile.name,
+            client_profile.identityProvidertName
+        );
+        self.post::<ServiceUser>(url, service_user).await
     }
 }
