@@ -295,7 +295,7 @@ impl System {
     }
 
     // GET /client-profiles
-    pub async fn get_client_profiles(&mut self, tag: Option<String>) -> Result<Vec<ClientProfile>, SDPClientError> {
+    pub async fn get_client_profiles(&mut self, tag: Option<&str>) -> Result<Vec<ClientProfile>, SDPClientError> {
         info!("Getting user");
         let _ = self.maybe_refresh_login().await?;
         let mut url = Url::from(self.hosts[0].clone());

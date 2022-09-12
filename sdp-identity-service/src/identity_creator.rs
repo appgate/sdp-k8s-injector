@@ -7,10 +7,10 @@ use k8s_openapi::ByteString;
 use kube::api::{Patch as KubePatch, PatchParams};
 use kube::{Api, Client};
 use log::{error, info, warn};
-use sdp_common::constants::{SDP_IDENTITY_MANAGER_SECRETS, SERVICE_NAME};
+use sdp_common::constants::{SDP_IDENTITY_MANAGER_SECRETS, SERVICE_NAME, CLIENT_PROFILE_TAG};
 pub use sdp_common::crd::ServiceCredentialsRef;
 use sdp_common::sdp::auth::ServiceUser;
-use sdp_common::sdp::system::System;
+use sdp_common::sdp::system::{System, ClientProfile};
 use tokio::sync::mpsc::{Receiver, Sender};
 
 use crate::errors::IdentityServiceError;
@@ -291,6 +291,26 @@ impl IdentityCreator {
                     IdentityServiceError::new(e.to_string(), Some("IdentityCreator".to_string()))
                 })?;
         }
+
+        // Create ClientProfile if needed
+        let ps = system.get_client_profiles(Some(CLIENT_PROFILE_TAG)).await?;
+        let psn = ps.len();
+        let mut p: Option<ClientProfile> = None;
+        if psn > 0 {
+            p = Some(ps[0]);
+            if psn > 1 {
+                warn!("Seems there are defined more than one service client profile with the tag {}", CLIENT_PROFILE_TAG);
+                warn!("First one found will be used: {}", p.name);
+            }
+        } else {
+            p = Some(ClientProfile {
+                id: uuid::Uuid::new_v4().to_string(),
+                name: "K8S Service Client Profile".to_string(),
+                identityProvidertName: SDP_IDP_NAME.to_string(),
+                tags: vec![CLIENT_PROFILE_TAG.to_string()]
+            }).await?;
+            system.create_client_profile(&p).await?;
+        } 
         Ok(())
     }
 
@@ -314,9 +334,11 @@ impl IdentityCreator {
             }
         }
         info!("Intializing IdentityCreator");
-        self.initialize(system, identity_manager_proto_tx.clone())
-            .await
-            .expect("Error while initializing IdentityCreator");
+        if let Err(E) = self.initialize(system, identity_manager_proto_tx.clone())
+            .await {
+                error!("Error while initializing IdentityCreator: {}", e.to_string());
+                panic!();
+            }
 
         // Notify IdentityManager that we are ready
         identity_manager_proto_tx
