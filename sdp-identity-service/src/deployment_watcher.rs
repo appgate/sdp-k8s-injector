@@ -25,9 +25,43 @@ impl<'a> DeploymentWatcher<Deployment> {
         }
     }
 
-    pub async fn initialize(&self, mut queue: Receiver<DeploymentWatcherProtocol>) -> () {
+    pub async fn initialize(
+        &self,
+        mut q_rx: Receiver<DeploymentWatcherProtocol>,
+        q_tx: Sender<IdentityManagerProtocol<Deployment, ServiceIdentity>>,
+    ) -> () {
         info!("Waiting for IdentityManager to be ready!");
-        while let Some(msg) = queue.recv().await {
+        let xs = self.deployment_api.list(&ListParams::default()).await;
+        if let Err(e) = xs {
+            let err_str = format!(
+                "Unable to get current deployments: {}. Exiting.",
+                e.to_string()
+            );
+            error!("{}", err_str);
+            panic!("{}", err_str);
+        }
+
+        // First of all notify the known service candidates to the IdentityManager so we can clean up the system if needed
+        for candidate in xs.unwrap().items.iter().filter(|c| c.is_candidate()) {
+            info!("Found service candidate: {}", candidate.service_id());
+            let msg = IdentityManagerProtocol::FoundServiceCandidate {
+                service_candidate: candidate.clone(),
+            };
+            if let Err(err) = q_tx.send(msg).await {
+                error!("Error reporting found ServiceIdentity: {}", err);
+            }
+        }
+
+        // Notify IdentityManager that we are ready to proceed
+        if let Err(err) = q_tx
+            .send(IdentityManagerProtocol::DeploymentWatcherReady)
+            .await
+        {
+            error!("Error reporting  {}", err);
+        }
+
+        // Wait for IdentityManager tell us to start processing events
+        while let Some(msg) = q_rx.recv().await {
             match msg {
                 DeploymentWatcherProtocol::IdentityManagerReady => {
                     info!("IdentityManager is ready, starting DeploymentWatcher!");
@@ -98,7 +132,7 @@ impl<'a> DeploymentWatcher<Deployment> {
         receiver: Receiver<DeploymentWatcherProtocol>,
         sender: Sender<IdentityManagerProtocol<Deployment, ServiceIdentity>>,
     ) -> () {
-        self.initialize(receiver).await;
+        self.initialize(receiver, sender.clone()).await;
         self.watch_deployments(sender).await;
     }
 }

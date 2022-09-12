@@ -102,6 +102,7 @@ pub enum IdentityManagerProtocol<From: ServiceCandidate, To: ServiceCandidate + 
     DeploymentWatcherReady,
     IdentityManagerInitialized,
     IdentityManagerStarted,
+    IdentityManagerReady,
     IdentityManagerDebug(String),
 }
 
@@ -268,8 +269,10 @@ pub struct IdentityManagerRunner<
 /// - IM collects all ServiceIdentity defined
 /// - IM asks IC to collect current ServiceCredentialsRef
 /// - IC notifies IM with defined ServiceCredentialsRef (active and not active)
+/// - DW notifies IM with the current defined ServiceCandidates
 /// - IM cleans up extra ServiceCredentialsRef (credentials active in system without a ServiceIdentrity)
-/// - IM cleans up ServiceIdentities that dont have valid ServiceCredentialsRef
+/// - IM cleans up ServiceIdentities that have ServiceCrendeitalsRef not active
+/// - IM cleans up ServiceIdentities that don't have a ServiceCandidate attached
 /// - IM asks DW to start
 /// - DW sends the list of all CandidateServices (Deployments)
 /// - IM creates ServiceIDentity for those CandidateServices that need it and dont have one.
@@ -431,26 +434,6 @@ impl IdentityManagerRunner<Deployment, ServiceIdentity> {
                     }
                     existing_service_candidates.insert(service_candidate.service_id());
                 }
-
-                IdentityManagerProtocol::DeploymentWatcherReady if identity_creator_ready => {
-                    info!("IdentityCreator and DeploymentWatcher are ready!");
-                    info!("Syncing with current ServiceIdentities");
-                    for identity in im.extra_identities(&existing_service_candidates) {
-                        info!(
-                            "Deleting extra ServiceIdentity for service {}",
-                            identity.service_id()
-                        );
-                        identity_manager_tx
-                            .send(IdentityManagerProtocol::DeleteServiceIdentity {
-                                service_identity: identity.clone(),
-                            })
-                            .await
-                            .expect("Error requesting deletiong of ServiceIdentity");
-                    }
-                }
-                IdentityManagerProtocol::DeploymentWatcherReady => {
-                    panic!("DeploymentWatcher is ready but IdentityCreator is not. This should not happen!")
-                }
                 // Identity Creator notifies about fresh, unactivated User Credentials
                 IdentityManagerProtocol::FoundUserCredentials {
                     user_credentials_ref,
@@ -474,9 +457,45 @@ impl IdentityManagerRunner<Deployment, ServiceIdentity> {
                         user_credentials_ref.id
                     ) => external_queue_tx);
                 }
-                // Identity Creator finished the initialization
-                IdentityManagerProtocol::IdentityCreatorReady if !deployment_watcher_ready => {
+                IdentityManagerProtocol::IdentityCreatorReady => {
                     info!("IdentityCreator is ready");
+                    identity_creator_ready = true;
+                    if deployment_watcher_ready {
+                        info!("IdentityManager is ready");
+                        if let Err(e) = identity_manager_tx
+                            .send(IdentityManagerProtocol::IdentityManagerReady)
+                            .await
+                        {
+                            let err_str = format!(
+                                "Unable to create deployment watcher: {}. Exiting.",
+                                e.to_string()
+                            );
+                            error!("{}", err_str);
+                            panic!("{}", err_str);
+                        }
+                    }
+                }
+                IdentityManagerProtocol::DeploymentWatcherReady => {
+                    info!("DeploymentWatcher is ready");
+                    deployment_watcher_ready = true;
+                    if identity_creator_ready {
+                        if let Err(e) = identity_manager_tx
+                            .send(IdentityManagerProtocol::IdentityManagerReady)
+                            .await
+                        {
+                            let err_str = format!(
+                                "Unable to create deployment watcher: {}. Exiting.",
+                                e.to_string()
+                            );
+                            error!("{}", err_str);
+                            panic!("{}", err_str);
+                        }
+                    }
+                }
+
+                // Identity Creator finished the initialization
+                IdentityManagerProtocol::IdentityManagerReady => {
+                    info!("IdentityMAnager is ready");
 
                     sdp_info!(IdentityManagerProtocol::<F, ServiceIdentity>::IdentityManagerDebug |("Syncing UserCredentials") => external_queue_tx);
                     // Delete active credentials not in use by any service
@@ -496,7 +515,7 @@ impl IdentityManagerRunner<Deployment, ServiceIdentity> {
                     // Delete Identity Services holding not active credentials
                     for identity_service in im.orphan_identities(&existing_activated_credentials) {
                         info!(
-                            "IdentityService {} has UserCredentials not active, deleting it",
+                            "ServiceIdentity {} has deactivated UserCredentialsRed. Deleting it.",
                             identity_service.service_id()
                         );
                         identity_manager_tx
@@ -507,16 +526,24 @@ impl IdentityManagerRunner<Deployment, ServiceIdentity> {
                             .expect("Error requesting deletiong of ServiceIdentity");
                     }
 
-                    identity_creator_ready = true;
-                    deployment_watcher_ready = true;
+                    // Delete Identity Services with no ServiceCandidate
+                    for identity in im.extra_identities(&existing_service_candidates) {
+                        info!(
+                            "ServiceIdentity {} has not attached ServiceCandidate. Deleting it.",
+                            identity.service_id()
+                        );
+                        identity_manager_tx
+                            .send(IdentityManagerProtocol::DeleteServiceIdentity {
+                                service_identity: identity.clone(),
+                            })
+                            .await
+                            .expect("Error requesting deletiong of ServiceIdentity");
+                    }
+
                     deployment_watcher_proto_tx
                         .send(DeploymentWatcherProtocol::IdentityManagerReady)
                         .await
                         .expect("Unable to notify DeploymentWatcher!");
-                }
-                IdentityManagerProtocol::IdentityCreatorReady => {
-                    sdp_info!(IdentityManagerProtocol::<F, ServiceIdentity>::IdentityManagerDebug |("IdentityCreator event ignored") => external_queue_tx);
-                    identity_creator_ready = true;
                 }
                 _ => {
                     warn!("Ignored message");
