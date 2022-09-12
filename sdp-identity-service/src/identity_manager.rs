@@ -513,6 +513,7 @@ impl IdentityManagerRunner<Deployment, ServiceIdentity> {
 
                     sdp_info!(IdentityManagerProtocol::<F, ServiceIdentity>::IdentityManagerDebug |("Syncing IdentityServices") => external_queue_tx);
                     // Delete Identity Services holding not active credentials
+                    let mut removed_service_identities: HashSet<String> = HashSet::new();
                     for identity_service in im.orphan_identities(&existing_activated_credentials) {
                         info!(
                             "ServiceIdentity {} has deactivated UserCredentialsRed. Deleting it.",
@@ -524,6 +525,8 @@ impl IdentityManagerRunner<Deployment, ServiceIdentity> {
                             })
                             .await
                             .expect("Error requesting deletiong of ServiceIdentity");
+                        // Make sure we dont try to delete it twice!
+                        removed_service_identities.insert(identity_service.service_id().clone());
                     }
 
                     // Delete Identity Services with no ServiceCandidate
@@ -532,12 +535,14 @@ impl IdentityManagerRunner<Deployment, ServiceIdentity> {
                             "ServiceIdentity {} has not attached ServiceCandidate. Deleting it.",
                             identity.service_id()
                         );
-                        identity_manager_tx
-                            .send(IdentityManagerProtocol::DeleteServiceIdentity {
-                                service_identity: identity.clone(),
-                            })
-                            .await
-                            .expect("Error requesting deletiong of ServiceIdentity");
+                        if !removed_service_identities.contains(&identity.service_id().clone()) {
+                            identity_manager_tx
+                                .send(IdentityManagerProtocol::DeleteServiceIdentity {
+                                    service_identity: identity.clone(),
+                                })
+                                .await
+                                .expect("Error requesting deletiong of ServiceIdentity");
+                        }
                     }
 
                     deployment_watcher_proto_tx
@@ -1482,6 +1487,8 @@ mod tests {
 
                 // Notify that IdentityCreator is ready
                 tx.send(IdentityManagerProtocol::IdentityCreatorReady).await.expect("Unable to send message!");
+                // Notify the DeploymentWatcher is ready
+                tx.send(IdentityManagerProtocol::DeploymentWatcherReady).await.expect("Unable to send message!");
                 let mut extra_credentials_expected: HashSet<String> = HashSet::from_iter((1 .. 12).map(|i| format!("id{}", i)).collect::<Vec<_>>());
                 for _ in 1 .. 12 {
                     assert_message!(m :: IdentityCreatorProtocol::DeleteIdentity(_) in identity_creator_rx);
@@ -1506,10 +1513,12 @@ mod tests {
         test_identity_manager! {
             (watcher_rx, identity_manager_tx, _identity_creator_rx, _deployment_watched_rx, counters) => {
                 // Notify that IdentityCreator is ready
+                assert_eq!(counters.lock().unwrap().delete_calls, 0);
                 assert_message!(m :: IdentityManagerProtocol::IdentityManagerInitialized in watcher_rx);
                 assert_message!(m :: IdentityManagerProtocol::IdentityManagerStarted in watcher_rx);
                 let tx = identity_manager_tx.clone();
                 tx.send(IdentityManagerProtocol::IdentityCreatorReady).await.expect("Unable to send message!");
+                tx.send(IdentityManagerProtocol::DeploymentWatcherReady).await.expect("Unable to send message!");
                 // Syncing UserCredentials log message
                 assert_message!(m :: IdentityManagerProtocol::IdentityManagerDebug(_) in watcher_rx);
                 // Syncing ServiceIdentities log message
@@ -1517,21 +1526,22 @@ mod tests {
                 let mut extra_service_identities: HashSet<String> = HashSet::from_iter((1 .. 5)
                     .map(|i| format!("ServiceIdentity with id ns{}-srv{} unregistered", i, i))
                     .collect::<Vec<_>>());
-                for _ in 1 .. 5 {
+                for i in 1 .. 5 {
                     assert_message!(m :: IdentityManagerProtocol::IdentityManagerDebug(_) in watcher_rx);
                     if let IdentityManagerProtocol::IdentityManagerDebug(msg) = m {
                         if extra_service_identities.contains(&msg) {
                             extra_service_identities.remove(&msg);
                         } else {
-                            assert!(false, "Deleted extra ServiceIdentity: {}", msg);
+                            assert!(false, "Deleted extra ServiceIdentity: {} - {}", msg, i);
                         }
                     } else {
                         assert!(false, "Got wrong message!");
                     }
                 }
+                assert_no_message!(watcher_rx);
                 assert!(extra_service_identities.is_empty(),
                 "There were ServiceIdentities that should be removed but they weren't: {:?}", extra_service_identities);
-                assert!(counters.lock().unwrap().delete_calls == 4);
+                assert_eq!(counters.lock().unwrap().delete_calls, 4);
             }
         }
     }

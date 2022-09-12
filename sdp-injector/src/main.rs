@@ -809,8 +809,8 @@ mod tests {
     use crate::{
         load_sidecar_containers, patch_pod, InMemoryIdentityStore, Patched, SDPPatchContext,
         SDPPod, SDPSidecars, ServiceEnvironment, Validated, SDP_ANNOTATION_CLIENT_CONFIG,
-        SDP_ANNOTATION_CLIENT_SECRETS, SDP_DEFAULT_CLIENT_CONFIG, SDP_SERVICE_CONTAINER_NAME,
-        SDP_SIDECARS_FILE_ENV,
+        SDP_ANNOTATION_CLIENT_DEVICE_ID, SDP_ANNOTATION_CLIENT_SECRETS, SDP_DEFAULT_CLIENT_CONFIG,
+        SDP_SERVICE_CONTAINER_NAME, SDP_SIDECARS_FILE_ENV,
     };
     use json_patch::Patch;
     use k8s_openapi::api::core::v1::{Container, Pod, Service, ServiceSpec, ServiceStatus, Volume};
@@ -871,7 +871,7 @@ mod tests {
                 DeviceIdSpec {
                     service_name: format!("{}{}", stringify!(srv), $n),
                     service_namespace: format!("{}{}", stringify!(ns), $n),
-                    uuids: vec![],
+                    uuids: vec![format!("{}{}", stringify!(666), $n)],
                 },
             )
         };
@@ -1016,6 +1016,7 @@ mod tests {
                 envs: vec![
                     ("POD_N_CONTAINERS".to_string(), Some("1".to_string())),
                     ("K8S_DNS_SERVICE".to_string(), Some("".to_string())),
+                    ("CLIENT_DEVICE_ID".to_string(), Some("6661".to_string())),
                     ("SERVICE_NAME".to_string(), Some("ns1-srv1".to_string())),
                 ],
                 ..Default::default()
@@ -1033,13 +1034,15 @@ mod tests {
                 pod: test_pod!(3, containers => vec!["random-service"],
                                   annotations => vec![("sdp-injector", "who-knows"),
                                                       (SDP_ANNOTATION_CLIENT_SECRETS, "some-secrets"),
-                                                      (SDP_ANNOTATION_CLIENT_CONFIG, "some-config-map")]),
+                                                      (SDP_ANNOTATION_CLIENT_CONFIG, "some-config-map"),
+                                                      (SDP_ANNOTATION_CLIENT_DEVICE_ID, "666-6")]),
                 needs_patching: true,
                 client_config_map: "some-config-map",
                 client_secrets: "some-secrets",
                 envs: vec![
                     ("POD_N_CONTAINERS".to_string(), Some("1".to_string())),
                     ("K8S_DNS_SERVICE".to_string(), Some("".to_string())),
+                    ("CLIENT_DEVICE_ID".to_string(), Some("666-6".to_string())),
                     ("SERVICE_NAME".to_string(), Some("ns3-srv3".to_string())),
                 ],
                 ..Default::default()
@@ -1047,12 +1050,14 @@ mod tests {
             TestPatch {
                 pod: test_pod!(4, containers => vec!["random-service"],
                                   annotations => vec![("sdp-injector", "true"),
+                                                      (SDP_ANNOTATION_CLIENT_DEVICE_ID, "666-10"),
                                                       (SDP_ANNOTATION_CLIENT_SECRETS, "some-secrets")]),
                 needs_patching: true,
                 client_secrets: "some-secrets",
                 envs: vec![
                     ("POD_N_CONTAINERS".to_string(), Some("1".to_string())),
                     ("K8S_DNS_SERVICE".to_string(), Some("".to_string())),
+                    ("CLIENT_DEVICE_ID".to_string(), Some("666-10".to_string())),
                     ("SERVICE_NAME".to_string(), Some("ns4-srv4".to_string())),
                 ],
                 ..Default::default()
@@ -1066,6 +1071,7 @@ mod tests {
                     ("POD_N_CONTAINERS".to_string(), Some("2".to_string())),
                     ("K8S_DNS_SERVICE".to_string(), Some("10.0.0.10".to_string())),
                     ("SERVICE_NAME".to_string(), Some("ns5-srv5".to_string())),
+                    ("CLIENT_DEVICE_ID".to_string(), Some("6665".to_string())),
                 ],
                 service: Service {
                     metadata: ObjectMeta::default(),
