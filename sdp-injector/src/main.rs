@@ -189,7 +189,7 @@ impl IdentityStore for KubeIdentityStore {
                 .await
                 .map_err(|e| {
                     error!(
-                        "Error fetching service identities list for service {}: {:?}",
+                        "Error fetching device ids list for service {}: {:?}",
                         service_id, e
                     );
                 })
