@@ -1,7 +1,7 @@
 use crate::device_id_manager::DeviceIdManagerProtocol;
 use futures::{StreamExt, TryStreamExt};
 use kube::api::ListParams;
-use kube::core::WatchEvent;
+use kube::runtime::watcher::{self, Event};
 use kube::{Api, Client};
 use log::{error, info, warn};
 use sdp_common::crd::{DeviceId, ServiceIdentity};
@@ -36,27 +36,15 @@ impl<'a> ServiceIdentityWatcher<ServiceIdentity> {
     ) {
         info!("Starting ServiceIdentity Watcher");
         let tx = &sender;
-        let xs = self
-            .service_identity_api
-            .clone()
-            .watch(&ListParams::default(), "0")
-            .await;
-        if let Err(e) = xs {
-            let err_str = format!(
-                "Unable to create deployment watcher: {}. Exiting.",
-                e.to_string()
-            );
-            error!("{}", err_str);
-            panic!("{}", err_str);
-        }
-        let mut xs = xs.unwrap().boxed();
+        let xs = watcher::watcher(self.service_identity_api.clone(), ListParams::default());
+        let mut xs = xs.boxed();
         loop {
             match xs
                 .try_next()
                 .await
                 .expect("Error watching for service identity events")
             {
-                Some(WatchEvent::Added(service_identity)) => {
+                Some(Event::Applied(service_identity)) => {
                     if let Err(err) = tx
                         .send(DeviceIdManagerProtocol::FoundServiceIdentity {
                             service_identity_ref: service_identity,

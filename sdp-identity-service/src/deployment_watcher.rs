@@ -1,6 +1,10 @@
 use futures::{StreamExt, TryStreamExt};
 use k8s_openapi::api::apps::v1::Deployment;
-use kube::{api::ListParams, core::WatchEvent, Api, Client};
+use kube::{
+    api::ListParams,
+    runtime::watcher::{self, Event},
+    Api, Client,
+};
 use log::{debug, error, info, warn};
 use sdp_common::crd::ServiceIdentity;
 use sdp_common::service::ServiceCandidate;
@@ -77,23 +81,11 @@ impl<'a> DeploymentWatcher<Deployment> {
     ) -> () {
         info!("Starting Deployments watcher!");
         let tx = &queue;
-        let xs = self
-            .deployment_api
-            .clone()
-            .watch(&ListParams::default(), "0")
-            .await;
-        if let Err(e) = xs {
-            let err_str = format!(
-                "Unable to create deployment watcher: {}. Exiting.",
-                e.to_string()
-            );
-            error!("{}", err_str);
-            panic!("{}", err_str);
-        }
-        let mut xs = xs.unwrap().boxed();
+        let xs = watcher::watcher(self.deployment_api.clone(), ListParams::default());
+        let mut xs = xs.boxed();
         loop {
-            match xs.try_next().await.expect("Error!") {
-                Some(WatchEvent::Added(deployment)) if deployment.is_candidate() => {
+            match xs.try_next().await.expect("Error getting event!") {
+                Some(Event::Applied(deployment)) if deployment.is_candidate() => {
                     info!("New service candidate: {}", deployment.service_id());
                     if let Err(err) = tx
                         .send(IdentityManagerProtocol::RequestServiceIdentity {
@@ -104,23 +96,32 @@ impl<'a> DeploymentWatcher<Deployment> {
                         error!("Error requesting new ServiceIdentity: {}", err);
                     }
                 }
-                Some(WatchEvent::Added(deployment)) => {
+                Some(Event::Applied(deployment)) => {
                     info!(
                         "Ignoring service {}, not a candidate",
                         deployment.service_id()
                     );
                 }
-                Some(WatchEvent::Deleted(deployment)) if deployment.is_candidate() => {
+                Some(Event::Deleted(deployment)) if deployment.is_candidate() => {
                     info!("Deleted service candidate {}", deployment.service_id());
+                    if let Err(err) = tx
+                        .send(IdentityManagerProtocol::DeletedServiceCandidate(
+                            deployment.clone(),
+                        ))
+                        .await
+                    {
+                        error!("Error requesting new ServiceIdentity: {}", err);
+                    }
                 }
-                Some(WatchEvent::Deleted(deployment)) => {
+                Some(Event::Deleted(deployment)) => {
                     debug!(
                         "Ignoring service not being candidate {}",
                         deployment.service_id()
                     );
                 }
-                Some(ev) => {
-                    warn!("Ignored event: {:?}", ev);
+                // We can replace the for list during initalization with this
+                Some(Event::Restarted(_xs)) => {
+                    warn!("Ignored restarted event");
                 }
                 None => {}
             }
