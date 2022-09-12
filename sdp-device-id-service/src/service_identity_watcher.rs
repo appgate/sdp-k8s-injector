@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use crate::device_id_manager::DeviceIdManagerProtocol;
 use futures::{StreamExt, TryStreamExt};
 use kube::api::ListParams;
@@ -38,6 +40,7 @@ impl<'a> ServiceIdentityWatcher<ServiceIdentity> {
         let tx = &sender;
         let xs = watcher::watcher(self.service_identity_api.clone(), ListParams::default());
         let mut xs = xs.boxed();
+        let mut applied: HashSet<String> = HashSet::new();
         loop {
             match xs
                 .try_next()
@@ -45,17 +48,26 @@ impl<'a> ServiceIdentityWatcher<ServiceIdentity> {
                 .expect("Error watching for service identity events")
             {
                 Some(Event::Applied(service_identity)) => {
-                    if let Err(err) = tx
-                        .send(DeviceIdManagerProtocol::FoundServiceIdentity {
-                            service_identity_ref: service_identity,
-                        })
-                        .await
-                    {
-                        error!("Error requesting new DeviceId: {}", err);
+                    let service_id = service_identity.service_id().clone();
+                    if !applied.contains(&service_id) {
+                        if let Err(err) = tx
+                            .send(DeviceIdManagerProtocol::FoundServiceIdentity {
+                                service_identity_ref: service_identity,
+                            })
+                            .await
+                        {
+                            error!("Error requesting new DeviceId: {}", err);
+                        }
+                        applied.insert(service_id);
                     }
                 }
-                Some(ev) => {
-                    warn!("Ignored event: {:?}", ev);
+                Some(Event::Deleted(service_identity)) => {
+                    let service_id = service_identity.service_id().clone();
+                    applied.remove(&service_id);
+                }
+                // TODO: Use this event
+                Some(Event::Restarted(_)) => {
+                    warn!("Ignored restarted event");
                 }
                 None => {}
             }

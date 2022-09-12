@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use futures::{StreamExt, TryStreamExt};
 use k8s_openapi::api::apps::v1::Deployment;
 use kube::{
@@ -83,17 +85,24 @@ impl<'a> DeploymentWatcher<Deployment> {
         let tx = &queue;
         let xs = watcher::watcher(self.deployment_api.clone(), ListParams::default());
         let mut xs = xs.boxed();
+        let mut applied: HashSet<String> = HashSet::new();
         loop {
             match xs.try_next().await.expect("Error getting event!") {
                 Some(Event::Applied(deployment)) if deployment.is_candidate() => {
-                    info!("New service candidate: {}", deployment.service_id());
-                    if let Err(err) = tx
-                        .send(IdentityManagerProtocol::RequestServiceIdentity {
-                            service_candidate: deployment,
-                        })
-                        .await
-                    {
-                        error!("Error requesting new ServiceIdentity: {}", err);
+                    let service_id = deployment.service_id().clone();
+                    if !applied.contains(&service_id) {
+                        info!("New service candidate: {}", &service_id);
+                        if let Err(err) = tx
+                            .send(IdentityManagerProtocol::RequestServiceIdentity {
+                                service_candidate: deployment.clone(),
+                            })
+                            .await
+                        {
+                            error!("Error requesting new ServiceIdentity: {}", err);
+                        }
+                        applied.insert(service_id);
+                    } else {
+                        info!("Modified service candidate: {}", &service_id);
                     }
                 }
                 Some(Event::Applied(deployment)) => {
@@ -103,7 +112,8 @@ impl<'a> DeploymentWatcher<Deployment> {
                     );
                 }
                 Some(Event::Deleted(deployment)) if deployment.is_candidate() => {
-                    info!("Deleted service candidate {}", deployment.service_id());
+                    let service_id = deployment.service_id().clone();
+                    info!("Deleted service candidate {}", &service_id);
                     if let Err(err) = tx
                         .send(IdentityManagerProtocol::DeletedServiceCandidate(
                             deployment.clone(),
@@ -112,6 +122,7 @@ impl<'a> DeploymentWatcher<Deployment> {
                     {
                         error!("Error requesting new ServiceIdentity: {}", err);
                     }
+                    applied.remove(&service_id);
                 }
                 Some(Event::Deleted(deployment)) => {
                     debug!(
@@ -119,7 +130,7 @@ impl<'a> DeploymentWatcher<Deployment> {
                         deployment.service_id()
                     );
                 }
-                // We can replace the for list during initalization with this
+                // TODO: User this event, also we can replace the for list during initalization with this
                 Some(Event::Restarted(_xs)) => {
                     warn!("Ignored restarted event");
                 }
