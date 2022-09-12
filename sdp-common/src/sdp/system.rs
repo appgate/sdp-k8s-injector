@@ -295,12 +295,17 @@ impl System {
     }
 
     // GET /client-profiles
-    pub async fn get_client_profiles(&mut self) -> Result<Vec<ClientProfile>, SDPClientError> {
+    pub async fn get_client_profiles(&mut self, tag: Option<String>) -> Result<Vec<ClientProfile>, SDPClientError> {
         info!("Getting user");
         let _ = self.maybe_refresh_login().await?;
         let mut url = Url::from(self.hosts[0].clone());
         url.set_path(&format!("/admin/client-profiles", service_user_id));
-        self.get(url).await
+        let xs: Vec<ClientProfile> = self.get(url).await?;
+        if tag {
+            Ok(xs.iter().filter(|p| p.tags.contains(tag)).collect())
+        } else {
+            Ok(xs)
+        }
     }
 
     pub async fn create_client_profile(&mut self, client_profile: &ClientProfile) -> Result<ClientProfile, SDPClientError> {
