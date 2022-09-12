@@ -92,6 +92,7 @@ pub enum IdentityManagerProtocol<From: ServiceCandidate, To: ServiceCandidate + 
     FoundServiceCandidate {
         service_candidate: From,
     },
+    DeletedServiceCandidate(From),
     /// Message to notify that a new ServiceCredential have been created
     /// IdentityCreator creates these ServiceCredentials
     FoundUserCredentials {
@@ -549,6 +550,35 @@ impl IdentityManagerRunner<Deployment, ServiceIdentity> {
                         .send(DeploymentWatcherProtocol::IdentityManagerReady)
                         .await
                         .expect("Unable to notify DeploymentWatcher!");
+                }
+                IdentityManagerProtocol::DeletedServiceCandidate(service_candidate) => {
+                    match im.identity(&service_candidate) {
+                        Some(identity_service) => {
+                            if let Err(e) = identity_manager_tx
+                                .send(IdentityManagerProtocol::DeleteServiceIdentity {
+                                    service_identity: identity_service.clone(),
+                                })
+                                .await
+                            {
+                                // TODO: We should retry later
+                                error!(
+                                    "Unable to queue message to delete ServiceIdentity {}: {}",
+                                    identity_service.service_id(),
+                                    e.to_string()
+                                );
+                            };
+                        }
+                        None => {
+                            error!("Deleted ServiceCandidate {} has not IdentitityService attached, ignoring!",
+                            service_candidate.service_id());
+                        }
+                    }
+                    /*if Err(e) = identity_manager_tx
+                    .send(IdentityManagerProtocol::DeleteServiceIdentity {
+                        service_identity: identity_service.clone(),
+                    }).await {
+                        error!("Unable to queue message to delete ServiceIdentity {}", )
+                    };*/
                 }
                 _ => {
                     warn!("Ignored message");
