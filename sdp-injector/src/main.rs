@@ -303,8 +303,8 @@ impl ServiceEnvironment {
                 client_secret_controller_url_key: s
                     .spec
                     .service_credentials
-                    .password_field
-                    .to_string(),
+                    .client_profile_url
+                    .clone(),
                 client_secret_pwd_key: s.spec.service_credentials.password_field.clone(),
                 client_secret_user_key: s.spec.service_credentials.user_field.clone(),
                 client_device_id: d.spec.uuids[0].to_string(),
@@ -354,7 +354,7 @@ impl ServiceEnvironment {
                 env_var!(
                     value :: "CLIENT_DEVICE_ID" => self.client_device_id.clone()),
                 env_var!(
-                    configMap :: "CLIENT_CONTROLLER_URL" => self.client_config),
+                    configMap :: "CLIENT_CONTROLLER_URL" => (self.client_secret_name, self.client_secret_controller_url_key)),
                 env_var!(
                     secrets :: "CLIENT_USERNAME" => (self.client_secret_name, self.client_secret_user_key)),
                 env_var!(
