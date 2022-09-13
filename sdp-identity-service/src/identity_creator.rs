@@ -88,6 +88,12 @@ async fn get_or_create_client_profile_url(
     })
 }
 
+fn user_credential_secret_names(service_user_id: &str) -> (String, String, String) {
+    (format!("{}-user", service_user_id),
+     format!("{}-pw", service_user_id),
+     format!("{}-url", service_user_id))
+}
+
 impl IdentityCreator {
     pub fn new(client: Client, credentials_pool_size: usize) -> IdentityCreator {
         let secrets_api: Api<Secret> = Api::namespaced(client, "sdp-system");
@@ -97,9 +103,8 @@ impl IdentityCreator {
         }
     }
 
-    async fn exists_user_crendentials_ref(&self, service_user_id: &String) -> (bool, bool) {
-        let pw_field = format!("{}-pw", service_user_id);
-        let user_field = format!("{}-user", service_user_id);
+    async fn exists_user_crendentials_ref(&self, service_user_id: &str) -> (bool, bool, bool) {
+        let (user_field, pw_field, url_field) = user_credential_secret_names(service_user_id);
         if let Ok(secret) = self.secrets_api.get(SDP_IDENTITY_MANAGER_SECRETS).await {
             secret
                 .data
@@ -107,15 +112,16 @@ impl IdentityCreator {
                     (
                         data.get(&pw_field).is_some(),
                         data.get(&user_field).is_some(),
+                        data.get(&url_field).is_some(),
                     )
                 })
-                .unwrap_or((false, false))
+                .unwrap_or((false, false, false))
         } else {
             error!(
                 "Error getting UserCredentialRef with id {}",
                 service_user_id
             );
-            (false, false)
+            (false, false, false)
         }
     }
 
@@ -124,9 +130,9 @@ impl IdentityCreator {
         service_user_id: &String,
         user_field_exists: bool,
         passwd_field_exists: bool,
+        url_field_exists: bool
     ) -> Result<(), IdentityServiceError> {
-        let pw_field = format!("{}-pw", service_user_id);
-        let user_field = format!("{}-user", service_user_id);
+        let (user_field, pw_field, url_field) = user_credential_secret_names(&service_user_id);
         let mut patch_operations: Vec<PatchOperation> = Vec::new();
         if user_field_exists {
             patch_operations.push(PatchOperation::Remove(RemoveOperation {
@@ -145,6 +151,16 @@ impl IdentityCreator {
         } else {
             info!(
                 "Password field in UserCredentials{} not found, ignoring it",
+                service_user_id
+            );
+        }
+        if url_field_exists {
+            patch_operations.push(PatchOperation::Remove(RemoveOperation {
+                path: format!("/data/{}", url_field),
+            }));
+        } else {
+            info!(
+                "Client profile url in UserCredentials{} not found, ignoring it",
                 service_user_id
             );
         }
@@ -178,9 +194,9 @@ impl IdentityCreator {
         client_profile_url: &ClientProfileUrl,
         user_field_exists: bool,
         passwd_field_exists: bool,
+        url_field_exists: bool,
     ) -> Result<ServiceCredentialsRef, IdentityServiceError> {
-        let pw_field = format!("{}-pw", service_user.id);
-        let user_field = format!("{}-user", service_user.id);
+        let (user_field, pw_field, url_field) = user_credential_secret_names(&service_user.id);
         let mut secret = Secret::default();
         let mut data = BTreeMap::new();
         if !user_field_exists {
@@ -209,6 +225,14 @@ impl IdentityCreator {
                     Some("IdentityCreator".to_string()),
                 ))?;
             data.insert(pw_field, ByteString(password.as_bytes().to_vec()));
+        }
+        if !url_field_exists {
+            info!(
+                "Create client profile url entry in UserCredentials for ServiceUser {}",
+                service_user.id
+            );
+            let url = &client_profile_url.url.clone();
+            data.insert(url_field, ByteString(url.as_bytes().to_vec()));
         }
         if data.len() > 0 {
             secret.data = Some(data);
@@ -244,7 +268,7 @@ impl IdentityCreator {
     ) -> Result<ServiceCredentialsRef, IdentityServiceError> {
         let service_user = ServiceUser::new();
         let profile_url = get_or_create_client_profile_url(system).await?;
-        let (user_field_exists, passwd_field_exists) =
+        let (user_field_exists, passwd_field_exists, url_field_exists) =
             self.exists_user_crendentials_ref(&service_user.id).await;
         info!("Creating ServiceUser with id {}", service_user.id);
         let _ = system.create_user(&service_user).await.map_err(|e| {
@@ -255,6 +279,7 @@ impl IdentityCreator {
             &profile_url,
             user_field_exists,
             passwd_field_exists,
+            url_field_exists,
         )
         .await
     }
@@ -265,6 +290,7 @@ impl IdentityCreator {
         service_user_id: &String,
         user_field_exists: bool,
         passwd_field_exists: bool,
+        url_field_exists: bool
     ) -> Result<(), IdentityServiceError> {
         info!("Deleting ServiceUser with id {}", service_user_id);
         let _ = system
@@ -273,7 +299,7 @@ impl IdentityCreator {
             .map_err(|e| {
                 IdentityServiceError::from_service(e.to_string(), SERVICE_NAME.to_string())
             })?;
-        self.delete_user_credentials_ref(service_user_id, user_field_exists, passwd_field_exists)
+        self.delete_user_credentials_ref(service_user_id, user_field_exists, passwd_field_exists, url_field_exists)
             .await
     }
 
@@ -294,7 +320,7 @@ impl IdentityCreator {
         // Notify ServiceIdentityManager about the actual credentials created in appgate
         // This could be actived credentials or deactivated ones.
         for user in users {
-            let (user_field_exists, passwd_field_exists) =
+            let (user_field_exists, passwd_field_exists, url_field_exists) =
                 self.exists_user_crendentials_ref(&user.id).await;
 
             // When recovering users from controller we never get the password so if for some reason it's not
@@ -307,7 +333,7 @@ impl IdentityCreator {
                     user.name, user.id
                 );
                 if let Err(err) = self
-                    .delete_user(system, &user.id, user_field_exists, passwd_field_exists)
+                    .delete_user(system, &user.id, user_field_exists, passwd_field_exists, url_field_exists)
                     .await
                 {
                     error!(
@@ -322,6 +348,7 @@ impl IdentityCreator {
                         &client_profile_url,
                         user_field_exists,
                         passwd_field_exists,
+                        url_field_exists,
                     )
                     .await
                     .unwrap();
@@ -426,10 +453,10 @@ impl IdentityCreator {
                         "Deleting ServiceUser/UserCredentials with id {}",
                         identity_id
                     );
-                    let (user_field_exists, passwd_field_exists) =
+                    let (user_field_exists, passwd_field_exists, url_field_exists) =
                         self.exists_user_crendentials_ref(&identity_id).await;
                     if let Err(err) = self
-                        .delete_user(system, &identity_id, user_field_exists, passwd_field_exists)
+                        .delete_user(system, &identity_id, user_field_exists, passwd_field_exists, url_field_exists)
                         .await
                     {
                         error!(
