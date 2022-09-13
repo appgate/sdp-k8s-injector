@@ -657,7 +657,7 @@ mod tests {
 
     use futures::Future;
     use k8s_openapi::api::apps::v1::Deployment;
-    use kube::{core::object::HasSpec, error::Error as KError};
+    use kube::{core::object::HasSpec, error::Error as KError, ResourceExt};
     use sdp_macros::{credentials_ref, deployment, service_identity};
     use sdp_test_macros::{assert_message, assert_no_message};
     use tokio::sync::mpsc::channel;
@@ -802,16 +802,6 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
-    fn test_service_identity_provider_candidates_panic() {
-        test_service_identity_provider! {
-            im => {
-                im.identity(&Deployment::default());
-            }
-        }
-    }
-
-    #[test]
     fn test_service_identity_provider_identities() {
         let identities = vec![
             service_identity!(1),
@@ -939,7 +929,7 @@ mod tests {
         test_service_identity_provider! {
             im => {
                 let mut identities = im.identities();
-                identities.sort_by(|a, b| a.name().as_str().partial_cmp(b.name().as_str()).unwrap());
+                identities.sort_by(|a, b| a.name_any().as_str().partial_cmp(b.name_any().as_str()).unwrap());
 
                 // 4 services registered but none found on start,
                 let xs = extra_identities_tuple(&im, &HashSet::new());

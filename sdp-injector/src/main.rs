@@ -819,6 +819,7 @@ mod tests {
     use sdp_common::constants::SDP_IDENTITY_MANAGER_SECRETS;
     use sdp_common::crd::{DeviceId, DeviceIdSpec, ServiceIdentity, ServiceIdentitySpec};
     use sdp_common::service::{ServiceCandidate, ServiceCredentialsRef};
+    use sdp_macros::{credentials_ref, service_device_ids, service_identity};
     use serde_json::json;
     use std::collections::{BTreeMap, HashMap, HashSet};
     use std::iter::FromIterator;
@@ -835,46 +836,6 @@ mod tests {
         );
         load_sidecar_containers()
             .map_err(|e| format!("Unable to load the sidecar information {}", e.to_string()))
-    }
-
-    macro_rules! credentials_ref {
-        ($n:expr) => {
-            ServiceCredentialsRef {
-                id: format!("{}{}", stringify!(id), $n).to_string(),
-                name: format!("{}{}", stringify!(name), $n).to_string(),
-                secret: SDP_IDENTITY_MANAGER_SECRETS.to_string(),
-                user_field: format!("{}{}", stringify!(user_field), $n).to_string(),
-                password_field: format!("{}{}", stringify!(password_field), $n).to_string(),
-            }
-        };
-    }
-
-    macro_rules! service_identity {
-        ($n:tt) => {
-            ServiceIdentity::new(
-                format!("{}{}", stringify!(id), $n).as_str(),
-                ServiceIdentitySpec {
-                    service_credentials: credentials_ref!($n),
-                    service_name: format!("{}{}", stringify!(srv), $n),
-                    service_namespace: format!("{}{}", stringify!(ns), $n),
-                    labels: HashMap::new(),
-                    disabled: false,
-                },
-            )
-        };
-    }
-
-    macro_rules! service_device_ids {
-        ($n:tt) => {
-            DeviceId::new(
-                format!("{}{}", stringify!(id), $n).as_str(),
-                DeviceIdSpec {
-                    service_name: format!("{}{}", stringify!(srv), $n),
-                    service_namespace: format!("{}{}", stringify!(ns), $n),
-                    uuids: vec![format!("{}{}", stringify!(666), $n)],
-                },
-            )
-        };
     }
 
     macro_rules! set_pod_field {
@@ -1418,7 +1379,10 @@ POD is missing needed volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-de
             };
             let pod_name = Rc::clone(&pod).name();
             identity_storage
-                .register_service_identity(service_identity!(n))
+                .register_service_identity(service_identity!(
+                    n,
+                    SDP_IDENTITY_MANAGER_SECRETS.to_string()
+                ))
                 .await;
             identity_storage
                 .register_service_device_ids(service_device_ids!(n))
@@ -1468,7 +1432,10 @@ POD is missing needed volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-de
         for (n, _t) in patch_tests(&sdp_sidecars).iter().enumerate() {
             let storage = Arc::clone(&identity_storage);
             storage
-                .register_service_identity(service_identity!(n))
+                .register_service_identity(service_identity!(
+                    n,
+                    SDP_IDENTITY_MANAGER_SECRETS.to_string()
+                ))
                 .await;
             storage
                 .register_service_device_ids(service_device_ids!(n))
@@ -1638,7 +1605,7 @@ POD is missing needed volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-de
         let env =
             ServiceEnvironment::from_identity_store(&pod.service_id(), Arc::clone(&store)).await;
         assert!(env.is_none());
-        let id = service_identity!(1);
+        let id = service_identity!(1, SDP_IDENTITY_MANAGER_SECRETS.to_string());
         let ds = service_device_ids!(1);
         store.register_service_identity(id).await;
         store.register_service_device_ids(ds).await;
@@ -1653,7 +1620,7 @@ POD is missing needed volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-de
             );
             assert_eq!(
                 env.client_secret_controller_url_key,
-                "password_field1".to_string()
+                "url_field1".to_string()
             );
             assert_eq!(env.client_secret_pwd_key, "password_field1".to_string());
             assert_eq!(env.client_secret_user_key, "user_field1".to_string());
@@ -1723,7 +1690,7 @@ POD is missing needed volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-de
         let store1 = Arc::clone(&store);
         let store2 = Arc::clone(&store);
         let t1 = tokio::spawn(async move {
-            let id = service_identity!(1);
+            let id = service_identity!(1, SDP_IDENTITY_MANAGER_SECRETS.to_string());
             let ds = service_device_ids!(1);
             store1.register_service_identity(id).await;
             store1.register_service_device_ids(ds).await;
@@ -1752,7 +1719,7 @@ POD is missing needed volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-de
                     );
                     assert_eq!(
                         env.client_secret_controller_url_key,
-                        "password_field1".to_string()
+                        "url_field1".to_string()
                     );
                     assert_eq!(env.client_secret_pwd_key, "password_field1".to_string());
                     assert_eq!(env.client_secret_user_key, "user_field1".to_string());
