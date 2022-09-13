@@ -63,10 +63,13 @@ async fn get_or_create_client_profile_url(
             warn!("First one found will be used: {}", p.name);
         }
     } else {
+        let profile_name = "K8S Service Profile".to_string();
+        let spa_key_name = profile_name.replace(" ", "").to_lowercase();
         p = ClientProfile {
             id: uuid::Uuid::new_v4().to_string(),
-            name: "K8S Service Client Profile".to_string(),
-            identity_providert_name: SDP_IDP_NAME.to_string(),
+            name: profile_name,
+            spa_key_name: spa_key_name,
+            identity_provider_name: SDP_IDP_NAME.to_string(),
             tags: vec![CLIENT_PROFILE_TAG.to_string()],
         };
         p = system.create_client_profile(&p).await.map_err(|e| {

@@ -105,8 +105,14 @@ impl SystemConfig {
 pub struct ClientProfile {
     pub id: String,
     pub name: String,
-    pub identity_providert_name: String,
+    pub spa_key_name: String,
+    pub identity_provider_name: String,
     pub tags: Vec<String>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct ClientProfiles {
+    pub data: Vec<ClientProfile>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -310,16 +316,17 @@ impl System {
         let _ = self.maybe_refresh_login().await?;
         let mut url = Url::from(self.hosts[0].clone());
         url.set_path(&format!("/admin/client-profiles"));
-        let xs: Vec<ClientProfile> = self.get(url).await?;
+        let xs: ClientProfiles = self.get(url).await?;
         if tag.is_some() {
             let profiles = xs
+                .data
                 .iter()
                 .filter(|p| p.tags.contains(&tag.unwrap().to_string()))
                 .map(Clone::clone)
                 .collect();
             Ok(profiles)
         } else {
-            Ok(xs)
+            Ok(xs.data)
         }
     }
 
@@ -332,7 +339,7 @@ impl System {
         url.set_path(&format!("/admin/client-profiles"));
         info!(
             "Creating new ClientProfile in SDP system: {} [{}]",
-            client_profile.name, client_profile.identity_providert_name
+            client_profile.name, client_profile.identity_provider_name
         );
         self.post::<ClientProfile>(url, &client_profile).await
     }
@@ -342,7 +349,7 @@ impl System {
         &mut self,
         client_profile_id: &str,
     ) -> Result<ClientProfileUrl, SDPClientError> {
-        info!("Getting user");
+        info!("Getting profile client url");
         let _ = self.maybe_refresh_login().await?;
         let mut url = Url::from(self.hosts[0].clone());
         url.set_path(&format!("/admin/client-profiles/{}/url", client_profile_id));
