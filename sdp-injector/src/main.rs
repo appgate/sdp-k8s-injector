@@ -20,7 +20,7 @@ use kube::{Api, Client, Config, Resource};
 use log::{debug, error, info, warn};
 use rustls::{Certificate, PrivateKey, ServerConfig};
 use rustls_pemfile::{read_one, Item};
-use sdp_common::crd::{DeviceId, DeviceIdSpec};
+use sdp_common::crd::DeviceId;
 use serde::Deserialize;
 use std::collections::hash_map::RandomState;
 use std::collections::{HashMap, HashSet};
