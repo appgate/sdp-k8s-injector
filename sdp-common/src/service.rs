@@ -68,7 +68,7 @@ impl Annotated for Deployment {
 /// Final ServiceIdentity are created from Deployments
 impl ServiceCandidate for Deployment {
     fn name(&self) -> String {
-        ResourceExt::name(self)
+        ResourceExt::name_any(self)
     }
 
     fn namespace(&self) -> String {
