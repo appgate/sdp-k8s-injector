@@ -77,8 +77,11 @@ spec:
               readOnly: true
             - name: tmp
               mountPath: /tmp
+          env:
+            - name: CERT_DAYS
+              value: "{{ .Values.sdp.injector.certDays }}"
           command: ["openssl"]
-          args: ["x509", "-req", "-in", "/tmp/sdp-injector.csr", "-extfile", "/tmp/config/sdp-x509-ext.conf", "-extensions", "v3_ca", "-CA", "/tmp/sdp-ca.crt", "-CAkey",  "/tmp/sdp-ca-key.pem", "-CAcreateserial", "-days", "{{ .Values.sdp.injector.certDays }}", "-out", "/tmp/sdp-injector-crt.pem"]
+          args: ["x509", "-req", "-in", "/tmp/sdp-injector.csr", "-extfile", "/tmp/config/sdp-x509-ext.conf", "-extensions", "v3_ca", "-CA", "/tmp/sdp-ca.crt", "-CAkey",  "/tmp/sdp-ca-key.pem", "-CAcreateserial", "-days", "$(CERT_DAYS)", "-out", "/tmp/sdp-injector-crt.pem"]
         - name: create-ca-crt-secret
           image: "bitnami/kubectl"
           command: [ "kubectl" ]
