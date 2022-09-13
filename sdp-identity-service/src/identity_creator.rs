@@ -7,10 +7,12 @@ use k8s_openapi::ByteString;
 use kube::api::{Patch as KubePatch, PatchParams};
 use kube::{Api, Client};
 use log::{error, info, warn};
-use sdp_common::constants::{SDP_IDENTITY_MANAGER_SECRETS, SERVICE_NAME, CLIENT_PROFILE_TAG};
+use sdp_common::constants::{
+    CLIENT_PROFILE_TAG, SDP_IDENTITY_MANAGER_SECRETS, SDP_IDP_NAME, SERVICE_NAME,
+};
 pub use sdp_common::crd::ServiceCredentialsRef;
 use sdp_common::sdp::auth::ServiceUser;
-use sdp_common::sdp::system::{System, ClientProfile, ClientProfileUrl};
+use sdp_common::sdp::system::{ClientProfile, ClientProfileUrl, System};
 use tokio::sync::mpsc::{Receiver, Sender};
 
 use crate::errors::IdentityServiceError;
@@ -34,6 +36,56 @@ pub enum IdentityCreatorProtocol {
 pub struct IdentityCreator {
     secrets_api: Api<Secret>,
     credentials_pool_size: usize,
+}
+
+async fn get_or_create_client_profile_url(
+    system: &mut System,
+) -> Result<ClientProfileUrl, IdentityServiceError> {
+    // Create ClientProfile if needed
+    let ps = system
+        .get_client_profiles(Some(CLIENT_PROFILE_TAG))
+        .await
+        .map_err(|e| {
+            IdentityServiceError::from_service(
+                format!("Unable to get client profiles: {}", e.to_string()),
+                "IdentityCreator".to_string(),
+            )
+        })?;
+    let psn = ps.len();
+    let mut p: ClientProfile;
+    if psn > 0 {
+        p = ps[0].clone();
+        if psn > 1 {
+            warn!(
+                "Seems there are defined more than one service client profile with the tag {}",
+                CLIENT_PROFILE_TAG
+            );
+            warn!("First one found will be used: {}", p.name);
+        }
+    } else {
+        p = ClientProfile {
+            id: uuid::Uuid::new_v4().to_string(),
+            name: "K8S Service Client Profile".to_string(),
+            identity_providert_name: SDP_IDP_NAME.to_string(),
+            tags: vec![CLIENT_PROFILE_TAG.to_string()],
+        };
+        p = system.create_client_profile(&p).await.map_err(|e| {
+            IdentityServiceError::from_service(
+                format!("Unable to create a new client profile: {}", e),
+                "IdentityCreator".to_string(),
+            )
+        })?;
+    }
+    system.get_profile_client_url(&p.id).await.map_err(|e| {
+        IdentityServiceError::from_service(
+            format!(
+                "Unable to get the client profile url for client profile {}: {}",
+                p.name,
+                e.to_string()
+            ),
+            "IdentityCreator".to_string(),
+        )
+    })
 }
 
 impl IdentityCreator {
@@ -123,6 +175,7 @@ impl IdentityCreator {
     async fn create_user_credentials_ref(
         &self,
         service_user: &ServiceUser,
+        client_profile_url: &ClientProfileUrl,
         user_field_exists: bool,
         passwd_field_exists: bool,
     ) -> Result<ServiceCredentialsRef, IdentityServiceError> {
@@ -179,7 +232,10 @@ impl IdentityCreator {
                     )
                 })?;
         }
-        Ok(ServiceCredentialsRef::from(service_user))
+        Ok(ServiceCredentialsRef::from((
+            service_user,
+            client_profile_url,
+        )))
     }
 
     async fn create_user(
@@ -187,14 +243,20 @@ impl IdentityCreator {
         system: &mut System,
     ) -> Result<ServiceCredentialsRef, IdentityServiceError> {
         let service_user = ServiceUser::new();
+        let profile_url = get_or_create_client_profile_url(system).await?;
         let (user_field_exists, passwd_field_exists) =
             self.exists_user_crendentials_ref(&service_user.id).await;
         info!("Creating ServiceUser with id {}", service_user.id);
         let _ = system.create_user(&service_user).await.map_err(|e| {
             IdentityServiceError::from_service(e.to_string(), SERVICE_NAME.to_string())
         })?;
-        self.create_user_credentials_ref(&service_user, user_field_exists, passwd_field_exists)
-            .await
+        self.create_user_credentials_ref(
+            &service_user,
+            &profile_url,
+            user_field_exists,
+            passwd_field_exists,
+        )
+        .await
     }
 
     async fn delete_user(
@@ -228,6 +290,7 @@ impl IdentityCreator {
         if n_users <= self.credentials_pool_size {
             n_missing_users = self.credentials_pool_size - n_users;
         }
+        let client_profile_url = get_or_create_client_profile_url(system).await?;
         // Notify ServiceIdentityManager about the actual credentials created in appgate
         // This could be actived credentials or deactivated ones.
         for user in users {
@@ -254,7 +317,12 @@ impl IdentityCreator {
                 }
             } else {
                 let service_credentials_ref = self
-                    .create_user_credentials_ref(&user, user_field_exists, passwd_field_exists)
+                    .create_user_credentials_ref(
+                        &user,
+                        &client_profile_url,
+                        user_field_exists,
+                        passwd_field_exists,
+                    )
                     .await
                     .unwrap();
                 if user.disabled {
@@ -291,30 +359,7 @@ impl IdentityCreator {
                     IdentityServiceError::new(e.to_string(), Some("IdentityCreator".to_string()))
                 })?;
         }
-
-        // Create ClientProfile if needed
-        let ps = system.get_client_profiles(Some(CLIENT_PROFILE_TAG)).await?;
-        let psn = ps.len();
-        let mut p: Option<ClientProfile> = None;
-        if psn > 0 {
-            p = Some(ps[0]);
-            if psn > 1 {
-                warn!("Seems there are defined more than one service client profile with the tag {}", CLIENT_PROFILE_TAG);
-                warn!("First one found will be used: {}", p.name);
-            }
-        } else {
-            p = Some(ClientProfile {
-                id: uuid::Uuid::new_v4().to_string(),
-                name: "K8S Service Client Profile".to_string(),
-                identityProvidertName: SDP_IDP_NAME.to_string(),
-                tags: vec![CLIENT_PROFILE_TAG.to_string()]
-            }).await?;
-            system.create_client_profile(&p).await?;
-        } 
-        if p.is_none() {
-            Err("Unable to discover client profile url")
-        }
-        get_profile_client_url(&p.unwrap().id).await
+        Ok(client_profile_url)
     }
 
     pub async fn run(
@@ -337,12 +382,16 @@ impl IdentityCreator {
             }
         }
         info!("Intializing IdentityCreator");
-        let client_profile_url = self.initialize(system, identity_manager_proto_tx.clone()).await;
-        if let Err(e) = client_profile_url {
-            error!("Error while initializing IdentityCreator: {}", e.to_string());
+        if let Err(e) = self
+            .initialize(system, identity_manager_proto_tx.clone())
+            .await
+        {
+            error!(
+                "Error while initializing IdentityCreator: {}",
+                e.to_string()
+            );
             panic!();
         }
-        let client_profile_url = client_profile_url.unwrap().url;
         // Notify IdentityManager that we are ready
         identity_manager_proto_tx
             .send(IdentityManagerProtocol::IdentityCreatorReady)

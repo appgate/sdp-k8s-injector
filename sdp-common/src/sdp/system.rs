@@ -1,4 +1,4 @@
-use crate::sdp::auth::{Credentials, Login, ServiceUser, ServiceUsers, ClientProfile};
+use crate::sdp::auth::{Credentials, Login, ServiceUser, ServiceUsers};
 use crate::sdp::errors::{error_for_status, SDPClientError};
 use http::header::{InvalidHeaderValue, ACCEPT};
 use http::{HeaderValue, StatusCode};
@@ -6,7 +6,7 @@ use log::info;
 use reqwest::header::HeaderMap;
 use reqwest::{Client, Url};
 use serde::de::DeserializeOwned;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
 const SDP_SYSTEM_HOSTS: &str = "SDP_SYSTEM_HOSTS";
@@ -100,13 +100,16 @@ impl SystemConfig {
 }
 
 /// struct representing a client profile
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ClientProfile {
     pub id: String,
     pub name: String,
-    pub identityProvidertName: String,
+    pub identity_providert_name: String,
     pub tags: Vec<String>,
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ClientProfileUrl {
     pub url: String,
 }
@@ -299,38 +302,50 @@ impl System {
     }
 
     // GET /client-profiles
-    pub async fn get_client_profiles(&mut self, tag: Option<&str>) -> Result<Vec<ClientProfile>, SDPClientError> {
+    pub async fn get_client_profiles(
+        &mut self,
+        tag: Option<&str>,
+    ) -> Result<Vec<ClientProfile>, SDPClientError> {
         info!("Getting client profile");
         let _ = self.maybe_refresh_login().await?;
         let mut url = Url::from(self.hosts[0].clone());
         url.set_path(&format!("/admin/client-profiles"));
         let xs: Vec<ClientProfile> = self.get(url).await?;
-        if tag {
-            Ok(xs.iter().filter(|p| p.tags.contains(tag)).collect())
+        if tag.is_some() {
+            let profiles = xs
+                .iter()
+                .filter(|p| p.tags.contains(&tag.unwrap().to_string()))
+                .map(Clone::clone)
+                .collect();
+            Ok(profiles)
         } else {
             Ok(xs)
         }
     }
 
     // POST /client-profiles
-    pub async fn create_client_profile(&mut self, client_profile: &ClientProfile) -> Result<ClientProfile, SDPClientError> {
+    pub async fn create_client_profile(
+        &mut self,
+        client_profile: &ClientProfile,
+    ) -> Result<ClientProfile, SDPClientError> {
         let mut url = Url::from(self.hosts[0].clone());
         url.set_path(&format!("/admin/client-profiles"));
         info!(
             "Creating new ClientProfile in SDP system: {} [{}]",
-            client_profile.name,
-            client_profile.identityProvidertName
+            client_profile.name, client_profile.identity_providert_name
         );
-        self.post::<ServiceUser>(url, service_user).await
+        self.post::<ClientProfile>(url, &client_profile).await
     }
 
     // GET /client-profiles/{id}/url
-    pub async fn get_profile_client_url(&mut self, client_profile_id: &str) -> Result<ClientProfileUrl, SDPClientError> {
+    pub async fn get_profile_client_url(
+        &mut self,
+        client_profile_id: &str,
+    ) -> Result<ClientProfileUrl, SDPClientError> {
         info!("Getting user");
         let _ = self.maybe_refresh_login().await?;
         let mut url = Url::from(self.hosts[0].clone());
         url.set_path(&format!("/admin/client-profiles/{}/url", client_profile_id));
         self.get(url).await
     }
-
 }

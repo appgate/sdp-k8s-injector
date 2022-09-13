@@ -4,6 +4,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use uuid::Uuid;
 
+use super::system::ClientProfileUrl;
+
 #[derive(Deserialize, Serialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct LoginUser {
@@ -74,17 +76,17 @@ impl ServiceUser {
     }
 }
 
-impl From<&ServiceUser> for ServiceCredentialsRef {
-    fn from(service_user: &ServiceUser, client_profile_url: &str) -> Self {
-        let pw_field = format!("{}-pw", service_user.id);
-        let user_field = format!("{}-user", service_user.id);
+impl From<(&ServiceUser, &ClientProfileUrl)> for ServiceCredentialsRef {
+    fn from(service_user: (&ServiceUser, &ClientProfileUrl)) -> Self {
+        let pw_field = format!("{}-pw", service_user.0.id);
+        let user_field = format!("{}-user", service_user.0.id);
         Self {
-            id: service_user.id.clone(),
-            name: service_user.name.clone(),
+            id: service_user.0.id.clone(),
+            name: service_user.0.name.clone(),
             secret: SDP_IDENTITY_MANAGER_SECRETS.to_string(),
             user_field: user_field,
             password_field: pw_field,
-            client_profile_url: client_profile_url.to_string(),
+            client_profile_url: service_user.1.url.clone(),
         }
     }
 }
