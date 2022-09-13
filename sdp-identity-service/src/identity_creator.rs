@@ -89,9 +89,11 @@ async fn get_or_create_client_profile_url(
 }
 
 fn user_credential_secret_names(service_user_id: &str) -> (String, String, String) {
-    (format!("{}-user", service_user_id),
-     format!("{}-pw", service_user_id),
-     format!("{}-url", service_user_id))
+    (
+        format!("{}-user", service_user_id),
+        format!("{}-pw", service_user_id),
+        format!("{}-url", service_user_id),
+    )
 }
 
 impl IdentityCreator {
@@ -130,7 +132,7 @@ impl IdentityCreator {
         service_user_id: &String,
         user_field_exists: bool,
         passwd_field_exists: bool,
-        url_field_exists: bool
+        url_field_exists: bool,
     ) -> Result<(), IdentityServiceError> {
         let (user_field, pw_field, url_field) = user_credential_secret_names(&service_user_id);
         let mut patch_operations: Vec<PatchOperation> = Vec::new();
@@ -290,7 +292,7 @@ impl IdentityCreator {
         service_user_id: &String,
         user_field_exists: bool,
         passwd_field_exists: bool,
-        url_field_exists: bool
+        url_field_exists: bool,
     ) -> Result<(), IdentityServiceError> {
         info!("Deleting ServiceUser with id {}", service_user_id);
         let _ = system
@@ -299,8 +301,13 @@ impl IdentityCreator {
             .map_err(|e| {
                 IdentityServiceError::from_service(e.to_string(), SERVICE_NAME.to_string())
             })?;
-        self.delete_user_credentials_ref(service_user_id, user_field_exists, passwd_field_exists, url_field_exists)
-            .await
+        self.delete_user_credentials_ref(
+            service_user_id,
+            user_field_exists,
+            passwd_field_exists,
+            url_field_exists,
+        )
+        .await
     }
 
     pub async fn initialize(
@@ -333,7 +340,13 @@ impl IdentityCreator {
                     user.name, user.id
                 );
                 if let Err(err) = self
-                    .delete_user(system, &user.id, user_field_exists, passwd_field_exists, url_field_exists)
+                    .delete_user(
+                        system,
+                        &user.id,
+                        user_field_exists,
+                        passwd_field_exists,
+                        url_field_exists,
+                    )
                     .await
                 {
                     error!(
@@ -456,7 +469,13 @@ impl IdentityCreator {
                     let (user_field_exists, passwd_field_exists, url_field_exists) =
                         self.exists_user_crendentials_ref(&identity_id).await;
                     if let Err(err) = self
-                        .delete_user(system, &identity_id, user_field_exists, passwd_field_exists, url_field_exists)
+                        .delete_user(
+                            system,
+                            &identity_id,
+                            user_field_exists,
+                            passwd_field_exists,
+                            url_field_exists,
+                        )
                         .await
                     {
                         error!(
