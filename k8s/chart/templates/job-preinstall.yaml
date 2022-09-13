@@ -121,3 +121,10 @@ spec:
               mountPath: /tmp
           command: [ "openssl" ]
           args: [ "x509", "-text", "-in", "/tmp/sdp-ca.crt" ]
+        - name: print-injector-ca-crt
+          image: "alpine/openssl"
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+          command: [ "openssl" ]
+          args: [ "x509", "-text", "-in", "/tmp/sdp-injector-crt.pem", "-noout" ]
