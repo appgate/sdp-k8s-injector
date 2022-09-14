@@ -79,7 +79,7 @@ impl From<(&SDPUser, &ClientProfileUrl)> for ServiceUser {
     fn from(service_user: (&SDPUser, &ClientProfileUrl)) -> Self {
         Self {
             name: service_user.0.name.clone(),
-            password: service_user.0.password.unwrap().clone(),
+            password: service_user.0.password.as_ref().unwrap().clone(),
             profile_url: service_user.1.url.clone(),
         }
     }
@@ -88,7 +88,7 @@ impl From<(&SDPUser, &ClientProfileUrl)> for ServiceUser {
 impl From<ServiceUser> for SDPUser {
     fn from(service_user: ServiceUser) -> Self {
         SDPUser {
-            id: service_user.name,
+            id: service_user.name.clone(),
             name: service_user.name,
             labels: HashMap::new(),
             password: None,
