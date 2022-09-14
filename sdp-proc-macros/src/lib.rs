@@ -11,7 +11,7 @@ struct IdentityProviderParams {
 
 /// Macro to implement an IdentityProvider on an struct.
 ///
-/// It will implement the traits ServiceCredentialsPool and ServiceIdentityProvider with types From and To.
+/// It will implement the traits ServiceUsersPool and ServiceIdentityProvider with types From and To.
 /// It accepts attributes From and To to specify the types for the ServiceIdentityProvider.
 /// The attribute is IdentityProvider.
 ///
@@ -132,12 +132,12 @@ pub fn derive_identity_provider(input: proc_macro::TokenStream) -> proc_macro::T
                 self.pool.identities()
             }
         }
-        impl ServiceCredentialsPool for #name {
-            fn pop(&mut self) -> Option<ServiceCredentialsRef> {
+        impl ServiceUsersPool for #name {
+            fn pop(&mut self) -> Option<ServiceUser> {
                 self.pool.pop()
             }
 
-            fn push(&mut self, user_credentials_ref: ServiceCredentialsRef) -> () {
+            fn push(&mut self, user_credentials_ref: ServiceUser) -> () {
                 self.pool.push(user_credentials_ref)
             }
 

@@ -10,32 +10,31 @@ use log::{error, info, warn};
 use sdp_common::constants::{
     CLIENT_PROFILE_TAG, SDP_IDENTITY_MANAGER_SECRETS, SDP_IDP_NAME, SERVICE_NAME,
 };
-pub use sdp_common::crd::ServiceCredentialsRef;
-use sdp_common::sdp::auth::ServiceUser;
+use sdp_common::sdp::auth::SDPUser;
 use sdp_common::sdp::system::{ClientProfile, ClientProfileUrl, System};
 use tokio::sync::mpsc::{Receiver, Sender};
 
 use crate::errors::IdentityServiceError;
 use crate::identity_manager::{IdentityManagerProtocol, ServiceIdentity};
 
-trait ServiceCredentialsRefOps {}
-
 #[derive(Debug)]
 pub enum IdentityCreatorProtocol {
     StartService,
     CreateIdentity,
-    ModifyIdentity {
-        service_credentials: ServiceCredentialsRef,
+    ActivateServiceIdentity {
+        service_user: ServiceUser,
         name: String,
         labels: HashMap<String, String>,
-        active: bool,
+        namespace: String,
     },
-    DeleteIdentity(String),
+    DeleteIdentity(ServiceUser),
 }
 
+type ApiBuilder = Box<dyn Fn(&str) -> Api<Secret>>;
+
 pub struct IdentityCreator {
-    secrets_api: Api<Secret>,
-    credentials_pool_size: usize,
+    secrets_api: ApiBuilder,
+    service_users_pool_size: usize,
 }
 
 async fn get_or_create_client_profile_url(
@@ -101,16 +100,16 @@ fn user_credential_secret_names(service_user_id: &str) -> (String, String, Strin
 
 impl IdentityCreator {
     pub fn new(client: Client, credentials_pool_size: usize) -> IdentityCreator {
-        let secrets_api: Api<Secret> = Api::namespaced(client, "sdp-system");
+        let secrets_api: ApiBuilder = Box::new(|ns| Api::namespaced(client, ns));
         IdentityCreator {
             secrets_api,
-            credentials_pool_size,
+            service_users_pool_size: credentials_pool_size,
         }
     }
 
-    async fn exists_user_crendentials_ref(&self, service_user_id: &str) -> (bool, bool, bool) {
-        let (user_field, pw_field, url_field) = user_credential_secret_names(service_user_id);
-        if let Ok(secret) = self.secrets_api.get(SDP_IDENTITY_MANAGER_SECRETS).await {
+    async fn exists_user_crendentials_ref(&self, service_crendentials: &ServiceUser) -> (bool, bool, bool) {
+        let (user_field, pw_field, url_field) = user_credential_secret_names(&service_crendentials.id);
+        if let Ok(secret) = (self.secrets_api)(&service_crendentials.service_ns).get(SDP_IDENTITY_MANAGER_SECRETS).await {
             secret
                 .data
                 .map(|data| {
@@ -124,7 +123,7 @@ impl IdentityCreator {
         } else {
             error!(
                 "Error getting UserCredentialRef with id {}",
-                service_user_id
+                &service_crendentials.id
             );
             (false, false, false)
         }
@@ -132,12 +131,12 @@ impl IdentityCreator {
 
     async fn delete_user_credentials_ref(
         &self,
-        service_user_id: &String,
+        service_user: &SDPUser,
         user_field_exists: bool,
         passwd_field_exists: bool,
         url_field_exists: bool,
     ) -> Result<(), IdentityServiceError> {
-        let (user_field, pw_field, url_field) = user_credential_secret_names(&service_user_id);
+        let (user_field, pw_field, url_field) = user_credential_secret_names(&service_user.id);
         let mut patch_operations: Vec<PatchOperation> = Vec::new();
         if user_field_exists {
             patch_operations.push(PatchOperation::Remove(RemoveOperation {
@@ -146,7 +145,7 @@ impl IdentityCreator {
         } else {
             info!(
                 "User field in UserCredentials {} not found, ignoring it",
-                service_user_id
+                &service_user.id
             );
         }
         if passwd_field_exists {
@@ -156,7 +155,7 @@ impl IdentityCreator {
         } else {
             info!(
                 "Password field in UserCredentials{} not found, ignoring it",
-                service_user_id
+                &service_user.id
             );
         }
         if url_field_exists {
@@ -166,17 +165,17 @@ impl IdentityCreator {
         } else {
             info!(
                 "Client profile url in UserCredentials{} not found, ignoring it",
-                service_user_id
+                &service_user.id
             );
         }
         if patch_operations.len() > 0 {
             info!(
                 "Deleting UserCredentials {} from K8S secret",
-                service_user_id
+                &service_user.id
             );
             let patch: KubePatch<Secret> = KubePatch::Json(json_patch::Patch(patch_operations));
-            let _ = self
-                .secrets_api
+            let _ = (self
+                .secrets_api)(&service_user.service_ns)
                 .patch(
                     SDP_IDENTITY_MANAGER_SECRETS,
                     &PatchParams::default(),
@@ -195,12 +194,12 @@ impl IdentityCreator {
 
     async fn create_user_credentials_ref(
         &self,
-        service_user: &ServiceUser,
+        service_user: &SDPUser,
         client_profile_url: &ClientProfileUrl,
         user_field_exists: bool,
         passwd_field_exists: bool,
         url_field_exists: bool,
-    ) -> Result<ServiceCredentialsRef, IdentityServiceError> {
+    ) -> Result<ServiceUser, IdentityServiceError> {
         let (user_field, pw_field, url_field) = user_credential_secret_names(&service_user.id);
         let mut secret = Secret::default();
         let mut data = BTreeMap::new();
@@ -246,8 +245,8 @@ impl IdentityCreator {
                 service_user.id
             );
             let patch = KubePatch::Merge(secret);
-            let _ = self
-                .secrets_api
+            let _ = (self
+                .secrets_api)(&service_user.service_ns)
                 .patch(
                     SDP_IDENTITY_MANAGER_SECRETS,
                     &PatchParams::default(),
@@ -261,7 +260,7 @@ impl IdentityCreator {
                     )
                 })?;
         }
-        Ok(ServiceCredentialsRef::from((
+        Ok(ServiceUser::from((
             service_user,
             client_profile_url,
         )))
@@ -270,11 +269,13 @@ impl IdentityCreator {
     async fn create_user(
         &self,
         system: &mut System,
-    ) -> Result<ServiceCredentialsRef, IdentityServiceError> {
-        let service_user = ServiceUser::new();
+        service_ns: &str,
+        service_name: &str,
+    ) -> Result<ServiceUser, IdentityServiceError> {
+        let service_user = SDPUser::new(service_ns.to_string(), service_name.to_string());
         let profile_url = get_or_create_client_profile_url(system).await?;
         let (user_field_exists, passwd_field_exists, url_field_exists) =
-            self.exists_user_crendentials_ref(&service_user.id).await;
+            self.exists_user_crendentials_ref(&service_user).await;
         info!("Creating ServiceUser with id {}", service_user.id);
         let _ = system.create_user(&service_user).await.map_err(|e| {
             IdentityServiceError::from_service(e.to_string(), SERVICE_NAME.to_string())
@@ -292,20 +293,20 @@ impl IdentityCreator {
     async fn delete_user(
         &self,
         system: &mut System,
-        service_user_id: &String,
+        service_user: &SDPUser,
         user_field_exists: bool,
         passwd_field_exists: bool,
         url_field_exists: bool,
     ) -> Result<(), IdentityServiceError> {
-        info!("Deleting ServiceUser with id {}", service_user_id);
+        info!("Deleting ServiceUser with id {}", &service_user.id);
         let _ = system
-            .delete_user(service_user_id.clone())
+            .delete_user(&service_user.id)
             .await
             .map_err(|e| {
                 IdentityServiceError::from_service(e.to_string(), SERVICE_NAME.to_string())
             })?;
         self.delete_user_credentials_ref(
-            service_user_id,
+            service_user,
             user_field_exists,
             passwd_field_exists,
             url_field_exists,
@@ -323,8 +324,8 @@ impl IdentityCreator {
         })?;
         let n_users = users.iter().filter(|u| u.disabled).count();
         let mut n_missing_users = 0;
-        if n_users <= self.credentials_pool_size {
-            n_missing_users = self.credentials_pool_size - n_users;
+        if n_users <= self.service_users_pool_size {
+            n_missing_users = self.service_users_pool_size - n_users;
         }
         let client_profile_url = get_or_create_client_profile_url(system).await?;
         // Notify ServiceIdentityManager about the actual credentials created in appgate
@@ -464,17 +465,17 @@ impl IdentityCreator {
                         }
                     };
                 }
-                IdentityCreatorProtocol::DeleteIdentity(identity_id) => {
+                IdentityCreatorProtocol::DeleteIdentity(service_credentials) => {
                     info!(
                         "Deleting ServiceUser/UserCredentials with id {}",
-                        identity_id
+                        service_credentials.id
                     );
                     let (user_field_exists, passwd_field_exists, url_field_exists) =
-                        self.exists_user_crendentials_ref(&identity_id).await;
+                        self.exists_user_crendentials_ref(&service_credentials).await;
                     if let Err(err) = self
                         .delete_user(
                             system,
-                            &identity_id,
+                            &service_credentials.id,
                             user_field_exists,
                             passwd_field_exists,
                             url_field_exists,
@@ -483,26 +484,26 @@ impl IdentityCreator {
                     {
                         error!(
                             "Error deleting ServiceUser/UserCredentials with id {}: {}",
-                            identity_id, err
+                            service_credentials.id, err
                         )
                     }
                 }
-                IdentityCreatorProtocol::ModifyIdentity {
-                    service_credentials,
+                IdentityCreatorProtocol::ActivateServiceIdentity {
+                    service_user: service_credentials,
                     name,
                     labels,
-                    active,
                 } => {
-                    let mut service_user = ServiceUser::from(service_credentials);
+                    let mut service_user = SDPUser::from(service_credentials);
                     service_user.name = name;
                     service_user.labels = labels;
-                    service_user.disabled = !active;
+                    service_user.disabled = false;
                     if let Err(err) = system.modify_user(&service_user).await {
                         error!(
-                            "Unable to modify ServiceUser with id {} [active: {}]: {}",
-                            service_user.id, active, err
+                            "Unable to activate ServiceUser with id {}: {}",
+                            service_user.id, err
                         );
                     }
+                    // Here we can create the secrets, now we not the namespace anyway
                 }
                 msg => warn!("Ignoring message: {:?}", msg),
             }

@@ -77,32 +77,25 @@ macro_rules! deployment {
 }
 
 #[macro_export]
-macro_rules! credentials_ref {
-    ($n:expr, $secret:expr) => {
-        ServiceCredentialsRef {
-            id: format!("{}{}", stringify!(id), $n).to_string(),
-            name: format!("{}{}", stringify!(name), $n).to_string(),
-            secret: $secret,
-            user_field: format!("{}{}", stringify!(user_field), $n).to_string(),
-            password_field: format!("{}{}", stringify!(password_field), $n).to_string(),
-            client_profile_url: format!("{}{}", stringify!(url_field), $n).to_string(),
-        }
-    };
-
+macro_rules! service_user {
     ($n:expr) => {
-        credentials_ref!($n, format!("{}{}", stringify!(secret), $n).to_string())
+        ServiceUser {
+            name: format!("{}{}", stringify!(service-user), $n),
+            password: format!("{}{}", stringify!(password), $n),
+            profile_url: format!("{}{}", stringify!(profile-url), $n),
+        }
     };
 }
 
 #[macro_export]
 macro_rules! service_identity {
-    ($n:expr, $secret:expr) => {{
+    ($n:expr) => {{
         let service_name = format!("{}{}", stringify!(srv), $n);
         let service_ns = format!("{}{}", stringify!(ns), $n);
         let mut id: ServiceIdentity = ServiceIdentity::new(
             format!("{}-{}", &service_ns, &service_name).as_str(),
             ServiceIdentitySpec {
-                service_credentials: credentials_ref!($n, $secret),
+                service_credentials: service_user!($n),
                 service_name: service_name.to_string(),
                 service_namespace: service_ns.to_string(),
                 labels: HashMap::new(),
@@ -112,10 +105,6 @@ macro_rules! service_identity {
         id.metadata.namespace = Some("sdp-system".to_string());
         id
     }};
-
-    ($n:expr) => {
-        service_identity!($n, format!("{}{}", stringify!(secret), $n).to_string())
-    };
 }
 
 #[macro_export]

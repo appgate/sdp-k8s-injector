@@ -818,8 +818,8 @@ mod tests {
     use kube::core::ObjectMeta;
     use sdp_common::constants::SDP_IDENTITY_MANAGER_SECRETS;
     use sdp_common::crd::{DeviceId, DeviceIdSpec, ServiceIdentity, ServiceIdentitySpec};
-    use sdp_common::service::{ServiceCandidate, ServiceCredentialsRef};
-    use sdp_macros::{credentials_ref, service_device_ids, service_identity};
+    use sdp_common::service::ServiceCandidate;
+    use sdp_macros::{service_user, service_device_ids, service_identity};
     use serde_json::json;
     use std::collections::{BTreeMap, HashMap, HashSet};
     use std::iter::FromIterator;

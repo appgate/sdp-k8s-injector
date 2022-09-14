@@ -13,13 +13,13 @@ use std::pin::Pin;
 use tokio::sync::mpsc::{Receiver, Sender};
 
 use crate::deployment_watcher::DeploymentWatcherProtocol;
-use crate::identity_creator::{IdentityCreatorProtocol, ServiceCredentialsRef};
+use crate::identity_creator::IdentityCreatorProtocol;
 
 /// Trait that represents the pool of ServiceCredential entities
 /// We can pop and push ServiceCredential entities
-trait ServiceCredentialsPool {
-    fn pop(&mut self) -> Option<ServiceCredentialsRef>;
-    fn push(&mut self, user_credentials_ref: ServiceCredentialsRef) -> ();
+trait ServiceUsersPool {
+    fn pop(&mut self) -> Option<ServiceUser>;
+    fn push(&mut self, user_credentials_ref: ServiceUser) -> ();
     fn needs_new_credentials(&self) -> bool;
 }
 
@@ -43,15 +43,14 @@ trait ServiceIdentityProvider {
     fn extra_user_credentials<'a>(
         &self,
         activated_credentials: &'a HashSet<String>,
-    ) -> Vec<&'a String> {
-        let current_activated_credentials = HashSet::<String>::from_iter(
-            self.identities().iter().map(|i| i.credentials().id.clone()),
-        );
+    ) -> Vec<&'a Self::To> {
+        let mut current_activated_credentials: HashMap<String, &Self::To> = HashMap::from_iter(
+            self.identities().iter().map(|& i| (i.service_id(), i)));
         // Compute activated credentials not registered in any Self::To
-        activated_credentials
-            .into_iter()
-            .filter(|c| !current_activated_credentials.contains(c.clone()))
-            .collect()
+        for c_id in activated_credentials {
+            current_activated_credentials.remove(c_id);
+        }
+        current_activated_credentials.into_values().collect()
     }
 
     fn orphan_identities<'a>(&self, activated_credentials: &'a HashSet<String>) -> Vec<&Self::To> {
@@ -96,7 +95,7 @@ pub enum IdentityManagerProtocol<From: ServiceCandidate, To: ServiceCandidate + 
     /// Message to notify that a new ServiceCredential have been created
     /// IdentityCreator creates these ServiceCredentials
     FoundUserCredentials {
-        user_credentials_ref: ServiceCredentialsRef,
+        user_credentials_ref: ServiceUser,
         activated: bool,
     },
     IdentityCreatorReady,
@@ -109,22 +108,22 @@ pub enum IdentityManagerProtocol<From: ServiceCandidate, To: ServiceCandidate + 
 
 pub enum IdentityMessageResponse {
     /// Message used to send a new user
-    NewIdentity(ServiceCredentialsRef),
+    NewIdentity(ServiceUser),
     IdentityUnavailable,
 }
 
 #[derive(Default)]
 struct IdentityManagerPool {
-    pool: VecDeque<ServiceCredentialsRef>,
+    pool: VecDeque<ServiceUser>,
     services: HashMap<String, ServiceIdentity>,
 }
 
-impl ServiceCredentialsPool for IdentityManagerPool {
-    fn pop(&mut self) -> Option<ServiceCredentialsRef> {
+impl ServiceUsersPool for IdentityManagerPool {
+    fn pop(&mut self) -> Option<ServiceUser> {
         self.pool.pop_front()
     }
 
-    fn push(&mut self, user_credentials_ref: ServiceCredentialsRef) -> () {
+    fn push(&mut self, user_credentials_ref: ServiceUser) -> () {
         self.pool.push_back(user_credentials_ref)
     }
 
@@ -254,7 +253,7 @@ impl ServiceIdentityAPI for KubeIdentityManager {
 trait IdentityManager<
     From: ServiceCandidate + Send + Sync,
     To: ServiceCandidate + HasCredentials + Send + Sync,
->: ServiceIdentityAPI + ServiceIdentityProvider<From = From, To = To> + ServiceCredentialsPool
+>: ServiceIdentityAPI + ServiceIdentityProvider<From = From, To = To> + ServiceUsersPool
 {
 }
 
@@ -268,10 +267,10 @@ pub struct IdentityManagerRunner<
 /// Load all the current ServiceIdentity
 /// Flow between services is:
 /// - IM collects all ServiceIdentity defined
-/// - IM asks IC to collect current ServiceCredentialsRef
-/// - IC notifies IM with defined ServiceCredentialsRef (active and not active)
+/// - IM asks IC to collect current ServiceUser
+/// - IC notifies IM with defined ServiceUser (active and not active)
 /// - DW notifies IM with the current defined ServiceCandidates
-/// - IM cleans up extra ServiceCredentialsRef (credentials active in system without a ServiceIdentrity)
+/// - IM cleans up extra ServiceUser (credentials active in system without a ServiceIdentrity)
 /// - IM cleans up ServiceIdentities that have ServiceCrendeitalsRef not active
 /// - IM cleans up ServiceIdentities that don't have a ServiceCandidate attached
 /// - IM asks DW to start
@@ -342,7 +341,7 @@ impl IdentityManagerRunner<Deployment, ServiceIdentity> {
                             );
                             if let Err(err) = identity_creator_tx
                                 .send(IdentityCreatorProtocol::DeleteIdentity(
-                                    service_identity.credentials().id.clone(),
+                                    service_identity.credentials().clone(),
                                 ))
                                 .await
                             {
@@ -387,11 +386,10 @@ impl IdentityManagerRunner<Deployment, ServiceIdentity> {
                                     }
                                 }
                                 if let Err(err) = identity_creator_tx
-                                    .send(IdentityCreatorProtocol::ModifyIdentity {
-                                        service_credentials: service_identity.credentials().clone(),
+                                    .send(IdentityCreatorProtocol::ActivateServiceIdentity {
+                                        service_user: service_identity.credentials().clone(),
                                         name: identity.service_id(),
                                         labels: identity.spec.labels,
-                                        active: true,
                                     })
                                     .await
                                 {
@@ -441,7 +439,7 @@ impl IdentityManagerRunner<Deployment, ServiceIdentity> {
                     activated,
                 } if !activated => {
                     sdp_info!(IdentityManagerProtocol::<F, ServiceIdentity>::IdentityManagerDebug |(
-                        "Found deactivated UserCredentialsRef with id {}",
+                        "Found deactivated ServiceUser with id {}",
                         user_credentials_ref.id
                     ) => external_queue_tx);
                     existing_deactivated_credentials.insert(user_credentials_ref.id.clone());
@@ -454,7 +452,7 @@ impl IdentityManagerRunner<Deployment, ServiceIdentity> {
                 } if activated => {
                     existing_activated_credentials.insert(user_credentials_ref.id.clone());
                     sdp_info!(IdentityManagerProtocol::<F, ServiceIdentity>::IdentityManagerDebug |(
-                        "Found activated UserCredentialsRef with id {}",
+                        "Found activated ServiceUser with id {}",
                         user_credentials_ref.id
                     ) => external_queue_tx);
                 }
@@ -500,13 +498,13 @@ impl IdentityManagerRunner<Deployment, ServiceIdentity> {
 
                     sdp_info!(IdentityManagerProtocol::<F, ServiceIdentity>::IdentityManagerDebug |("Syncing UserCredentials") => external_queue_tx);
                     // Delete active credentials not in use by any service
-                    for user_credentials_id in
+                    for user_credentials in
                         im.extra_user_credentials(&existing_activated_credentials)
                     {
-                        info!("UserCredentials {} are active but not used by any IdentityService, deleteing it", &user_credentials_id);
+                        info!("UserCredentials {} are active but not used by any IdentityService, deleteing it", user_credentials.credentials().id);
                         identity_creator_tx
                             .send(IdentityCreatorProtocol::DeleteIdentity(
-                                user_credentials_id.clone(),
+                                user_credentials.credentials().clone(),
                             ))
                             .await
                             .expect("Unable to delete obsolete UserCredentials");
@@ -517,7 +515,7 @@ impl IdentityManagerRunner<Deployment, ServiceIdentity> {
                     let mut removed_service_identities: HashSet<String> = HashSet::new();
                     for identity_service in im.orphan_identities(&existing_activated_credentials) {
                         info!(
-                            "ServiceIdentity {} has deactivated UserCredentialsRed. Deleting it.",
+                            "ServiceIdentity {} has deactivated ServiceUser. Deleting it.",
                             identity_service.service_id()
                         );
                         identity_manager_tx
@@ -658,20 +656,20 @@ mod tests {
     use futures::Future;
     use k8s_openapi::api::apps::v1::Deployment;
     use kube::{core::object::HasSpec, error::Error as KError, ResourceExt};
-    use sdp_macros::{credentials_ref, deployment, service_identity};
+    use sdp_macros::{service_user, deployment, service_identity};
     use sdp_test_macros::{assert_message, assert_no_message};
     use tokio::sync::mpsc::channel;
     use tokio::time::{sleep, timeout, Duration};
 
     use crate::{
         deployment_watcher::DeploymentWatcherProtocol,
-        identity_creator::{IdentityCreatorProtocol, ServiceCredentialsRef},
+        identity_creator::IdentityCreatorProtocol,
         identity_manager::IdentityManagerProtocol,
     };
 
     use super::{
         IdentityManager, IdentityManagerPool, IdentityManagerRunner, ServiceCandidate,
-        ServiceCredentialsPool, ServiceIdentity, ServiceIdentityAPI, ServiceIdentityProvider,
+        ServiceUsersPool, ServiceIdentity, ServiceIdentityAPI, ServiceIdentityProvider,
         ServiceIdentitySpec,
     };
 
@@ -827,7 +825,7 @@ mod tests {
 
     fn check_service_identity(
         si: Option<ServiceIdentity>,
-        c: &ServiceCredentialsRef,
+        c: &ServiceUser,
         service_name: &str,
         service_ns: &str,
     ) -> () {
@@ -864,8 +862,8 @@ mod tests {
 
         test_service_identity_provider! {
             im(identities) => {
-                let c1 = credentials_ref!(1);
-                let c2 = credentials_ref!(2);
+                let c1 = service_user!(1);
+                let c2 = service_user!(2);
                 // push some credentials
                 im.push(c1.clone());
                 im.push(c2.clone());
@@ -1121,13 +1119,13 @@ mod tests {
                 // Request a new ServiceIdentity and give it time to process it
                 let tx = identity_manager_tx.clone();
 
-                // Push 2 fresh UserCredentialsRef
+                // Push 2 fresh ServiceUser
                 tx.send(IdentityManagerProtocol::FoundUserCredentials{
-                    user_credentials_ref: credentials_ref!(1),
+                    user_credentials_ref: service_user!(1),
                     activated: false
                 }).await.expect("Unable to send message!");
                 tx.send(IdentityManagerProtocol::FoundUserCredentials{
-                    user_credentials_ref: credentials_ref!(2),
+                    user_credentials_ref: service_user!(2),
                     activated: false
                 }).await.expect("Unable to send message!");
 
@@ -1135,7 +1133,7 @@ mod tests {
                 assert_message! {
                     (m :: IdentityManagerProtocol::IdentityManagerDebug(_) in watcher_rx) => {
                      if let IdentityManagerProtocol::IdentityManagerDebug(msg) = m {
-                            assert!(msg.eq("Found deactivated UserCredentialsRef with id id1"),
+                            assert!(msg.eq("Found deactivated ServiceUser with id id1"),
                                     "Wrong message, got {}", msg);
                         }
                     }
@@ -1143,7 +1141,7 @@ mod tests {
                 assert_message! {
                     (m :: IdentityManagerProtocol::IdentityManagerDebug(_) in watcher_rx) => {
                      if let IdentityManagerProtocol::IdentityManagerDebug(msg) = m {
-                            assert!(msg.eq("Found deactivated UserCredentialsRef with id id2"),
+                            assert!(msg.eq("Found deactivated ServiceUser with id id2"),
                                     "Wrong message, got {}", msg);
                         }
                     }
@@ -1178,12 +1176,11 @@ mod tests {
                 assert_message!(m :: IdentityCreatorProtocol::CreateIdentity in identity_creator_rx);
                 // We add labels and we activate new credential
                 assert_message! {
-                    (m :: IdentityCreatorProtocol::ModifyIdentity {..} in identity_creator_rx) => {
-                        if let IdentityCreatorProtocol::ModifyIdentity {
-                            service_credentials,
+                    (m :: IdentityCreatorProtocol::ActivateServiceIdentity {..} in identity_creator_rx) => {
+                        if let IdentityCreatorProtocol::ActivateServiceIdentity {
+                            service_user,
                             name,
                             labels,
-                            active,
                         } = m {
                             assert!(service_credentials.id == "id1");
                             assert!(name == "srv1-ns1");
@@ -1226,9 +1223,9 @@ mod tests {
 
                 // We add labels and we activate new credential
                 assert_message! {
-                    (m :: IdentityCreatorProtocol::ModifyIdentity {..} in identity_creator_rx) => {
-                        if let IdentityCreatorProtocol::ModifyIdentity {
-                            service_credentials,
+                    (m :: IdentityCreatorProtocol::ActivateServiceIdentity {..} in identity_creator_rx) => {
+                        if let IdentityCreatorProtocol::ActivateServiceIdentity {
+                            service_user,
                             name,
                             labels,
                             active,
@@ -1295,9 +1292,9 @@ mod tests {
                 assert_message!(m :: IdentityCreatorProtocol::CreateIdentity in identity_creator_rx);
                 // We add labels and we activate new credential
                 assert_message! {
-                    (m :: IdentityCreatorProtocol::ModifyIdentity {..} in identity_creator_rx) => {
-                        if let IdentityCreatorProtocol::ModifyIdentity {
-                            service_credentials,
+                    (m :: IdentityCreatorProtocol::ActivateServiceIdentity {..} in identity_creator_rx) => {
+                        if let IdentityCreatorProtocol::ActivateServiceIdentity {
+                            service_user,
                             name,
                             labels,
                             active,
@@ -1329,16 +1326,16 @@ mod tests {
                 // Request a new ServiceIdentity and give it time to process it
                 let tx = identity_manager_tx.clone();
 
-                // Push 11 fresh UserCredentialsRef
+                // Push 11 fresh ServiceUser
                 for i in 1..12 {
                     tx.send(IdentityManagerProtocol::FoundUserCredentials{
-                        user_credentials_ref: credentials_ref!(i),
+                        user_credentials_ref: service_user!(i),
                         activated: false
                     }).await.expect("Unable to send message!");
 
                     assert_message! {
                         (m :: IdentityManagerProtocol::IdentityManagerDebug(_) in watcher_rx) => {
-                        let expected_msg = format!("Found deactivated UserCredentialsRef with id id{}", i);
+                        let expected_msg = format!("Found deactivated ServiceUser with id id{}", i);
                          if let IdentityManagerProtocol::IdentityManagerDebug(msg) = m {
                                 assert!(msg.eq(expected_msg.as_str()),
                                         "Wrong message, expected {} but got {}", expected_msg.as_str(), msg);
@@ -1374,9 +1371,9 @@ mod tests {
                 // Note that now we dont ask IC to create a new crendential, since the pool has enough credentials
                 // We add labels and we activate new credential
                 assert_message! {
-                    (m :: IdentityCreatorProtocol::ModifyIdentity {..} in identity_creator_rx) => {
-                        if let IdentityCreatorProtocol::ModifyIdentity {
-                            service_credentials,
+                    (m :: IdentityCreatorProtocol::ActivateServiceIdentity {..} in identity_creator_rx) => {
+                        if let IdentityCreatorProtocol::ActivateServiceIdentity {
+                            service_user,
                             name,
                             labels,
                             active,
@@ -1405,16 +1402,16 @@ mod tests {
                 // Request a new ServiceIdentity and give it time to process it
                 let tx = identity_manager_tx.clone();
 
-                // Push 11 activated UserCredentialsRef, they should not be added to the pool
+                // Push 11 activated ServiceUser, they should not be added to the pool
                 for i in 1..12 {
                     tx.send(IdentityManagerProtocol::FoundUserCredentials{
-                        user_credentials_ref: credentials_ref!(i),
+                        user_credentials_ref: service_user!(i),
                         activated: true
                     }).await.expect("Unable to send message!");
 
                     assert_message! {
                         (m :: IdentityManagerProtocol::IdentityManagerDebug(_) in watcher_rx) => {
-                        let expected_msg = format!("Found activated UserCredentialsRef with id id{}", i);
+                        let expected_msg = format!("Found activated ServiceUser with id id{}", i);
                          if let IdentityManagerProtocol::IdentityManagerDebug(msg) = m {
                                 assert!(msg.eq(expected_msg.as_str()),
                                         "Wrong message, expected {} but got {}", expected_msg.as_str(), msg);
@@ -1448,7 +1445,7 @@ mod tests {
 
                 // Push a fresh credential now
                 tx.send(IdentityManagerProtocol::FoundUserCredentials{
-                    user_credentials_ref: credentials_ref!(13),
+                    user_credentials_ref: service_user!(13),
                     activated: false
                 }).await.expect("Unable to send message!");
                 // Request a new ServiceIdentity
@@ -1457,7 +1454,7 @@ mod tests {
                 }).await.expect("Unable to send RequestServiceIdentity message to IdentityManager");
                 // We ask IC to create a new crendential
                 assert_message!(m :: IdentityCreatorProtocol::CreateIdentity in identity_creator_rx);
-                assert_message!(m :: IdentityCreatorProtocol::ModifyIdentity{..} in identity_creator_rx);
+                assert_message!(m :: IdentityCreatorProtocol::ActivateServiceIdentity{..} in identity_creator_rx);
                 assert_no_message!(identity_creator_rx);
             }
         }
@@ -1485,13 +1482,13 @@ mod tests {
                 // Push some a
                 for i in 1..12 {
                     tx.send(IdentityManagerProtocol::FoundUserCredentials{
-                        user_credentials_ref: credentials_ref!(i),
+                        user_credentials_ref: service_user!(i),
                         activated: true
                     }).await.expect("Unable to send message!");
 
                     assert_message! {
                         (m :: IdentityManagerProtocol::IdentityManagerDebug(_) in watcher_rx) => {
-                        let expected_msg = format!("Found activated UserCredentialsRef with id id{}", i);
+                        let expected_msg = format!("Found activated ServiceUser with id id{}", i);
                          if let IdentityManagerProtocol::IdentityManagerDebug(msg) = m {
                                 assert!(msg.eq(expected_msg.as_str()),
                                         "Wrong message, expected {} but got {}", expected_msg.as_str(), msg);
@@ -1501,7 +1498,7 @@ mod tests {
                 }
                 // Add one deactivated
                 tx.send(IdentityManagerProtocol::FoundUserCredentials{
-                    user_credentials_ref: credentials_ref!(13),
+                    user_credentials_ref: service_user!(13),
                     activated: false
                 }).await.expect("Unable to send message!");
 

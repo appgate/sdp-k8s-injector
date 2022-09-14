@@ -9,14 +9,12 @@ use std::collections::{BTreeMap, HashMap};
 pub const SDP_INJECTOR_ANNOTATION: &str = "sdp-injector";
 
 #[derive(Clone, JsonSchema, Debug, Serialize, Deserialize, PartialEq)]
-pub struct ServiceCredentialsRef {
-    pub id: String,
+pub struct ServiceUser {
     pub name: String,
-    pub secret: String,
-    pub user_field: String,
-    pub password_field: String,
-    pub client_profile_url: String,
+    pub password: String,
+    pub profile_url: String,
 }
+
 
 pub fn is_injection_disabled<A: Annotated>(entity: &A) -> bool {
     entity
@@ -130,11 +128,11 @@ impl ServiceCandidate for Pod {
 }
 
 pub trait HasCredentials {
-    fn credentials<'a>(&'a self) -> &'a ServiceCredentialsRef;
+    fn credentials<'a>(&'a self) -> &'a ServiceUser;
 }
 
 impl HasCredentials for ServiceIdentity {
-    fn credentials<'a>(&'a self) -> &'a ServiceCredentialsRef {
+    fn credentials<'a>(&'a self) -> &'a ServiceUser {
         &self.spec.service_credentials
     }
 }

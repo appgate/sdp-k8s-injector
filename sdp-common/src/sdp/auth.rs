@@ -1,5 +1,4 @@
-use crate::constants::SDP_IDENTITY_MANAGER_SECRETS;
-use crate::service::ServiceCredentialsRef;
+use crate::service::ServiceUser;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use uuid::Uuid;
@@ -40,13 +39,13 @@ pub struct Credentials {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-pub struct ServiceUsers {
-    pub data: Vec<ServiceUser>,
+pub struct SDPUsers {
+    pub data: Vec<SDPUser>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
-pub struct ServiceUser {
+pub struct SDPUser {
     pub id: String,
     pub name: String,
     pub labels: HashMap<String, String>,
@@ -59,7 +58,7 @@ pub struct ServiceUser {
     pub lock_start: Option<String>,
 }
 
-impl ServiceUser {
+impl SDPUser {
     pub fn new() -> Self {
         let id = Uuid::new_v4();
         let user_name = Uuid::new_v4();
@@ -76,26 +75,21 @@ impl ServiceUser {
     }
 }
 
-impl From<(&ServiceUser, &ClientProfileUrl)> for ServiceCredentialsRef {
-    fn from(service_user: (&ServiceUser, &ClientProfileUrl)) -> Self {
-        let pw_field = format!("{}-pw", service_user.0.id);
-        let user_field = format!("{}-user", service_user.0.id);
+impl From<(&SDPUser, &ClientProfileUrl)> for ServiceUser {
+    fn from(service_user: (&SDPUser, &ClientProfileUrl)) -> Self {
         Self {
-            id: service_user.0.id.clone(),
             name: service_user.0.name.clone(),
-            secret: SDP_IDENTITY_MANAGER_SECRETS.to_string(),
-            user_field: user_field,
-            password_field: pw_field,
-            client_profile_url: service_user.1.url.clone(),
+            password: service_user.0.password.unwrap().clone(),
+            profile_url: service_user.1.url.clone(),
         }
     }
 }
 
-impl From<ServiceCredentialsRef> for ServiceUser {
-    fn from(credentials: ServiceCredentialsRef) -> Self {
-        ServiceUser {
-            id: credentials.id,
-            name: credentials.name,
+impl From<ServiceUser> for SDPUser {
+    fn from(service_user: ServiceUser) -> Self {
+        SDPUser {
+            id: service_user.name,
+            name: service_user.name,
             labels: HashMap::new(),
             password: None,
             disabled: true,

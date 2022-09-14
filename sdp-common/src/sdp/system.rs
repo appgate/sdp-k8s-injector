@@ -1,4 +1,4 @@
-use crate::sdp::auth::{Credentials, Login, ServiceUser, ServiceUsers};
+use crate::sdp::auth::{Credentials, Login, SDPUser, SDPUsers};
 use crate::sdp::errors::{error_for_status, SDPClientError};
 use http::header::{InvalidHeaderValue, ACCEPT};
 use http::{HeaderValue, StatusCode};
@@ -251,11 +251,11 @@ impl System {
     }
 
     /// GET /service-users
-    pub async fn get_users(&mut self) -> Result<Vec<ServiceUser>, SDPClientError> {
+    pub async fn get_users(&mut self) -> Result<Vec<SDPUser>, SDPClientError> {
         info!("Getting users");
         let mut url = Url::from(self.hosts[0].clone());
         url.set_path("/admin/service-users");
-        let service_users = self.get::<ServiceUsers>(url).await?;
+        let service_users = self.get::<SDPUsers>(url).await?;
         Ok(service_users.data)
     }
 
@@ -263,7 +263,7 @@ impl System {
     pub async fn get_user(
         &mut self,
         service_user_id: String,
-    ) -> Result<ServiceUser, SDPClientError> {
+    ) -> Result<SDPUser, SDPClientError> {
         info!("Getting user");
         let _ = self.maybe_refresh_login().await?;
         let mut url = Url::from(self.hosts[0].clone());
@@ -274,33 +274,33 @@ impl System {
     /// POST /service-users/id
     pub async fn create_user(
         &mut self,
-        service_user: &ServiceUser,
-    ) -> Result<ServiceUser, SDPClientError> {
+        service_user: &SDPUser,
+    ) -> Result<SDPUser, SDPClientError> {
         let mut url = Url::from(self.hosts[0].clone());
         url.set_path(&format!("/admin/service-users"));
         info!(
             "Creating new ServiceUser in SDP system: {}",
             service_user.id
         );
-        self.post::<ServiceUser>(url, service_user).await
+        self.post::<SDPUser>(url, service_user).await
     }
 
     /// POST /service-users/id
     pub async fn modify_user(
         &mut self,
-        service_user: &ServiceUser,
-    ) -> Result<ServiceUser, SDPClientError> {
+        service_user: &SDPUser,
+    ) -> Result<SDPUser, SDPClientError> {
         let mut url = Url::from(self.hosts[0].clone());
         url.set_path(&format!("/admin/service-users"));
         info!(
             "Creating new ServiceUser in SDP system: {}",
             service_user.id
         );
-        self.put::<ServiceUser>(url, service_user).await
+        self.put::<SDPUser>(url, service_user).await
     }
 
     /// DELETE /service-users/id
-    pub async fn delete_user(&mut self, service_user_id: String) -> Result<(), SDPClientError> {
+    pub async fn delete_user(&mut self, service_user_id: &str) -> Result<(), SDPClientError> {
         let _ = self.maybe_refresh_login().await?;
         let mut url = Url::from(self.hosts[0].clone());
         url.set_path(&format!("/admin/service-users/{}", service_user_id));

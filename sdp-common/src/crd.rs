@@ -1,8 +1,9 @@
-pub use crate::service::ServiceCredentialsRef;
 use kube::CustomResource;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+
+use crate::service::ServiceUser;
 
 /// ServiceIdentity CRD
 /// This is the CRD where we store the credentials for the services
@@ -20,7 +21,7 @@ use std::collections::HashMap;
 /// The labels in the service are used to determine what kind of access the service will have
 /// service_namespace + service_name identify each service
 pub struct ServiceIdentitySpec {
-    pub service_credentials: ServiceCredentialsRef,
+    pub service_credentials: ServiceUser,
     pub service_name: String,
     pub service_namespace: String,
     pub labels: HashMap<String, String>,
