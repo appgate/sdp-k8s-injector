@@ -85,11 +85,12 @@ impl From<(&SDPUser, &ClientProfileUrl)> for ServiceUser {
     }
 }
 
-impl From<ServiceUser> for SDPUser {
-    fn from(service_user: ServiceUser) -> Self {
+impl From<&ServiceUser> for SDPUser {
+    fn from(service_user: &ServiceUser) -> Self {
+        let name = service_user.name.clone();
         SDPUser {
-            id: service_user.name.clone(),
-            name: service_user.name,
+            id: name.clone(),
+            name: name,
             labels: HashMap::new(),
             password: None,
             disabled: true,

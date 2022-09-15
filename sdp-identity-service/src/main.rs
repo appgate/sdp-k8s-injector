@@ -65,8 +65,6 @@ async fn main() -> () {
             let identity_creator_client = client;
             let identity_manager_runner =
                 IdentityManagerRunner::kube_runner(identity_manager_client);
-            let identity_creator =
-                IdentityCreator::new(identity_creator_client, CREDENTIALS_POOL_SIZE);
             let (identity_manager_proto_tx, identity_manager_proto_rx) =
                 channel::<IdentityManagerProtocol<Deployment, ServiceIdentity>>(50);
             let identity_manager_proto_tx_cp = identity_manager_proto_tx.clone();
@@ -82,10 +80,13 @@ async fn main() -> () {
                     .await;
             });
             tokio::spawn(async move {
-                let mut system = get_sdp_system();
+                let system = get_sdp_system();
+                let identity_creator =
+                    IdentityCreator::new(system, identity_creator_client, CREDENTIALS_POOL_SIZE);
+                let mut system2 = get_sdp_system();
                 identity_creator
                     .run(
-                        &mut system,
+                        &mut system2,
                         identity_creator_proto_rx,
                         identity_manager_proto_tx_cp,
                     )

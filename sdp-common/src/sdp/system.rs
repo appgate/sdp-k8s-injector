@@ -260,10 +260,7 @@ impl System {
     }
 
     /// GET /service-users/id
-    pub async fn get_user(
-        &mut self,
-        service_user_id: String,
-    ) -> Result<SDPUser, SDPClientError> {
+    pub async fn get_user(&mut self, service_user_id: String) -> Result<SDPUser, SDPClientError> {
         info!("Getting user");
         let _ = self.maybe_refresh_login().await?;
         let mut url = Url::from(self.hosts[0].clone());
@@ -272,10 +269,7 @@ impl System {
     }
 
     /// POST /service-users/id
-    pub async fn create_user(
-        &mut self,
-        service_user: &SDPUser,
-    ) -> Result<SDPUser, SDPClientError> {
+    pub async fn create_user(&mut self, service_user: &SDPUser) -> Result<SDPUser, SDPClientError> {
         let mut url = Url::from(self.hosts[0].clone());
         url.set_path(&format!("/admin/service-users"));
         info!(
@@ -286,10 +280,7 @@ impl System {
     }
 
     /// POST /service-users/id
-    pub async fn modify_user(
-        &mut self,
-        service_user: &SDPUser,
-    ) -> Result<SDPUser, SDPClientError> {
+    pub async fn modify_user(&mut self, service_user: &SDPUser) -> Result<SDPUser, SDPClientError> {
         let mut url = Url::from(self.hosts[0].clone());
         url.set_path(&format!("/admin/service-users"));
         info!(

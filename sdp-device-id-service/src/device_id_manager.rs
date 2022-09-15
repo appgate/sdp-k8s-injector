@@ -355,7 +355,7 @@ mod tests {
     use futures::future;
     use kube::error::Error;
     use sdp_common::crd::{DeviceId, DeviceIdSpec, ServiceIdentity, ServiceIdentitySpec};
-    use sdp_macros::{service_user, device_id, service_identity};
+    use sdp_macros::{device_id, service_identity, service_user};
     use sdp_test_macros::assert_message;
     use std::collections::HashMap;
     use std::future::Future;

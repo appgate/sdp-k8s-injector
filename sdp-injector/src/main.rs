@@ -293,24 +293,24 @@ impl ServiceEnvironment {
         service_id: &str,
         store: Arc<E>,
     ) -> Option<Self> {
-        store
-            .identity(service_id)
-            .await
-            .map(|(s, d)| ServiceEnvironment {
+        store.identity(service_id).await.map(|(s, d)| {
+            let (user_field, password_field, profile_field) =
+                s.spec.service_credentials.field_names();
+            let service_id = s.service_id();
+            let secrets_name = format!("{}-service-user", &service_id);
+            let config_name = format!("{}-service-config", &service_id);
+            ServiceEnvironment {
                 service_name: service_id.to_string(),
-                client_config: SDP_DEFAULT_CLIENT_CONFIG.to_string(),
-                client_secret_name: s.spec.service_credentials.secret.clone(),
-                client_secret_controller_url_key: s
-                    .spec
-                    .service_credentials
-                    .client_profile_url
-                    .clone(),
-                client_secret_pwd_key: s.spec.service_credentials.password_field.clone(),
-                client_secret_user_key: s.spec.service_credentials.user_field.clone(),
+                client_config: config_name,
+                client_secret_name: secrets_name,
+                client_secret_controller_url_key: profile_field,
+                client_secret_pwd_key: password_field,
+                client_secret_user_key: user_field,
                 client_device_id: d.spec.uuids[0].to_string(),
                 n_containers: "0".to_string(),
                 k8s_dns_service_ip: None,
-            })
+            }
+        })
     }
 
     fn from_pod(pod: &Pod) -> Option<Self> {
@@ -819,7 +819,7 @@ mod tests {
     use sdp_common::constants::SDP_IDENTITY_MANAGER_SECRETS;
     use sdp_common::crd::{DeviceId, DeviceIdSpec, ServiceIdentity, ServiceIdentitySpec};
     use sdp_common::service::ServiceCandidate;
-    use sdp_macros::{service_user, service_device_ids, service_identity};
+    use sdp_macros::{service_device_ids, service_identity, service_user};
     use serde_json::json;
     use std::collections::{BTreeMap, HashMap, HashSet};
     use std::iter::FromIterator;

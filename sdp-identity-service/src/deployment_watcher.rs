@@ -50,9 +50,7 @@ impl<'a> DeploymentWatcher<Deployment> {
         // First of all notify the known service candidates to the IdentityManager so we can clean up the system if needed
         for candidate in xs.unwrap().items.iter().filter(|c| c.is_candidate()) {
             info!("Found service candidate: {}", candidate.service_id());
-            let msg = IdentityManagerProtocol::FoundServiceCandidate {
-                service_candidate: candidate.clone(),
-            };
+            let msg = IdentityManagerProtocol::FoundServiceCandidate(candidate.clone());
             if let Err(err) = q_tx.send(msg).await {
                 error!("Error reporting found ServiceIdentity: {}", err);
             }

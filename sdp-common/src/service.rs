@@ -1,10 +1,22 @@
+use crate::constants::SDP_IDENTITY_MANAGER_SECRETS;
 pub use crate::crd::ServiceIdentity;
-use k8s_openapi::api::{apps::v1::Deployment, core::v1::Pod};
-use kube::ResourceExt;
-use log::error;
+use json_patch::{PatchOperation, RemoveOperation};
+use k8s_openapi::{
+    api::{
+        apps::v1::Deployment,
+        core::v1::{Pod, Secret},
+    },
+    ByteString,
+};
+use kube::api::{Patch as KubePatch, PatchParams};
+use kube::{Api, ResourceExt};
+use log::{error, info};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, HashMap};
+use std::{
+    collections::{BTreeMap, HashMap},
+    error::Error,
+};
 
 pub const SDP_INJECTOR_ANNOTATION: &str = "sdp-injector";
 
@@ -15,6 +27,117 @@ pub struct ServiceUser {
     pub profile_url: String,
 }
 
+impl ServiceUser {
+    pub fn field_names(&self) -> (String, String, String) {
+        (
+            format!("{}-user", self.name),
+            format!("{}-pw", self.name),
+            format!("{}-url", self.name),
+        )
+    }
+
+    pub async fn has_fields(&self, api: &Api<Secret>) -> (bool, bool, bool) {
+        let (user_field, pw_field, url_field) = self.field_names();
+        if let Ok(secret) = api.get(SDP_IDENTITY_MANAGER_SECRETS).await {
+            secret
+                .data
+                .map(|data| {
+                    (
+                        data.get(&pw_field).is_some(),
+                        data.get(&user_field).is_some(),
+                        data.get(&url_field).is_some(),
+                    )
+                })
+                .unwrap_or((false, false, false))
+        } else {
+            error!("Error getting ServiceUser with name {}", &self.name);
+            (false, false, false)
+        }
+    }
+
+    pub async fn delete(&self, api: Api<Secret>) -> Result<(), Box<dyn Error>> {
+        let (user_field, pw_field, url_field) = self.field_names();
+        let (user_field_exists, passwd_field_exists, url_field_exists) =
+            self.has_fields(&api).await;
+        let mut patch_operations: Vec<PatchOperation> = Vec::new();
+        if user_field_exists {
+            patch_operations.push(PatchOperation::Remove(RemoveOperation {
+                path: format!("/data/{}", user_field),
+            }));
+        } else {
+            info!(
+                "User field in ServiceUser {} not found, ignoring it",
+                &self.name
+            );
+        }
+        if passwd_field_exists {
+            patch_operations.push(PatchOperation::Remove(RemoveOperation {
+                path: format!("/data/{}", pw_field),
+            }));
+        } else {
+            info!(
+                "Password field in ServiceUser {} not found, ignoring it",
+                &self.name
+            );
+        }
+        if url_field_exists {
+            patch_operations.push(PatchOperation::Remove(RemoveOperation {
+                path: format!("/data/{}", url_field),
+            }));
+        } else {
+            info!(
+                "Client profile url in ServiceUser {} not found, ignoring it",
+                &self.name
+            );
+        }
+        if patch_operations.len() > 0 {
+            info!("Deleting ServiceUser {} from K8S secret", &self.name);
+            let patch: KubePatch<Secret> = KubePatch::Json(json_patch::Patch(patch_operations));
+            api.patch(
+                SDP_IDENTITY_MANAGER_SECRETS,
+                &PatchParams::default(),
+                &patch,
+            )
+            .await?;
+        }
+        Ok(())
+    }
+
+    pub async fn create(&self, api: Api<Secret>) -> Result<(), Box<dyn Error>> {
+        let (user_field, pw_field, url_field) = self.field_names();
+        let (user_field_exists, passwd_field_exists, url_field_exists) =
+            self.has_fields(&api).await;
+        let mut secret = Secret::default();
+        let mut data = BTreeMap::new();
+        if !user_field_exists {
+            info!("Create user entry for ServiceUser {}", &self.name);
+            data.insert(user_field, ByteString(self.name.as_bytes().to_vec()));
+        }
+        if !passwd_field_exists {
+            info!("Create password entry for ServiceUser {}", &self.name);
+            data.insert(pw_field, ByteString(self.password.as_bytes().to_vec()));
+        }
+        if !url_field_exists {
+            info!(
+                "Create client profile url entry for ServiceUser {}",
+                &self.name
+            );
+            data.insert(url_field, ByteString(self.profile_url.as_bytes().to_vec()));
+        }
+        if data.len() > 0 {
+            secret.data = Some(data);
+            info!("Creating secrets in K8S for ServiceUer: {}", self.name);
+            let patch = KubePatch::Merge(secret);
+            api.patch(
+                SDP_IDENTITY_MANAGER_SECRETS,
+                &PatchParams::default(),
+                &patch,
+            )
+            .await?;
+        }
+        Ok(())
+    }
+}
 
 pub fn is_injection_disabled<A: Annotated>(entity: &A) -> bool {
     entity
