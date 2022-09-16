@@ -27,12 +27,13 @@ pub struct ServiceUser {
 }
 
 fn bytes_to_string(bs: &ByteString) -> Option<String> {
-    serde_json::to_string(bs)
-        .map_err(|e| {
+    match serde_json::to_string(bs) {
+        Err(e) => {
             error!("Unable to read secret: {}", e.to_string());
-            ()
-        })
-        .ok()
+            None
+        }
+        Ok(v) => Some(v),
+    }
 }
 
 impl ServiceUser {
@@ -84,12 +85,12 @@ impl ServiceUser {
         if let Ok(secret) = api.get(&secrets_name).await {
             secret
                 .data
-                .map(|data| {
-                    (
-                        data.get(&pw_field).and_then(bytes_to_string),
+                .and_then(|data| {
+                    Some((
                         data.get(&user_field).and_then(bytes_to_string),
+                        data.get(&pw_field).and_then(bytes_to_string),
                         data.get(&url_field).and_then(bytes_to_string),
-                    )
+                    ))
                 })
                 .unwrap_or((None, None, None))
         } else {
@@ -105,7 +106,11 @@ impl ServiceUser {
         namespaced: bool,
     ) -> (bool, bool, bool) {
         let (user, pwd, url) = self.get_fields(api, secrets_name, namespaced).await;
-        (user.is_some(), pwd.is_some(), url.is_none())
+        if namespaced {
+            (user.is_some(), pwd.is_some(), url.is_some())
+        } else {
+            (true, pwd.is_some(), true)
+        }
     }
 
     pub async fn restore(&self, api: Api<Secret>, secrets_name: &str) -> Option<Self> {
@@ -204,16 +209,22 @@ impl ServiceUser {
         let mut secret = Secret::default();
         let mut data = BTreeMap::new();
         if !user_field_exists {
-            info!("Create user entry for ServiceUser {}", &self.name);
+            info!(
+                "Username entry update for ServiceUser {} is required",
+                &self.name
+            );
             data.insert(user_field, ByteString(self.name.as_bytes().to_vec()));
         }
         if !passwd_field_exists {
-            info!("Create password entry for ServiceUser {}", &self.name);
+            info!(
+                "Password entry update for ServiceUser {} is required",
+                &self.name
+            );
             data.insert(pw_field, ByteString(self.password.as_bytes().to_vec()));
         }
         if !url_field_exists {
             info!(
-                "Create client profile url entry for ServiceUser {}",
+                "Client profile url entry update for ServiceUser {} is required",
                 &self.name
             );
             data.insert(url_field, ByteString(self.profile_url.as_bytes().to_vec()));

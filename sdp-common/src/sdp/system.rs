@@ -269,14 +269,13 @@ impl System {
     }
 
     /// POST /service-users/id
-    pub async fn create_user(&mut self, service_user: &SDPUser) -> Result<SDPUser, SDPClientError> {
+    pub async fn create_user(&mut self, sdp_user: &SDPUser) -> Result<SDPUser, SDPClientError> {
         let mut url = Url::from(self.hosts[0].clone());
         url.set_path(&format!("/admin/service-users"));
-        info!(
-            "Creating new ServiceUser in SDP system: {}",
-            service_user.id
-        );
-        self.post::<SDPUser>(url, service_user).await
+        info!("Creating new ServiceUser in SDP system: {}", sdp_user.id);
+        let mut created_sdp_user = self.post::<SDPUser>(url, sdp_user).await?;
+        created_sdp_user.password = sdp_user.password.clone();
+        Ok(created_sdp_user)
     }
 
     /// POST /service-users/id
