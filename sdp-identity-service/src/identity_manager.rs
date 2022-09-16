@@ -33,30 +33,43 @@ trait ServiceIdentityProvider {
     fn next_identity(&mut self, from: &Self::From) -> Option<Self::To>;
     fn identity(&self, from: &Self::From) -> Option<&Self::To>;
     fn identities(&self) -> Vec<&Self::To>;
-    fn extra_identities<'a>(&self, services: &HashSet<String>) -> Vec<&Self::To> {
+
+    /// ServiceIdentity instances without known ServiceCandidate
+    fn extra_service_identities<'a>(
+        &self,
+        current_service_candidates: &HashSet<String>,
+    ) -> Vec<&Self::To> {
         self.identities()
             .iter()
-            .filter(|id| !services.contains(&id.service_id()))
+            .filter(|id| !current_service_candidates.contains(&id.service_id()))
             .map(|id| *id)
             .collect()
     }
-    fn extra_user_credentials<'a>(
+
+    /// Active ServiceUser instances (names) not being in use
+    fn orphan_service_users<'a>(
         &'a self,
-        activated_credentials: &'a HashSet<String>,
-    ) -> Vec<&'a Self::To> {
-        let mut current_activated_credentials: HashMap<String, &Self::To> =
-            HashMap::from_iter(self.identities().iter().map(|&i| (i.service_id(), i)));
-        // Compute activated credentials not registered in any Self::To
-        for c_id in activated_credentials {
-            current_activated_credentials.remove(c_id);
-        }
-        current_activated_credentials.into_values().collect()
+        activated_service_users: &'a HashSet<String>,
+    ) -> HashSet<String> {
+        let current_activated_credentials: HashSet<String> = HashSet::from_iter(
+            self.identities()
+                .iter()
+                .map(|&i| i.credentials().name.clone()),
+        );
+        activated_service_users
+            .difference(&current_activated_credentials)
+            .map(|s| s.clone())
+            .collect()
     }
 
-    fn orphan_identities<'a>(&self, activated_credentials: &'a HashSet<String>) -> Vec<&Self::To> {
+    /// ServiceIdentity instances that don't have active ServiceUsers
+    fn orphan_service_identities<'a>(
+        &self,
+        activated_service_users: &'a HashSet<String>,
+    ) -> Vec<&Self::To> {
         self.identities()
             .iter()
-            .filter(|i| !activated_credentials.contains(&i.credentials().name))
+            .filter(|i| !activated_service_users.contains(&i.credentials().name))
             .map(|i| *i)
             .collect()
     }
@@ -333,7 +346,7 @@ impl IdentityManagerRunner<Deployment, ServiceIdentity> {
                                 service_identity.credentials().name
                             );
                             if let Err(err) = identity_creator_tx
-                                .send(IdentityCreatorProtocol::DeleteIdentity(
+                                .send(IdentityCreatorProtocol::DeleteServiceUser(
                                     service_identity.credentials().clone(),
                                     service_identity.namespace(),
                                     service_identity.name(),
@@ -361,7 +374,7 @@ impl IdentityManagerRunner<Deployment, ServiceIdentity> {
                         service_id
                     ) => external_queue_tx);
                     match im.next_identity(&service_candidate) {
-                        Some(identity) => match im.create(&identity).await {
+                        Some(service_identity) => match im.create(&service_identity).await {
                             Ok(service_identity) => {
                                 sdp_info!(IdentityManagerProtocol::<F, ServiceIdentity>::IdentityManagerDebug |(
                                     "ServiceIdentity created for service {}",
@@ -381,11 +394,11 @@ impl IdentityManagerRunner<Deployment, ServiceIdentity> {
                                     }
                                 }
                                 if let Err(err) = identity_creator_tx
-                                    .send(IdentityCreatorProtocol::ActivateServiceIdentity(
+                                    .send(IdentityCreatorProtocol::ActivateServiceUser(
                                         service_identity.credentials().clone(),
                                         service_identity.namespace(),
                                         service_identity.name(),
-                                        identity.spec.labels,
+                                        service_candidate.labels(),
                                     ))
                                     .await
                                 {
@@ -488,36 +501,31 @@ impl IdentityManagerRunner<Deployment, ServiceIdentity> {
 
                 // Identity Creator finished the initialization
                 IdentityManagerProtocol::IdentityManagerReady => {
+                    let mut removed_service_identities: HashSet<String> = HashSet::new();
                     info!("IdentityMAnager is ready");
 
                     sdp_info!(IdentityManagerProtocol::<F, ServiceIdentity>::IdentityManagerDebug |("Syncing UserCredentials") => external_queue_tx);
-                    // Delete active credentials not in use by any service
-                    for service_identity in
-                        im.extra_user_credentials(&existing_activated_credentials)
-                    {
-                        let service_user = service_identity.credentials().clone();
-                        info!("ServiceUser {} is active but not used by any ServiceIdentity, deleting it", service_user.name);
-                        identity_creator_tx
-                            .send(IdentityCreatorProtocol::DeleteIdentity(
-                                service_user,
-                                service_identity.namespace(),
-                                service_identity.name(),
-                            ))
-                            .await
-                            .expect("Unable to delete obsolete UserCredentials");
-                    }
+
+                    // Here we do a basic cleanup of the current state
+                    // 1. First we ask for deletion for all the ServiceIdentity instances that don't have a known
+                    //    ServiceCandidate. This will eventually remove the ServiceUser associated
+                    // 2. Now we remove all the known active ServiceUser instances that don't belong to any ServiceIdentity
+                    // 3. Finally we delete any ServiceIdentity instance that does not have a ServiceUser activated
 
                     sdp_info!(IdentityManagerProtocol::<F, ServiceIdentity>::IdentityManagerDebug |("Syncing ServiceIdentity instances") => external_queue_tx);
-                    // Delete Identity Services holding not active credentials
-                    let mut removed_service_identities: HashSet<String> = HashSet::new();
-                    for service_identity in im.orphan_identities(&existing_activated_credentials) {
+
+                    // 1. Delete IdentityService instances with not known ServiceCandidate
+                    for service_identity in
+                        im.extra_service_identities(&existing_service_candidates)
+                    {
                         info!(
-                            "ServiceIdentity {} has deactivated ServiceUser. Deleting it.",
+                            "Found ServiceIdentity {} with not known ServiceCandidate. Deleting it.",
                             service_identity.service_id()
                         );
-                        let service_user = service_identity.clone();
                         if let Err(e) = identity_manager_tx
-                            .send(IdentityManagerProtocol::DeleteServiceIdentity(service_user))
+                            .send(IdentityManagerProtocol::DeleteServiceIdentity(
+                                service_identity.clone(),
+                            ))
                             .await
                         {
                             error!(
@@ -532,15 +540,27 @@ impl IdentityManagerRunner<Deployment, ServiceIdentity> {
                         }
                     }
 
-                    // Delete Identity Services with no ServiceCandidate
-                    for service_identity in im.extra_identities(&existing_service_candidates) {
+                    // 2. Delete ServiceUser instances that don't belong to any ServiceIdentity
+                    for sdp_user_name in im.orphan_service_users(&existing_activated_credentials) {
                         info!(
-                            "ServiceIdentity {} has not attached ServiceCandidate. Deleting it.",
-                            service_identity.service_id()
+                            "SDPUser {} is active but not used by any ServiceIdentity, deleting it",
+                            sdp_user_name
                         );
-                        if !removed_service_identities
-                            .contains(&service_identity.service_id().clone())
-                        {
+                        identity_creator_tx
+                            .send(IdentityCreatorProtocol::DeleteSDPUser(sdp_user_name))
+                            .await
+                            .expect("Unable to delete obsolete SDPUser");
+                    }
+
+                    // 3. Delete IdentityService instances holding not active credentials
+                    for service_identity in
+                        im.orphan_service_identities(&existing_activated_credentials)
+                    {
+                        if !removed_service_identities.contains(&service_identity.service_id()) {
+                            info!(
+                                "ServiceIdentity {} has deactivated ServiceUser. Deleting it.",
+                                service_identity.service_id()
+                            );
                             if let Err(e) = identity_manager_tx
                                 .send(IdentityManagerProtocol::DeleteServiceIdentity(
                                     service_identity.clone(),
@@ -552,6 +572,10 @@ impl IdentityManagerRunner<Deployment, ServiceIdentity> {
                                     service_identity.service_id(),
                                     e.to_string()
                                 )
+                            } else {
+                                // Make sure we dont try to delete it twice!
+                                removed_service_identities
+                                    .insert(service_identity.service_id().clone());
                             }
                         }
                     }
@@ -583,12 +607,6 @@ impl IdentityManagerRunner<Deployment, ServiceIdentity> {
                             service_candidate.service_id());
                         }
                     }
-                    /*if Err(e) = identity_manager_tx
-                    .send(IdentityManagerProtocol::DeleteServiceIdentity {
-                        service_identity: identity_service.clone(),
-                    }).await {
-                        error!("Unable to queue message to delete ServiceIdentity {}", )
-                    };*/
                 }
                 _ => {
                     warn!("Ignored message");
@@ -668,11 +686,13 @@ mod tests {
     use futures::Future;
     use k8s_openapi::api::apps::v1::Deployment;
     use kube::{core::object::HasSpec, error::Error as KError, ResourceExt};
+    use sdp_common::service::HasCredentials;
     use sdp_macros::{deployment, service_identity, service_user};
     use sdp_test_macros::{assert_message, assert_no_message};
     use tokio::sync::mpsc::channel;
     use tokio::time::{sleep, timeout, Duration};
 
+    use crate::identity_manager::ServiceUser;
     use crate::{
         deployment_watcher::DeploymentWatcherProtocol, identity_creator::IdentityCreatorProtocol,
         identity_manager::IdentityManagerProtocol,
@@ -818,18 +838,18 @@ mod tests {
             service_identity!(3),
             service_identity!(4),
         ];
-        let d1 = deployment!("dep1", "ns1");
-        let d2 = deployment!("srv1", "ns1");
+        let d1 = deployment!("ns1", "dep1");
+        let d2 = deployment!("ns1", "srv1");
         test_service_identity_provider! {
             im(identities) => {
                 assert_eq!(im.identities().len(), 4);
-                assert!(im.identity(&d1).is_none());
-                assert!(im.identity(&d2).is_some());
                 let mut is0: Vec<ServiceIdentity> = im.identities().iter().map(|&i| i.clone()).collect();
                 let sorted_is0 = is0.sort_by(|a, b| a.spec().service_name.partial_cmp(&b.spec().service_name).unwrap());
                 let mut is1: Vec<ServiceIdentity> = identities.iter().map(|i| i.clone()).collect();
                 let sorted_is1 = is1.sort_by(|a, b| a.spec().service_name.partial_cmp(&b.spec().service_name).unwrap());
                 assert_eq!(sorted_is0, sorted_is1);
+                assert!(im.identity(&d1).is_none());
+                assert!(im.identity(&d2).is_some());
             }
         }
     }
@@ -844,17 +864,17 @@ mod tests {
         let si_spec = si.unwrap();
         assert_eq!(si_spec.spec().service_name, service_name);
         assert_eq!(si_spec.spec().service_namespace, service_ns);
-        assert_eq!(si_spec.spec().service_credentials.id, c.id);
+        assert_eq!(si_spec.spec().service_credentials.name, c.name);
     }
 
     #[test]
     fn test_service_identity_provider_next_identity() {
         let id1 = service_identity!(1);
         let identities = vec![id1.clone()];
-        let d1_1 = deployment!("srv1", "ns1");
-        let d2_2 = deployment!("srv2", "ns2");
-        let d1_2 = deployment!("srv1", "ns2");
-        let d3_1 = deployment!("srv3", "ns1");
+        let d1_1 = deployment!("ns1", "srv1");
+        let d2_2 = deployment!("ns2", "srv2");
+        let d1_2 = deployment!("ns2", "srv1");
+        let d3_1 = deployment!("ns1", "srv3");
 
         test_service_identity_provider! {
             im(identities) => {
@@ -913,19 +933,17 @@ mod tests {
         }
     }
 
-    fn extra_identities_tuple<'a>(
-        im: &'a TestIdentityManager,
-        services: &HashSet<String>,
+    fn service_identities_to_tuple<'a>(
+        service_identities: Vec<&'a ServiceIdentity>,
     ) -> Vec<(&'a str, &'a str, &'a str)> {
-        let mut xs: Vec<(&str, &str, &str)> = im
-            .extra_identities(services)
+        let mut xs: Vec<(&str, &str, &str)> = service_identities
             .iter()
             .map(|si| {
                 let spec = si.spec();
                 (
                     spec.service_namespace.as_str(),
                     spec.service_name.as_str(),
-                    spec.service_credentials.id.as_str(),
+                    spec.service_credentials.name.as_str(),
                 )
             })
             .collect();
@@ -935,43 +953,172 @@ mod tests {
 
     #[test]
     fn test_service_identity_provider_extras_identities() {
+        // extra_service_identities compute the service identities registered in memory
+        // that dont have a counterpart in the system (k8s for example)
         test_service_identity_provider! {
             im => {
                 let mut identities = im.identities();
                 identities.sort_by(|a, b| a.name_any().as_str().partial_cmp(b.name_any().as_str()).unwrap());
 
-                // 4 services registered but none found on start,
-                let xs = extra_identities_tuple(&im, &HashSet::new());
+                // 4 service identities registered but none found on start,
+                let xs = service_identities_to_tuple(
+                    im.extra_service_identities(&HashSet::new()));
                 assert_eq!(xs.len(), 4);
                 assert_eq!(xs, vec![
-                    ("ns1", "srv1", "id1"),
-                    ("ns2", "srv2", "id2"),
-                    ("ns3", "srv3", "id3"),
-                    ("ns4", "srv4", "id4"),
+                    ("ns1", "srv1", "service_user1"),
+                    ("ns2", "srv2", "service_user2"),
+                    ("ns3", "srv3", "service_user3"),
+                    ("ns4", "srv4", "service_user4"),
                 ]);
 
-                // 4 services registered and only 1 on start
-                let xs = extra_identities_tuple(&im, &HashSet::from(
+                // 4 service identities registered and only 1 on start
+                let xs = service_identities_to_tuple(
+                    im.extra_service_identities(&HashSet::from(
                     [identities[0].service_id()]
-                ));
+                )));
                 assert_eq!(xs.len(), 3);
                 assert_eq!(xs, vec![
-                    ("ns2", "srv2", "id2"),
-                    ("ns3", "srv3", "id3"),
-                    ("ns4", "srv4", "id4"),
+                    ("ns2", "srv2", "service_user2"),
+                    ("ns3", "srv3", "service_user3"),
+                    ("ns4", "srv4", "service_user4"),
                 ]);
 
-                // 4 services registered and all 4 on start
-                let xs: Vec<(&str, &str, &str)> = extra_identities_tuple(&im, &HashSet::from(
-                    [
-                        identities[0].service_id(),
-                        identities[1].service_id(),
-                        identities[2].service_id(),
-                        identities[3].service_id(),
-                    ]
-                ));
+                // 4 service identities registered and all 4 on start
+                let xs: Vec<(&str, &str, &str)> = service_identities_to_tuple(
+                    im.extra_service_identities(&HashSet::from(
+                        [
+                            identities[0].service_id(),
+                            identities[1].service_id(),
+                            identities[2].service_id(),
+                            identities[3].service_id(),
+                        ])));
                 assert_eq!(xs.len(), 0);
                 assert_eq!(xs, vec![]);
+
+                // 5 service identities registered and all 4 on start
+                let xs: Vec<(&str, &str, &str)> = service_identities_to_tuple(
+                    im.extra_service_identities(&HashSet::from(
+                        [
+                            identities[0].service_id(),
+                            identities[1].service_id(),
+                            identities[2].service_id(),
+                            identities[3].service_id(),
+                            service_identity!(5).service_id(),
+                        ])));
+                assert_eq!(xs.len(), 0);
+                assert_eq!(xs, vec![]);
+            }
+        }
+    }
+
+    #[test]
+    fn test_service_identity_provider_orphan_identities() {
+        // orphan_service_identities computes the list of service identities holding
+        // ServiceUsers that are not active anymore
+        test_service_identity_provider! {
+            im => {
+                let mut identities = im.identities();
+                identities.sort_by(|a, b| a.name_any().as_str().partial_cmp(b.name_any().as_str()).unwrap());
+
+                // 4 service identities registered none active service users,
+                let xs = service_identities_to_tuple(
+                    im.orphan_service_identities(&HashSet::new()));
+                assert_eq!(xs.len(), 4);
+                assert_eq!(xs, vec![
+                    ("ns1", "srv1", "service_user1"),
+                    ("ns2", "srv2", "service_user2"),
+                    ("ns3", "srv3", "service_user3"),
+                    ("ns4", "srv4", "service_user4"),
+                ]);
+
+                // 4 service identities registered 4 active service users,
+                let xs = service_identities_to_tuple(
+                    im.orphan_service_identities(&HashSet::from([
+                        identities[0].credentials().name.clone(),
+                        identities[1].credentials().name.clone(),
+                        identities[2].credentials().name.clone(),
+                        identities[3].credentials().name.clone(),
+                    ])));
+                assert_eq!(xs.len(), 0);
+                assert_eq!(xs, vec![]);
+
+                // 4 service identities registered 2 active service users,
+                let xs = service_identities_to_tuple(
+                    im.orphan_service_identities(&HashSet::from([
+                        identities[1].credentials().name.clone(), // service_user2
+                        identities[3].credentials().name.clone(), // service_user4
+                    ])));
+                assert_eq!(xs.len(), 2);
+                assert_eq!(xs, vec![
+                    ("ns1", "srv1", "service_user1"),
+                    ("ns3", "srv3", "service_user3"),
+                ]);
+
+                // 4 service identities registered 5 active service users,
+                let xs = service_identities_to_tuple(
+                    im.orphan_service_identities(&HashSet::from([
+                        identities[0].credentials().name.clone(),
+                        identities[1].credentials().name.clone(),
+                        identities[2].credentials().name.clone(),
+                        identities[3].credentials().name.clone(),
+                        service_identity!(5).credentials().name.clone()
+                    ])));
+                assert_eq!(xs.len(), 0);
+                assert_eq!(xs, vec![]);
+
+            }
+        }
+    }
+
+    #[test]
+    fn test_service_identity_provider_orphan_service_users() {
+        // orphan_service_users computes the list of active service users that are not being
+        // used by any service
+        test_service_identity_provider! {
+            im => {
+                let mut identities = im.identities();
+                identities.sort_by(|a, b| a.name_any().as_str().partial_cmp(b.name_any().as_str()).unwrap());
+
+                // 4 service identities registered none active service users,
+                let xs = im.orphan_service_users(&HashSet::new());
+                assert_eq!(xs.len(), 0);
+                assert_eq!(xs, HashSet::<String>::new());
+
+                // 4 service identities registered 4 active service users,
+                let xs = im.orphan_service_users(&HashSet::from([
+                    "service_user1".to_string(),
+                    "service_user2".to_string(),
+                    "service_user3".to_string(),
+                    "service_user4".to_string(),
+                ]));
+                assert_eq!(xs.len(), 0);
+                assert_eq!(xs, HashSet::<String>::new());
+
+                // 4 service identities registered 1 active service user but not used,
+                let xs = im.orphan_service_users(&HashSet::from([
+                    "service_user5".to_string(),
+                ]));
+                assert_eq!(xs.len(), 1);
+                assert_eq!(xs, HashSet::from(["service_user5".to_string()]));
+
+                // 4 service identities registered 8 active service users, 4 not being used
+                let xs = im.orphan_service_users(&HashSet::from([
+                    "service_user1".to_string(),
+                    "service_user2".to_string(),
+                    "service_user3".to_string(),
+                    "service_user4".to_string(),
+                    "service_user5".to_string(),
+                    "service_user6".to_string(),
+                    "service_user7".to_string(),
+                    "service_user8".to_string(),
+                ]));
+                assert_eq!(xs.len(), 4);
+                assert_eq!(xs, HashSet::from([
+                    "service_user5".to_string(),
+                    "service_user6".to_string(),
+                    "service_user7".to_string(),
+                    "service_user8".to_string(),
+                    ]));
             }
         }
     }
@@ -1007,9 +1154,8 @@ mod tests {
 
                 // Ask to delete a ServiceIdentity and give it time to process it
                 let tx = identity_manager_tx.clone();
-                tx.send(IdentityManagerProtocol::DeleteServiceIdentity {
-                    service_identity: service_identity!(1)
-                }).await.expect("Unable to send DeleteServiceIdentity message to IdentityManager");
+                tx.send(IdentityManagerProtocol::DeleteServiceIdentity(service_identity!(1)))
+                    .await.expect("Unable to send DeleteServiceIdentity message to IdentityManager");
                 sleep(Duration::from_millis(10)).await;
 
                 // We tried to delete it from the API
@@ -1017,9 +1163,11 @@ mod tests {
 
                 // We asked the IdentityCreator to delete it
                 assert_message! {
-                    (m :: IdentityCreatorProtocol::DeleteIdentity(_) in identity_creator_rx) => {
-                        if let IdentityCreatorProtocol::DeleteIdentity(id) = m {
-                            assert!(id == "id1".to_string(), "Wrong id for ServiceIdentity: {:?}", id);
+                    (m :: IdentityCreatorProtocol::DeleteServiceUser(_, _, _) in identity_creator_rx) => {
+                        if let IdentityCreatorProtocol::DeleteServiceUser(service_user, service_ns, service_name) = m {
+                            assert_eq!(service_user.name, "service_user1".to_string());
+                            assert_eq!(service_ns, "ns1".to_string());
+                            assert_eq!(service_name, "srv1".to_string());
                         }
                     }
                 };
@@ -1055,9 +1203,8 @@ mod tests {
 
                 // Ask to delete a ServiceIdentity and give it time to process it
                 let tx = identity_manager_tx.clone();
-                tx.send(IdentityManagerProtocol::DeleteServiceIdentity {
-                    service_identity: service_identity!(1)
-                }).await.expect("Unable to send DeleteServiceIdentity message to IdentityManager");
+                tx.send(IdentityManagerProtocol::DeleteServiceIdentity(service_identity!(1)))
+                    .await.expect("Unable to send DeleteServiceIdentity message to IdentityManager");
                 sleep(Duration::from_millis(10)).await;
 
                 // We tried to delete it from the API
@@ -1065,9 +1212,11 @@ mod tests {
 
                 // We asked the IdentityCreator to delete it
                 assert_message! {
-                    (m :: IdentityCreatorProtocol::DeleteIdentity(_) in identity_creator_rx) => {
-                        if let IdentityCreatorProtocol::DeleteIdentity(id) = m {
-                            assert!(id == "id1".to_string(), "Wrong id for ServiceIdentity: {:?}", id);
+                    (m :: IdentityCreatorProtocol::DeleteServiceUser(_, _, _) in identity_creator_rx) => {
+                        if let IdentityCreatorProtocol::DeleteServiceUser(service_user, service_ns, service_name) = m {
+                            assert_eq!(service_user.name, "service_user1".to_string());
+                            assert_eq!(service_ns, "ns1".to_string());
+                            assert_eq!(service_name, "srv1".to_string());
                         }
                     }
                 };
@@ -1088,7 +1237,7 @@ mod tests {
     #[tokio::test]
     async fn test_identity_manager_request_service_identity_0() {
         test_identity_manager! {
-            (watcher_rx, identity_manager_tx, identity_creator_rx, _deployment_watched_rx, _counters) => {
+            (im(vec![]), watcher_rx, identity_manager_tx, identity_creator_rx, _deployment_watched_rx, _counters) => {
                 assert_message!(m :: IdentityManagerProtocol::IdentityManagerInitialized in watcher_rx);
                 assert_message!(m :: IdentityManagerProtocol::IdentityManagerStarted in watcher_rx);
                 // Request a new ServiceIdentity
@@ -1103,7 +1252,7 @@ mod tests {
                 assert_message! {
                     (m :: IdentityManagerProtocol::IdentityManagerDebug(_) in watcher_rx) => {
                      if let IdentityManagerProtocol::IdentityManagerDebug(msg) = m {
-                            assert!(msg.eq("New ServiceIdentity requested for ServiceCandidate srv1-ns1"),
+                            assert!(msg.eq("New ServiceIdentity requested for ServiceCandidate ns1-srv1"),
                                     "Wrong message, got {}", msg);
                         }
                     }
@@ -1111,7 +1260,7 @@ mod tests {
                 assert_message! {
                     (m :: IdentityManagerProtocol::IdentityManagerDebug(_) in watcher_rx) => {
                      if let IdentityManagerProtocol::IdentityManagerDebug(msg) = m {
-                            assert!(msg.eq("Unable to assign service identity for service srv1-ns1. Identities pool seems to be empty!"),
+                            assert!(msg.eq("Unable to assign service identity for service ns1-srv1. Identities pool seems to be empty!"),
                                     "Wrong message, got {}", msg);
                         }
                     }
@@ -1123,7 +1272,7 @@ mod tests {
     #[tokio::test]
     async fn test_identity_manager_request_service_identity_1() {
         test_identity_manager! {
-            (watcher_rx, identity_manager_tx, identity_creator_rx, _deployment_watched_rx, counters) => {
+            (im(vec![]), watcher_rx, identity_manager_tx, identity_creator_rx, _deployment_watched_rx, counters) => {
                 assert_message!(m :: IdentityManagerProtocol::IdentityManagerInitialized in watcher_rx);
                 assert_message!(m :: IdentityManagerProtocol::IdentityManagerStarted in watcher_rx);
                 assert_message!(m :: IdentityCreatorProtocol::StartService in identity_creator_rx);
@@ -1131,20 +1280,16 @@ mod tests {
                 let tx = identity_manager_tx.clone();
 
                 // Push 2 fresh ServiceUser
-                tx.send(IdentityManagerProtocol::FoundUserCredentials{
-                    service_user: service_user!(1),
-                    activated: false
-                }).await.expect("Unable to send message!");
-                tx.send(IdentityManagerProtocol::FoundUserCredentials{
-                    service_user: service_user!(2),
-                    activated: false
-                }).await.expect("Unable to send message!");
+                tx.send(IdentityManagerProtocol::FoundUserCredentials(service_user!(1), false))
+                    .await.expect("Unable to send message!");
+                tx.send(IdentityManagerProtocol::FoundUserCredentials(service_user!(2), false))
+                    .await.expect("Unable to send message!");
 
                 // Check they were registered
                 assert_message! {
                     (m :: IdentityManagerProtocol::IdentityManagerDebug(_) in watcher_rx) => {
                      if let IdentityManagerProtocol::IdentityManagerDebug(msg) = m {
-                            assert!(msg.eq("Found deactivated ServiceUser with id id1"),
+                            assert!(msg.eq("Found deactivated ServiceUser with name service_user1"),
                                     "Wrong message, got {}", msg);
                         }
                     }
@@ -1152,7 +1297,7 @@ mod tests {
                 assert_message! {
                     (m :: IdentityManagerProtocol::IdentityManagerDebug(_) in watcher_rx) => {
                      if let IdentityManagerProtocol::IdentityManagerDebug(msg) = m {
-                            assert!(msg.eq("Found deactivated ServiceUser with id id2"),
+                            assert!(msg.eq("Found deactivated ServiceUser with name service_user2"),
                                     "Wrong message, got {}", msg);
                         }
                     }
@@ -1167,7 +1312,7 @@ mod tests {
                 assert_message! {
                     (m :: IdentityManagerProtocol::IdentityManagerDebug(_) in watcher_rx) => {
                      if let IdentityManagerProtocol::IdentityManagerDebug(msg) = m {
-                            assert!(msg.eq("New ServiceIdentity requested for ServiceCandidate srv1-ns1"),
+                            assert!(msg.eq("New ServiceIdentity requested for ServiceCandidate ns1-srv1"),
                                     "Wrong message, got {}", msg);
                         }
                     }
@@ -1175,7 +1320,7 @@ mod tests {
                 assert_message! {
                     (m :: IdentityManagerProtocol::IdentityManagerDebug(_) in watcher_rx) => {
                      if let IdentityManagerProtocol::IdentityManagerDebug(msg) = m {
-                            assert!(msg.eq("ServiceIdentity created for service srv1-ns1"),
+                            assert!(msg.eq("ServiceIdentity created for service ns1-srv1"),
                                     "Wrong message, got {}", msg);
                         }
                     }
@@ -1187,18 +1332,14 @@ mod tests {
                 assert_message!(m :: IdentityCreatorProtocol::CreateIdentity in identity_creator_rx);
                 // We add labels and we activate new credential
                 assert_message! {
-                    (m :: IdentityCreatorProtocol::ActivateServiceIdentity {..} in identity_creator_rx) => {
-                        if let IdentityCreatorProtocol::ActivateServiceIdentity {
-                            service_user,
-                            name,
-                            labels,
-                        } = m {
-                            assert!(service_credentials.id == "id1");
-                            assert!(name == "srv1-ns1");
-                            assert!(active);
-                            assert!(labels == HashMap::from([
-                                ("namespace".to_string(), "srv1".to_string()),
-                                ("name".to_string(), "ns1".to_string())
+                    (m :: IdentityCreatorProtocol::ActivateServiceUser {..} in identity_creator_rx) => {
+                        if let IdentityCreatorProtocol::ActivateServiceUser(service_user, service_ns, service_name, labels) = m {
+                            assert_eq!(service_user.name, "service_user1");
+                            assert_eq!(service_ns, "ns1");
+                            assert_eq!(service_name, "srv1");
+                            assert_eq!(labels, HashMap::from([
+                                ("namespace".to_string(), "ns1".to_string()),
+                                ("name".to_string(), "srv1".to_string())
                             ]));
                         }
                     }
@@ -1213,7 +1354,7 @@ mod tests {
                 assert_message! {
                     (m :: IdentityManagerProtocol::IdentityManagerDebug(_) in watcher_rx) => {
                      if let IdentityManagerProtocol::IdentityManagerDebug(msg) = m {
-                            assert!(msg.eq("New ServiceIdentity requested for ServiceCandidate srv2-ns2"),
+                            assert!(msg.eq("New ServiceIdentity requested for ServiceCandidate ns2-srv2"),
                                     "Wrong message, got {}", msg);
                         }
                     }
@@ -1221,7 +1362,7 @@ mod tests {
                 assert_message! {
                     (m :: IdentityManagerProtocol::IdentityManagerDebug(_) in watcher_rx) => {
                      if let IdentityManagerProtocol::IdentityManagerDebug(msg) = m {
-                            assert!(msg.eq("ServiceIdentity created for service srv2-ns2"),
+                            assert!(msg.eq("ServiceIdentity created for service ns2-srv2"),
                                     "Wrong message, got {}", msg);
                         }
                     }
@@ -1234,19 +1375,14 @@ mod tests {
 
                 // We add labels and we activate new credential
                 assert_message! {
-                    (m :: IdentityCreatorProtocol::ActivateServiceIdentity {..} in identity_creator_rx) => {
-                        if let IdentityCreatorProtocol::ActivateServiceIdentity {
-                            service_user,
-                            name,
-                            labels,
-                            active,
-                        } = m {
-                            assert!(service_credentials.id == "id2");
-                            assert!(name == "srv2-ns2");
-                            assert!(active);
+                    (m :: IdentityCreatorProtocol::ActivateServiceUser {..} in identity_creator_rx) => {
+                        if let IdentityCreatorProtocol::ActivateServiceUser(service_user, ns, name, labels) = m {
+                            assert!(service_user.name == "service_user2");
+                            assert!(ns == "ns2");
+                            assert!(name == "srv2");
                             assert!(labels == HashMap::from([
-                                ("namespace".to_string(), "srv2".to_string()),
-                                ("name".to_string(), "ns2".to_string())
+                                ("namespace".to_string(), "ns2".to_string()),
+                                ("name".to_string(), "srv2".to_string())
                             ]));
                         }
                     }
@@ -1260,7 +1396,7 @@ mod tests {
                 assert_message! {
                     (m :: IdentityManagerProtocol::IdentityManagerDebug(_) in watcher_rx) => {
                      if let IdentityManagerProtocol::IdentityManagerDebug(msg) = m {
-                            assert!(msg.eq("New ServiceIdentity requested for ServiceCandidate srv1-ns3"),
+                            assert!(msg.eq("New ServiceIdentity requested for ServiceCandidate ns3-srv1"),
                                     "Wrong message, got {}", msg);
                         }
                     }
@@ -1268,7 +1404,7 @@ mod tests {
                 assert_message! {
                     (m :: IdentityManagerProtocol::IdentityManagerDebug(_) in watcher_rx) => {
                      if let IdentityManagerProtocol::IdentityManagerDebug(msg) = m {
-                            assert!(msg.eq("Unable to assign service identity for service srv1-ns3. Identities pool seems to be empty!"),
+                            assert!(msg.eq("Unable to assign service identity for service ns3-srv1. Identities pool seems to be empty!"),
                                     "Wrong message, got {}", msg);
                         }
                     }
@@ -1282,7 +1418,7 @@ mod tests {
                 assert_message! {
                     (m :: IdentityManagerProtocol::IdentityManagerDebug(_) in watcher_rx) => {
                      if let IdentityManagerProtocol::IdentityManagerDebug(msg) = m {
-                            assert!(msg.eq("New ServiceIdentity requested for ServiceCandidate srv1-ns1"),
+                            assert!(msg.eq("New ServiceIdentity requested for ServiceCandidate ns1-srv1"),
                                     "Wrong message, got {}", msg);
                         }
                     }
@@ -1290,7 +1426,7 @@ mod tests {
                 assert_message! {
                     (m :: IdentityManagerProtocol::IdentityManagerDebug(_) in watcher_rx) => {
                      if let IdentityManagerProtocol::IdentityManagerDebug(msg) = m {
-                            assert!(msg.eq("ServiceIdentity created for service srv1-ns1"),
+                            assert!(msg.eq("ServiceIdentity created for service ns1-srv1"),
                                     "Wrong message, got {}", msg);
                         }
                     }
@@ -1303,20 +1439,15 @@ mod tests {
                 assert_message!(m :: IdentityCreatorProtocol::CreateIdentity in identity_creator_rx);
                 // We add labels and we activate new credential
                 assert_message! {
-                    (m :: IdentityCreatorProtocol::ActivateServiceIdentity {..} in identity_creator_rx) => {
-                        if let IdentityCreatorProtocol::ActivateServiceIdentity {
-                            service_user,
-                            name,
-                            labels,
-                            active,
-                        } = m {
-                            assert!(service_credentials.id == "id1");
-                            assert!(name == "srv1-ns1");
-                            assert!(active);
+                    (m :: IdentityCreatorProtocol::ActivateServiceUser {..} in identity_creator_rx) => {
+                        if let IdentityCreatorProtocol::ActivateServiceUser(service_user, service_ns, service_name, labels) = m {
+                            assert!(service_user.name == "service_user1");
+                            assert_eq!(service_ns, "ns1");
+                            assert_eq!(service_name, "srv1");
                             assert!(labels == HashMap::from([
                                 ("namespace".to_string(),
-                                 "srv1".to_string()),
-                                ("name".to_string(), "ns1".to_string())
+                                 "ns1".to_string()),
+                                ("name".to_string(), "srv1".to_string())
                             ]));
                         }
                     }
@@ -1339,14 +1470,11 @@ mod tests {
 
                 // Push 11 fresh ServiceUser
                 for i in 1..12 {
-                    tx.send(IdentityManagerProtocol::FoundUserCredentials{
-                        service_user: service_user!(i),
-                        activated: false
-                    }).await.expect("Unable to send message!");
-
+                    tx.send(IdentityManagerProtocol::FoundUserCredentials(service_user!(i), false))
+                    .await.expect("Unable to send message!");
                     assert_message! {
                         (m :: IdentityManagerProtocol::IdentityManagerDebug(_) in watcher_rx) => {
-                        let expected_msg = format!("Found deactivated ServiceUser with id id{}", i);
+                        let expected_msg = format!("Found deactivated ServiceUser with name service_user{}", i);
                          if let IdentityManagerProtocol::IdentityManagerDebug(msg) = m {
                                 assert!(msg.eq(expected_msg.as_str()),
                                         "Wrong message, expected {} but got {}", expected_msg.as_str(), msg);
@@ -1363,7 +1491,7 @@ mod tests {
                 assert_message! {
                     (m :: IdentityManagerProtocol::IdentityManagerDebug(_) in watcher_rx) => {
                         if let IdentityManagerProtocol::IdentityManagerDebug(msg) = m {
-                            assert!(msg.eq("New ServiceIdentity requested for ServiceCandidate srv1-ns1"),
+                            assert!(msg.eq("New ServiceIdentity requested for ServiceCandidate ns1-srv1"),
                                     "Wrong message, got {}", msg);
                         }
                     }
@@ -1371,7 +1499,7 @@ mod tests {
                 assert_message! {
                     (m :: IdentityManagerProtocol::IdentityManagerDebug(_) in watcher_rx) => {
                         if let IdentityManagerProtocol::IdentityManagerDebug(msg) = m {
-                            assert!(msg.eq("ServiceIdentity created for service srv1-ns1"),
+                            assert!(msg.eq("ServiceIdentity created for service ns1-srv1"),
                                     "Wrong message, got {}", msg);
                         }
                     }
@@ -1382,19 +1510,14 @@ mod tests {
                 // Note that now we dont ask IC to create a new crendential, since the pool has enough credentials
                 // We add labels and we activate new credential
                 assert_message! {
-                    (m :: IdentityCreatorProtocol::ActivateServiceIdentity {..} in identity_creator_rx) => {
-                        if let IdentityCreatorProtocol::ActivateServiceIdentity {
-                            service_user,
-                            name,
-                            labels,
-                            active,
-                        } = m {
-                            assert!(service_credentials.id == "id1");
-                            assert!(name == "srv1-ns1");
-                            assert!(active);
+                    (m :: IdentityCreatorProtocol::ActivateServiceUser {..} in identity_creator_rx) => {
+                        if let IdentityCreatorProtocol::ActivateServiceUser(service_user, service_ns, service_name, labels) = m {
+                            assert_eq!(service_user.name, "service_user1");
+                            assert_eq!(service_ns, "ns1");
+                            assert_eq!(service_name, "srv1");
                             assert!(labels == HashMap::from([
-                                ("namespace".to_string(), "srv1".to_string()),
-                                ("name".to_string(), "ns1".to_string())
+                                ("namespace".to_string(), "ns1".to_string()),
+                                ("name".to_string(), "srv1".to_string())
                             ]));
                         }
                     }
@@ -1406,7 +1529,7 @@ mod tests {
     #[tokio::test]
     async fn test_identity_manager_request_service_identity_3() {
         test_identity_manager! {
-            (watcher_rx, identity_manager_tx, identity_creator_rx, _deployment_watched_rx, _counters) => {
+            (im(vec![]), watcher_rx, identity_manager_tx, identity_creator_rx, _deployment_watched_rx, _counters) => {
                 assert_message!(m :: IdentityManagerProtocol::IdentityManagerInitialized in watcher_rx);
                 assert_message!(m :: IdentityManagerProtocol::IdentityManagerStarted in watcher_rx);
                 assert_message!(m :: IdentityCreatorProtocol::StartService in identity_creator_rx);
@@ -1415,14 +1538,11 @@ mod tests {
 
                 // Push 11 activated ServiceUser, they should not be added to the pool
                 for i in 1..12 {
-                    tx.send(IdentityManagerProtocol::FoundUserCredentials{
-                        service_user: service_user!(i),
-                        activated: true
-                    }).await.expect("Unable to send message!");
-
+                    tx.send(IdentityManagerProtocol::FoundUserCredentials(service_user!(i), true))
+                        .await.expect("Unable to send message!");
                     assert_message! {
                         (m :: IdentityManagerProtocol::IdentityManagerDebug(_) in watcher_rx) => {
-                        let expected_msg = format!("Found activated ServiceUser with id id{}", i);
+                        let expected_msg = format!("Found activated ServiceUser with name service_user{}", i);
                          if let IdentityManagerProtocol::IdentityManagerDebug(msg) = m {
                                 assert!(msg.eq(expected_msg.as_str()),
                                         "Wrong message, expected {} but got {}", expected_msg.as_str(), msg);
@@ -1439,7 +1559,7 @@ mod tests {
                 assert_message! {
                     (m :: IdentityManagerProtocol::IdentityManagerDebug(_) in watcher_rx) => {
                      if let IdentityManagerProtocol::IdentityManagerDebug(msg) = m {
-                            assert!(msg.eq("New ServiceIdentity requested for ServiceCandidate srv1-ns1"),
+                            assert!(msg.eq("New ServiceIdentity requested for ServiceCandidate ns1-srv1"),
                                     "Wrong message, got {}", msg);
                         }
                     }
@@ -1447,7 +1567,7 @@ mod tests {
                 assert_message! {
                     (m :: IdentityManagerProtocol::IdentityManagerDebug(_) in watcher_rx) => {
                      if let IdentityManagerProtocol::IdentityManagerDebug(msg) = m {
-                            assert!(msg.eq("Unable to assign service identity for service srv1-ns1. Identities pool seems to be empty!"),
+                            assert!(msg.eq("Unable to assign service identity for service ns1-srv1. Identities pool seems to be empty!"),
                                     "Wrong message, got {}", msg);
                         }
                     }
@@ -1455,17 +1575,15 @@ mod tests {
                 assert_no_message!(identity_creator_rx);
 
                 // Push a fresh credential now
-                tx.send(IdentityManagerProtocol::FoundUserCredentials{
-                    service_user: service_user!(13),
-                    activated: false
-                }).await.expect("Unable to send message!");
+                tx.send(IdentityManagerProtocol::FoundUserCredentials(service_user!(13), false))
+                    .await.expect("Unable to send message!");
                 // Request a new ServiceIdentity
                 tx.send(IdentityManagerProtocol::RequestServiceIdentity {
                     service_candidate: deployment!("ns1", "srv1"),
                 }).await.expect("Unable to send RequestServiceIdentity message to IdentityManager");
                 // We ask IC to create a new crendential
                 assert_message!(m :: IdentityCreatorProtocol::CreateIdentity in identity_creator_rx);
-                assert_message!(m :: IdentityCreatorProtocol::ActivateServiceIdentity{..} in identity_creator_rx);
+                assert_message!(m :: IdentityCreatorProtocol::ActivateServiceUser{..} in identity_creator_rx);
                 assert_no_message!(identity_creator_rx);
             }
         }
@@ -1492,39 +1610,32 @@ mod tests {
                 assert_message!(m :: IdentityCreatorProtocol::StartService in identity_creator_rx);
                 // Push some a
                 for i in 1..12 {
-                    tx.send(IdentityManagerProtocol::FoundUserCredentials{
-                        service_user: service_user!(i),
-                        activated: true
-                    }).await.expect("Unable to send message!");
-
+                    tx.send(IdentityManagerProtocol::FoundUserCredentials(service_user!(i), true))
+                        .await.expect("Unable to send message!");
                     assert_message! {
                         (m :: IdentityManagerProtocol::IdentityManagerDebug(_) in watcher_rx) => {
-                        let expected_msg = format!("Found activated ServiceUser with id id{}", i);
+                        let expected_msg = format!("Found activated ServiceUser with name service_user{}", i);
                          if let IdentityManagerProtocol::IdentityManagerDebug(msg) = m {
-                                assert!(msg.eq(expected_msg.as_str()),
-                                        "Wrong message, expected {} but got {}", expected_msg.as_str(), msg);
+                                assert_eq!(msg, expected_msg.as_str());
                             }
                         }
                     }
                 }
                 // Add one deactivated
-                tx.send(IdentityManagerProtocol::FoundUserCredentials{
-                    service_user: service_user!(13),
-                    activated: false
-                }).await.expect("Unable to send message!");
-
+                tx.send(IdentityManagerProtocol::FoundUserCredentials(service_user!(13), false))
+                    .await.expect("Unable to send message!");
                 // Notify that IdentityCreator is ready
                 tx.send(IdentityManagerProtocol::IdentityCreatorReady).await.expect("Unable to send message!");
                 // Notify the DeploymentWatcher is ready
                 tx.send(IdentityManagerProtocol::DeploymentWatcherReady).await.expect("Unable to send message!");
-                let mut extra_credentials_expected: HashSet<String> = HashSet::from_iter((1 .. 12).map(|i| format!("id{}", i)).collect::<Vec<_>>());
+                let mut extra_credentials_expected: HashSet<String> = HashSet::from_iter((1 .. 12).map(|i| format!("service_user{}", i)).collect::<Vec<_>>());
                 for _ in 1 .. 12 {
-                    assert_message!(m :: IdentityCreatorProtocol::DeleteIdentity(_) in identity_creator_rx);
-                    if let IdentityCreatorProtocol::DeleteIdentity(id) = m {
-                        if extra_credentials_expected.contains(&id) {
-                            extra_credentials_expected.remove(&id);
+                    assert_message!(m :: IdentityCreatorProtocol::DeleteSDPUser(_) in identity_creator_rx);
+                    if let IdentityCreatorProtocol::DeleteSDPUser(service_user_name) = m {
+                        if extra_credentials_expected.contains(&service_user_name) {
+                            extra_credentials_expected.remove(&service_user_name);
                         } else {
-                            assert!(false, "Deleted extra credential with id {}", id);
+                            assert!(false, "Deleted extra SDPUser with id {}", service_user_name);
                         }
                     } else {
                         assert!(false, "Got wrong message!");
@@ -1538,8 +1649,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_identity_manager_identity_creator_ready_2() {
+        // In this test we have 4 IdentityService but no ServiceCandidate at all
+        // This will remove those IdentityService and the ServiceUser instances associated
         test_identity_manager! {
-            (watcher_rx, identity_manager_tx, _identity_creator_rx, _deployment_watched_rx, counters) => {
+            (watcher_rx, identity_manager_tx, identity_creator_rx, _deployment_watched_rx, counters) => {
                 // Notify that IdentityCreator is ready
                 assert_eq!(counters.lock().unwrap().delete_calls, 0);
                 assert_message!(m :: IdentityManagerProtocol::IdentityManagerInitialized in watcher_rx);
@@ -1551,6 +1664,8 @@ mod tests {
                 assert_message!(m :: IdentityManagerProtocol::IdentityManagerDebug(_) in watcher_rx);
                 // Syncing ServiceIdentities log message
                 assert_message!(m :: IdentityManagerProtocol::IdentityManagerDebug(_) in watcher_rx);
+
+                // Check first that IM unregistered the ServiceIdentity instances
                 let mut extra_service_identities: HashSet<String> = HashSet::from_iter((1 .. 5)
                     .map(|i| format!("ServiceIdentity with id ns{}-srv{} unregistered", i, i))
                     .collect::<Vec<_>>());
@@ -1560,7 +1675,7 @@ mod tests {
                         if extra_service_identities.contains(&msg) {
                             extra_service_identities.remove(&msg);
                         } else {
-                            assert!(false, "Deleted extra ServiceIdentity: {} - {}", msg, i);
+                            assert!(false, "Unregistered extra ServiceIdentity: {} - {}", msg, i);
                         }
                     } else {
                         assert!(false, "Got wrong message!");
@@ -1570,6 +1685,19 @@ mod tests {
                 assert!(extra_service_identities.is_empty(),
                 "There were ServiceIdentities that should be removed but they weren't: {:?}", extra_service_identities);
                 assert_eq!(counters.lock().unwrap().delete_calls, 4);
+
+                assert_message!(m :: IdentityCreatorProtocol::StartService in identity_creator_rx);
+                // Check now that we asked IC to delete the ServiceUser
+                for i in 1 .. 5 {
+                    assert_message!(m :: IdentityCreatorProtocol::DeleteServiceUser(_, _, _) in identity_creator_rx);
+                    if let IdentityCreatorProtocol::DeleteServiceUser(service_user, service_ns, service_name) = m {
+                        assert_eq!(service_user.name, format!("service_user{}", i));
+                        assert_eq!(service_ns, format!("ns{}", i));
+                        assert_eq!(service_name, format!("srv{}", i));
+                    } else {
+                        assert!(false, "Got wrong message!");
+                    }
+                }
             }
         }
     }

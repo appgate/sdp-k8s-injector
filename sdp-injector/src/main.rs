@@ -818,7 +818,7 @@ mod tests {
     use kube::core::ObjectMeta;
     use sdp_common::constants::SDP_IDENTITY_MANAGER_SECRETS;
     use sdp_common::crd::{DeviceId, DeviceIdSpec, ServiceIdentity, ServiceIdentitySpec};
-    use sdp_common::service::ServiceCandidate;
+    use sdp_common::service::{ServiceCandidate, ServiceUser};
     use sdp_macros::{service_device_ids, service_identity, service_user};
     use serde_json::json;
     use std::collections::{BTreeMap, HashMap, HashSet};
@@ -1379,10 +1379,7 @@ POD is missing needed volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-de
             };
             let pod_name = Rc::clone(&pod).name();
             identity_storage
-                .register_service_identity(service_identity!(
-                    n,
-                    SDP_IDENTITY_MANAGER_SECRETS.to_string()
-                ))
+                .register_service_identity(service_identity!(n))
                 .await;
             identity_storage
                 .register_service_device_ids(service_device_ids!(n))
@@ -1432,10 +1429,7 @@ POD is missing needed volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-de
         for (n, _t) in patch_tests(&sdp_sidecars).iter().enumerate() {
             let storage = Arc::clone(&identity_storage);
             storage
-                .register_service_identity(service_identity!(
-                    n,
-                    SDP_IDENTITY_MANAGER_SECRETS.to_string()
-                ))
+                .register_service_identity(service_identity!(n))
                 .await;
             storage
                 .register_service_device_ids(service_device_ids!(n))
@@ -1605,7 +1599,7 @@ POD is missing needed volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-de
         let env =
             ServiceEnvironment::from_identity_store(&pod.service_id(), Arc::clone(&store)).await;
         assert!(env.is_none());
-        let id = service_identity!(1, SDP_IDENTITY_MANAGER_SECRETS.to_string());
+        let id = service_identity!(1);
         let ds = service_device_ids!(1);
         store.register_service_identity(id).await;
         store.register_service_device_ids(ds).await;
@@ -1690,7 +1684,7 @@ POD is missing needed volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-de
         let store1 = Arc::clone(&store);
         let store2 = Arc::clone(&store);
         let t1 = tokio::spawn(async move {
-            let id = service_identity!(1, SDP_IDENTITY_MANAGER_SECRETS.to_string());
+            let id = service_identity!(1);
             let ds = service_device_ids!(1);
             store1.register_service_identity(id).await;
             store1.register_service_device_ids(ds).await;

@@ -18,9 +18,11 @@ pub enum IdentityCreatorProtocol {
     StartService,
     CreateIdentity,
     // service user, service namespace, service name, labels
-    ActivateServiceIdentity(ServiceUser, String, String, HashMap<String, String>),
+    ActivateServiceUser(ServiceUser, String, String, HashMap<String, String>),
     // service user, service namespace, service name
-    DeleteIdentity(ServiceUser, String, String),
+    DeleteServiceUser(ServiceUser, String, String),
+    // sdp user name
+    DeleteSDPUser(String),
 }
 
 pub struct IdentityCreator {
@@ -285,7 +287,11 @@ impl IdentityCreator {
                         }
                     };
                 }
-                IdentityCreatorProtocol::DeleteIdentity(service_user, service_ns, service_name) => {
+                IdentityCreatorProtocol::DeleteServiceUser(
+                    service_user,
+                    service_ns,
+                    service_name,
+                ) => {
                     info!(
                         "Deleting ServiceUser with name {} [{}/{}]",
                         service_user.name, service_ns, service_name
@@ -301,7 +307,7 @@ impl IdentityCreator {
                         )
                     }
                 }
-                IdentityCreatorProtocol::ActivateServiceIdentity(
+                IdentityCreatorProtocol::ActivateServiceUser(
                     service_user,
                     service_ns,
                     service_name,

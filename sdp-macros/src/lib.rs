@@ -68,7 +68,7 @@ macro_rules! sdp_error {
 
 #[macro_export]
 macro_rules! deployment {
-    ($name:literal, $namespace:literal) => {{
+    ($namespace:literal, $name:literal) => {{
         let mut d = Deployment::default();
         d.metadata.name = Some($name.to_string());
         d.metadata.namespace = Some($namespace.to_string());
@@ -80,9 +80,9 @@ macro_rules! deployment {
 macro_rules! service_user {
     ($n:expr) => {
         ServiceUser {
-            name: format!("{}{}", stringify!(service - user), $n),
+            name: format!("{}{}", stringify!(service_user), $n),
             password: format!("{}{}", stringify!(password), $n),
-            profile_url: format!("{}{}", stringify!(profile - url), $n),
+            profile_url: format!("{}{}", stringify!(profile_url), $n),
         }
     };
 }
@@ -96,8 +96,8 @@ macro_rules! service_identity {
             format!("{}-{}", &service_ns, &service_name).as_str(),
             ServiceIdentitySpec {
                 service_credentials: service_user!($n),
-                service_name: service_name.to_string(),
                 service_namespace: service_ns.to_string(),
+                service_name: service_name.to_string(),
                 labels: HashMap::new(),
                 disabled: false,
             },
