@@ -78,6 +78,8 @@ spec:
             - name: tmp
               mountPath: /tmp
           env:
+            # Pass $(CERT_DAYS) as -days argument to register it as an integer
+            # Otherwise it will be passed as `-days "364"` instead of `-days 365`
             - name: CERT_DAYS
               value: "{{ .Values.sdp.injector.certDays }}"
           command: ["openssl"]
