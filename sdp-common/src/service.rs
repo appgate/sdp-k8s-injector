@@ -26,12 +26,20 @@ pub struct ServiceUser {
 }
 
 impl ServiceUser {
-    pub fn field_names(&self) -> (String, String, String) {
-        (
-            "service-username".to_string(),
-            "service-password".to_string(),
-            "service-url".to_string(),
-        )
+    pub fn field_names(&self, namespaced: bool) -> (String, String, String) {
+        if namespaced {
+            (
+                "service-username".to_string(),
+                "service-password".to_string(),
+                "service-url".to_string(),
+            )
+        } else {
+            (
+                format!("{}-service-username", self.name),
+                format!("{}-service-password", self.name),
+                format!("{}-service-url", self.name),
+            )
+        }
     }
 
     pub fn secrets_name(&self, service_ns: &str, service_name: &str) -> String {
@@ -48,7 +56,7 @@ impl ServiceUser {
         service_ns: &str,
         service_name: &str,
     ) -> (bool, bool, bool) {
-        let (user_field, pw_field, url_field) = self.field_names();
+        let (user_field, pw_field, url_field) = self.field_names(true);
         if let Ok(secret) = api.get(&self.secrets_name(service_ns, service_name)).await {
             secret
                 .data
@@ -99,7 +107,7 @@ impl ServiceUser {
         service_ns: &str,
         service_name: &str,
     ) -> Result<(), Box<dyn Error>> {
-        let (user_field, pw_field, url_field) = self.field_names();
+        let (user_field, pw_field, url_field) = self.field_names(true);
         let (user_field_exists, passwd_field_exists, url_field_exists) =
             self.has_fields(&api, service_ns, service_name).await;
         let secret_name = self.secrets_name(service_ns, service_name);
@@ -136,7 +144,7 @@ impl ServiceUser {
         service_ns: &str,
         service_name: &str,
     ) -> Result<(), Box<dyn Error>> {
-        let (user_field, pw_field, url_field) = self.field_names();
+        let (user_field, pw_field, url_field) = self.field_names(true);
         let secret_name = format!("{}-{}", service_ns, service_name);
         if let Some(_) = api.get_opt(&secret_name).await? {
             self.patch(api, service_ns, service_name).await
