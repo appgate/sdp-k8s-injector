@@ -124,13 +124,13 @@ impl ServiceUser {
         service_ns: &str,
         service_name: &str,
     ) -> Result<(), Box<dyn Error>> {
-        let secret_name = format!("{}-{}", service_ns, service_name);
+        let secret_name = self.secrets_name(service_ns, service_name);
         if let Some(_) = api.get_opt(&secret_name).await? {
             api.delete(&secret_name, &DeleteParams::default())
                 .await?
-                .map_left(|_| println!("Deleted secret {} [{}]", secret_name, service_ns))
+                .map_left(|_| info!("Deleted secret {} [{}]", secret_name, service_ns))
                 .map_right(|s| {
-                    println!(
+                    info!(
                         "Deleting secret {} [{}]: {}",
                         secret_name, service_ns, s.status
                     )
