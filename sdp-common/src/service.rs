@@ -195,14 +195,12 @@ impl ServiceUser {
     pub async fn update_fields(
         &self,
         api: Api<Secret>,
-        service_ns: &str,
-        service_name: &str,
+        secret_name: &str,
+        namespaced: bool,
     ) -> Result<(), Box<dyn Error>> {
-        let (user_field, pw_field, url_field) = self.field_names(true);
-        let (user_field_exists, passwd_field_exists, url_field_exists) = self
-            .has_fields(&api, &self.secrets_name(service_ns, service_name), true)
-            .await;
-        let secret_name = self.secrets_name(service_ns, service_name);
+        let (user_field, pw_field, url_field) = self.field_names(namespaced);
+        let (user_field_exists, passwd_field_exists, url_field_exists) =
+            self.has_fields(&api, secret_name, namespaced).await;
         let mut secret = Secret::default();
         let mut data = BTreeMap::new();
         if !user_field_exists {
@@ -239,7 +237,7 @@ impl ServiceUser {
         let (user_field, pw_field, url_field) = self.field_names(true);
         let secret_name = format!("{}-{}", service_ns, service_name);
         if let Some(_) = api.get_opt(&secret_name).await? {
-            self.update_fields(api, service_ns, service_name).await
+            self.update_fields(api, &secret_name, true).await
         } else {
             let mut secret = Secret::default();
             secret.data = Some(BTreeMap::from([

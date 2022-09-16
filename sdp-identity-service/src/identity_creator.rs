@@ -106,13 +106,25 @@ impl IdentityCreator {
         let service_user = SDPUser::new();
         let profile_url = get_or_create_client_profile_url(&mut self.system).await?;
         info!("Creating ServiceUser with id {}", service_user.id);
-        self.system
+        let service_user = self
+            .system
             .create_user(&service_user)
             .await
             .map_err(|e| {
                 IdentityServiceError::from_service(e.to_string(), SERVICE_NAME.to_string())
             })
-            .map(|u| ServiceUser::from((&u, &profile_url)))
+            .map(|u| ServiceUser::from((&u, &profile_url)))?;
+        service_user
+            .update_fields(
+                self.secrets_api(SDP_K8S_NAMESPACE),
+                IDENTITY_MANAGER_SECRET_NAME,
+                false,
+            )
+            .await
+            .map_err(|e| {
+                IdentityServiceError::from_service(e.to_string(), SERVICE_NAME.to_string())
+            })
+            .map(|_| service_user)
     }
 
     async fn delete_sdp_user(&mut self, sdp_user_name: &str) -> Result<(), IdentityServiceError> {
@@ -319,7 +331,7 @@ impl IdentityCreator {
                         .await
                     {
                         error!(
-                            "Error deleting ServiceUser/UserCredentials with id {} [{}/{}]: {}",
+                            "Error deleting ServiceUser with id {} [{}/{}]: {}",
                             service_user.name, service_ns, service_name, err
                         )
                     }
