@@ -1,6 +1,4 @@
-use crate::constants::SDP_IDENTITY_MANAGER_SECRETS;
 pub use crate::crd::ServiceIdentity;
-use json_patch::{PatchOperation, RemoveOperation};
 use k8s_openapi::{
     api::{
         apps::v1::Deployment,
@@ -36,9 +34,22 @@ impl ServiceUser {
         )
     }
 
-    pub async fn has_fields(&self, api: &Api<Secret>) -> (bool, bool, bool) {
+    pub fn secrets_name(&self, service_ns: &str, service_name: &str) -> String {
+        format!("{}-{}-service-user", service_ns, service_name)
+    }
+
+    pub fn config_name(&self, service_ns: &str, service_name: &str) -> String {
+        format!("{}-{}-service-config", service_ns, service_name)
+    }
+
+    pub async fn has_fields(
+        &self,
+        api: &Api<Secret>,
+        service_ns: &str,
+        service_name: &str,
+    ) -> (bool, bool, bool) {
         let (user_field, pw_field, url_field) = self.field_names();
-        if let Ok(secret) = api.get(SDP_IDENTITY_MANAGER_SECRETS).await {
+        if let Ok(secret) = api.get(&self.secrets_name(service_ns, service_name)).await {
             secret
                 .data
                 .map(|data| {
@@ -82,10 +93,16 @@ impl ServiceUser {
         }
     }
 
-    pub async fn patch(&self, api: Api<Secret>, secret_name: &str) -> Result<(), Box<dyn Error>> {
+    pub async fn patch(
+        &self,
+        api: Api<Secret>,
+        service_ns: &str,
+        service_name: &str,
+    ) -> Result<(), Box<dyn Error>> {
         let (user_field, pw_field, url_field) = self.field_names();
         let (user_field_exists, passwd_field_exists, url_field_exists) =
-            self.has_fields(&api).await;
+            self.has_fields(&api, service_ns, service_name).await;
+        let secret_name = self.secrets_name(service_ns, service_name);
         let mut secret = Secret::default();
         let mut data = BTreeMap::new();
         if !user_field_exists {
@@ -107,7 +124,7 @@ impl ServiceUser {
             secret.data = Some(data);
             info!("Creating secrets in K8S for ServiceUer: {}", self.name);
             let patch = KubePatch::Merge(secret);
-            api.patch(secret_name, &PatchParams::default(), &patch)
+            api.patch(&secret_name, &PatchParams::default(), &patch)
                 .await?;
         }
         Ok(())
@@ -122,7 +139,7 @@ impl ServiceUser {
         let (user_field, pw_field, url_field) = self.field_names();
         let secret_name = format!("{}-{}", service_ns, service_name);
         if let Some(_) = api.get_opt(&secret_name).await? {
-            self.patch(api, &secret_name).await
+            self.patch(api, service_ns, service_name).await
         } else {
             let mut secret = Secret::default();
             secret.data = Some(BTreeMap::from([
@@ -130,7 +147,7 @@ impl ServiceUser {
                 (pw_field, ByteString(self.password.as_bytes().to_vec())),
                 (url_field, ByteString(self.profile_url.as_bytes().to_vec())),
             ]));
-            secret.metadata.name = Some(secret_name);
+            secret.metadata.name = Some(self.secrets_name(service_ns, service_name));
             secret.metadata.namespace = Some(service_ns.to_string());
             api.create(&PostParams::default(), &secret)
                 .await

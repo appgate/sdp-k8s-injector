@@ -39,7 +39,7 @@ use tls_listener::TlsListener;
 use tokio::sync::Mutex;
 
 use sdp_common::service::{
-    is_injection_disabled, Annotated, ServiceCandidate, ServiceIdentity, Validated,
+    is_injection_disabled, Annotated, HasCredentials, ServiceCandidate, ServiceIdentity, Validated,
 };
 
 const SDP_K8S_HOST_ENV: &str = "SDP_K8S_HOST";
@@ -297,8 +297,12 @@ impl ServiceEnvironment {
             let (user_field, password_field, profile_field) =
                 s.spec.service_credentials.field_names();
             let service_id = s.service_id();
-            let secrets_name = format!("{}-service-user", &service_id);
-            let config_name = format!("{}-service-config", &service_id);
+            let secrets_name = s
+                .credentials()
+                .secrets_name(&s.spec.service_namespace, &s.spec.service_name);
+            let config_name = s
+                .credentials()
+                .config_name(&s.spec.service_namespace, &s.spec.service_name);
             ServiceEnvironment {
                 service_name: service_id.to_string(),
                 client_config: config_name,
@@ -1607,11 +1611,8 @@ POD is missing needed volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-de
         assert!(env.is_some());
         if let Some(env) = env {
             assert_eq!(env.service_name, pod.service_id());
-            assert_eq!(env.client_config, SDP_DEFAULT_CLIENT_CONFIG.to_string());
-            assert_eq!(
-                env.client_secret_name,
-                SDP_IDENTITY_MANAGER_SECRETS.to_string()
-            );
+            assert_eq!(env.client_config, "ns1-srv1-service-config");
+            assert_eq!(env.client_secret_name, "ns1-srv1-service-user");
             assert_eq!(
                 env.client_secret_controller_url_key,
                 "url_field1".to_string()
