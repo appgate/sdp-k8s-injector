@@ -1,7 +1,10 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
+use json_patch::PatchOperation::Remove;
+use json_patch::{Patch, RemoveOperation};
 use k8s_openapi::api::apps::v1::Deployment;
 use k8s_openapi::api::core::v1::Secret;
+use kube::api::{Patch as KubePatch, PatchParams};
 use kube::{Api, Client};
 use log::{error, info, warn};
 use sdp_common::constants::{
@@ -178,6 +181,46 @@ impl IdentityCreator {
             .await
     }
 
+    async fn cleanup_secret_entries(
+        &mut self,
+        known_fields: HashSet<String>,
+    ) -> Result<(), IdentityServiceError> {
+        let api = self.secrets_api(SDP_K8S_NAMESPACE);
+        let secret = api.get(IDENTITY_MANAGER_SECRET_NAME).await.map_err(|e| {
+            IdentityServiceError::from_service(e.to_string(), SERVICE_NAME.to_string())
+        })?;
+        let mut n: u32 = 0;
+        let mut patches = vec![];
+        if let Some(data) = secret.data {
+            for (field, _) in data {
+                if !known_fields.contains(&field) {
+                    info!("Secret entry for SDPUser {} marked for deletion", field,);
+                    patches.push(Remove(RemoveOperation {
+                        path: format!("/data/{}", field),
+                    }));
+                    n += 1;
+                }
+            }
+            if !patches.is_empty() {
+                info!(
+                    "Removing {} old entries from glocal secret {}",
+                    n, IDENTITY_MANAGER_SECRET_NAME
+                );
+                let patch: KubePatch<Secret> = KubePatch::Json(Patch(patches));
+                api.patch(
+                    IDENTITY_MANAGER_SECRET_NAME,
+                    &PatchParams::default(),
+                    &patch,
+                )
+                .await
+                .map_err(|e| {
+                    IdentityServiceError::from_service(e.to_string(), SERVICE_NAME.to_string())
+                })?;
+            }
+        };
+        Ok(())
+    }
+
     async fn delete_user(
         &mut self,
         service_user: &ServiceUser,
@@ -215,6 +258,7 @@ impl IdentityCreator {
         // Notify ServiceIdentityManager about the actual credentials created in appgate
         let mut n_missing_users = self.service_users_pool_size;
         // This could be actived credentials or deactivated ones.
+        let mut known_service_users = HashSet::new();
         for sdp_user in users {
             // We got a SDPUSer. We dont have any wayt to recover passwords
             // from there (SDPUsers dont contain the password when fetched from a controller)
@@ -228,6 +272,8 @@ impl IdentityCreator {
                 if !activated {
                     n_missing_users -= 1;
                 }
+                let (_, pw_field, _) = service_user.field_names(false);
+                known_service_users.insert(pw_field);
                 let msg = IdentityManagerProtocol::FoundServiceUser(service_user, activated);
                 identity_manager_proto_tx.send(msg).await?;
             } else {
@@ -244,6 +290,9 @@ impl IdentityCreator {
                 }
             }
         }
+
+        // Delete old entries from the global secret
+        self.cleanup_secret_entries(known_service_users).await?;
 
         // Create needed credentials until we reach the desired number of credentials pool
         info!("Creating {} ServiceUsers in system", n_missing_users);

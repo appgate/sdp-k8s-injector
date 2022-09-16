@@ -1,21 +1,17 @@
 pub use crate::crd::ServiceIdentity;
 use crate::sdp::{auth::SDPUser, system::ClientProfileUrl};
-use k8s_openapi::{
-    api::{
-        apps::v1::Deployment,
-        core::v1::{Pod, Secret},
-    },
-    ByteString,
-};
+use json_patch::PatchOperation::Remove;
+use json_patch::{Patch, RemoveOperation};
+use k8s_openapi::api::apps::v1::Deployment;
+use k8s_openapi::api::core::v1::Pod;
+use k8s_openapi::{api::core::v1::Secret, ByteString};
 use kube::api::{DeleteParams, Patch as KubePatch, PatchParams, PostParams};
 use kube::{Api, ResourceExt};
 use log::{error, info, warn};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use std::{
-    collections::{BTreeMap, HashMap},
-    error::Error,
-};
+use std::collections::HashMap;
+use std::{collections::BTreeMap, error::Error};
 
 pub const SDP_INJECTOR_ANNOTATION: &str = "sdp-injector";
 
@@ -156,41 +152,37 @@ impl ServiceUser {
         namespaced: bool,
     ) -> Result<(), Box<dyn Error>> {
         let (user_field, pw_field, url_field) = self.field_names(namespaced);
-        let mut secret = api.get(secret_name).await?;
-        if let Some(data) = secret.data.as_mut() {
+        let secret = api.get(secret_name).await?;
+        let mut patches = vec![];
+        if let Some(data) = secret.data {
             if data.contains_key(&user_field) {
                 info!(
                     "Deleting user field entry for ServiceUser {} in {}",
                     &self.name, secret_name
                 );
-                if let None = data.remove(&user_field) {
-                    warn!(
-                        "User field entry for ServiceUser {} in {} not found",
-                        &self.name, secret_name
-                    );
-                }
-                info!(
-                    "Deleting user field entry for ServiceUser {} in {}",
-                    &self.name, secret_name
-                );
-                if let None = data.remove(&pw_field) {
-                    warn!(
-                        "Password field entry for ServiceUser {} in {} not found",
-                        &self.name, secret_name
-                    );
-                }
-                info!(
-                    "Deleting user field entry for ServiceUser {} in {}",
-                    &self.name, secret_name
-                );
-                if let None = data.remove(&url_field) {
-                    warn!(
-                        "Client profile URL field entry for ServiceUser {} in {} not found",
-                        &self.name, secret_name
-                    );
-                }
+                patches.push(Remove(RemoveOperation {
+                    path: format!("/data/{}", user_field),
+                }));
             }
-            let patch = KubePatch::Merge(secret);
+            if data.contains_key(&pw_field) {
+                info!(
+                    "Deleting user field entry for ServiceUser {} in {}",
+                    &self.name, secret_name
+                );
+                patches.push(Remove(RemoveOperation {
+                    path: format!("/data/{}", pw_field),
+                }));
+            }
+            if data.contains_key(&url_field) {
+                info!(
+                    "Deleting user field entry for ServiceUser {} in {}",
+                    &self.name, secret_name
+                );
+                patches.push(Remove(RemoveOperation {
+                    path: format!("/data/{}", url_field),
+                }));
+            }
+            let patch: KubePatch<Secret> = KubePatch::Json(Patch(patches));
             api.patch(&secret_name, &PatchParams::default(), &patch)
                 .await?;
         }
