@@ -1,4 +1,5 @@
 pub use crate::crd::ServiceIdentity;
+use crate::sdp::{auth::SDPUser, system::ClientProfileUrl};
 use k8s_openapi::{
     api::{
         apps::v1::Deployment,
@@ -25,7 +26,30 @@ pub struct ServiceUser {
     pub profile_url: String,
 }
 
+fn bytes_to_string(bs: &ByteString) -> Option<String> {
+    serde_json::to_string(bs)
+        .map_err(|e| {
+            error!("Unable to read secret: {}", e.to_string());
+            ()
+        })
+        .ok()
+}
+
 impl ServiceUser {
+    pub fn from_sdp_user(
+        sdp_user: &SDPUser,
+        client_profile_url: &ClientProfileUrl,
+        password: Option<&str>,
+    ) -> Option<Self> {
+        password
+            .or_else(|| sdp_user.password.as_ref().map(|s| s.as_str()))
+            .map(|pwd| Self {
+                name: sdp_user.name.clone(),
+                password: pwd.to_string(),
+                profile_url: client_profile_url.url.clone(),
+            })
+    }
+
     pub fn field_names(&self, namespaced: bool) -> (String, String, String) {
         if namespaced {
             (
@@ -50,28 +74,47 @@ impl ServiceUser {
         format!("{}-{}-service-config", service_ns, service_name)
     }
 
-    pub async fn has_fields(
+    pub async fn get_fields(
         &self,
         api: &Api<Secret>,
-        service_ns: &str,
-        service_name: &str,
-    ) -> (bool, bool, bool) {
-        let (user_field, pw_field, url_field) = self.field_names(true);
-        if let Ok(secret) = api.get(&self.secrets_name(service_ns, service_name)).await {
+        secrets_name: &str,
+        namespaced: bool,
+    ) -> (Option<String>, Option<String>, Option<String>) {
+        let (user_field, pw_field, url_field) = self.field_names(namespaced);
+        if let Ok(secret) = api.get(&secrets_name).await {
             secret
                 .data
                 .map(|data| {
                     (
-                        data.get(&pw_field).is_some(),
-                        data.get(&user_field).is_some(),
-                        data.get(&url_field).is_some(),
+                        data.get(&pw_field).and_then(bytes_to_string),
+                        data.get(&user_field).and_then(bytes_to_string),
+                        data.get(&url_field).and_then(bytes_to_string),
                     )
                 })
-                .unwrap_or((false, false, false))
+                .unwrap_or((None, None, None))
         } else {
             error!("Error getting ServiceUser with name {}", &self.name);
-            (false, false, false)
+            (None, None, None)
         }
+    }
+
+    pub async fn has_fields(
+        &self,
+        api: &Api<Secret>,
+        secrets_name: &str,
+        namespaced: bool,
+    ) -> (bool, bool, bool) {
+        let (user, pwd, url) = self.get_fields(api, secrets_name, namespaced).await;
+        (user.is_some(), pwd.is_some(), url.is_none())
+    }
+
+    pub async fn restore(&self, api: Api<Secret>, secrets_name: &str) -> Option<Self> {
+        let (_, pwd, _) = self.get_fields(&api, secrets_name, false).await;
+        pwd.map(|pwd| Self {
+            name: self.name.clone(),
+            password: pwd.to_string(),
+            profile_url: self.profile_url.clone(),
+        })
     }
 
     pub async fn delete(
@@ -101,15 +144,64 @@ impl ServiceUser {
         }
     }
 
-    pub async fn patch(
+    pub async fn delete_fields(
+        &self,
+        api: Api<Secret>,
+        secret_name: &str,
+        namespaced: bool,
+    ) -> Result<(), Box<dyn Error>> {
+        let (user_field, pw_field, url_field) = self.field_names(namespaced);
+        let mut secret = api.get(secret_name).await?;
+        if let Some(data) = secret.data.as_mut() {
+            if data.contains_key(&user_field) {
+                info!(
+                    "Deleting user field entry for ServiceUser {} in {}",
+                    &self.name, secret_name
+                );
+                if let None = data.remove(&user_field) {
+                    warn!(
+                        "User field entry for ServiceUser {} in {} not found",
+                        &self.name, secret_name
+                    );
+                }
+                info!(
+                    "Deleting user field entry for ServiceUser {} in {}",
+                    &self.name, secret_name
+                );
+                if let None = data.remove(&pw_field) {
+                    warn!(
+                        "Password field entry for ServiceUser {} in {} not found",
+                        &self.name, secret_name
+                    );
+                }
+                info!(
+                    "Deleting user field entry for ServiceUser {} in {}",
+                    &self.name, secret_name
+                );
+                if let None = data.remove(&url_field) {
+                    warn!(
+                        "Client profile URL field entry for ServiceUser {} in {} not found",
+                        &self.name, secret_name
+                    );
+                }
+            }
+            let patch = KubePatch::Merge(secret);
+            api.patch(&secret_name, &PatchParams::default(), &patch)
+                .await?;
+        }
+        Ok(())
+    }
+
+    pub async fn update_fields(
         &self,
         api: Api<Secret>,
         service_ns: &str,
         service_name: &str,
     ) -> Result<(), Box<dyn Error>> {
         let (user_field, pw_field, url_field) = self.field_names(true);
-        let (user_field_exists, passwd_field_exists, url_field_exists) =
-            self.has_fields(&api, service_ns, service_name).await;
+        let (user_field_exists, passwd_field_exists, url_field_exists) = self
+            .has_fields(&api, &self.secrets_name(service_ns, service_name), true)
+            .await;
         let secret_name = self.secrets_name(service_ns, service_name);
         let mut secret = Secret::default();
         let mut data = BTreeMap::new();
@@ -147,7 +239,7 @@ impl ServiceUser {
         let (user_field, pw_field, url_field) = self.field_names(true);
         let secret_name = format!("{}-{}", service_ns, service_name);
         if let Some(_) = api.get_opt(&secret_name).await? {
-            self.patch(api, service_ns, service_name).await
+            self.update_fields(api, service_ns, service_name).await
         } else {
             let mut secret = Secret::default();
             secret.data = Some(BTreeMap::from([

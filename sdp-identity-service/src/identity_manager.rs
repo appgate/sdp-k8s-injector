@@ -454,9 +454,7 @@ impl IdentityManagerRunner<Deployment, ServiceIdentity> {
                     im.push(service_user);
                 }
                 // Identity Creator notifies about already activated User Credentials
-                IdentityManagerProtocol::FoundServiceUser(service_user, activated)
-                    if activated =>
-                {
+                IdentityManagerProtocol::FoundServiceUser(service_user, activated) if activated => {
                     existing_activated_credentials.insert(service_user.name.clone());
                     sdp_info!(IdentityManagerProtocol::<F, ServiceIdentity>::IdentityManagerDebug |(
                         "Found activated ServiceUser with name {}",

@@ -4,11 +4,15 @@ use k8s_openapi::api::apps::v1::Deployment;
 use k8s_openapi::api::core::v1::Secret;
 use kube::{Api, Client};
 use log::{error, info, warn};
-use sdp_common::constants::{CLIENT_PROFILE_TAG, SDP_IDP_NAME, SERVICE_NAME};
+use sdp_common::constants::{
+    CLIENT_PROFILE_TAG, IDENTITY_MANAGER_SECRET_NAME, SDP_IDP_NAME, SERVICE_NAME,
+};
+use sdp_common::kubernetes::SDP_K8S_NAMESPACE;
 use sdp_common::sdp::auth::SDPUser;
 use sdp_common::sdp::system::{ClientProfile, ClientProfileUrl, System};
 use sdp_common::service::ServiceUser;
 use tokio::sync::mpsc::{Receiver, Sender};
+use uuid::Uuid;
 
 use crate::errors::IdentityServiceError;
 use crate::identity_manager::{IdentityManagerProtocol, ServiceIdentity};
@@ -113,9 +117,46 @@ impl IdentityCreator {
 
     async fn delete_sdp_user(&mut self, sdp_user_name: &str) -> Result<(), IdentityServiceError> {
         info!("Deleting SDPUser with name {}", &sdp_user_name);
+        // Create a default SDPUser with the name of the one we want to delete
+        let sdp_user = SDPUser::from_name(sdp_user_name.to_string());
+        let client_profile_url = ClientProfileUrl {
+            url: Uuid::new_v4().to_string(),
+        };
+        // Derive a ServiceUser that we can use to delete the secret fields
+        if let Some(service_user) = ServiceUser::from_sdp_user(&sdp_user, &client_profile_url, None)
+        {
+            service_user
+                .delete_fields(
+                    self.secrets_api(SDP_K8S_NAMESPACE),
+                    IDENTITY_MANAGER_SECRET_NAME,
+                    false,
+                )
+                .await
+                .map_err(|e| {
+                    IdentityServiceError::from_service(e.to_string(), SERVICE_NAME.to_string())
+                })?;
+        }
         self.system.delete_user(&sdp_user_name).await.map_err(|e| {
             IdentityServiceError::from_service(e.to_string(), SERVICE_NAME.to_string())
         })
+    }
+
+    async fn recover_sdp_user(
+        &mut self,
+        sdp_user: &SDPUser,
+        client_profile_url: &ClientProfileUrl,
+    ) -> Option<ServiceUser> {
+        let api = self.secrets_api(SDP_K8S_NAMESPACE);
+        // Create first the ServiceUser with a random password
+        let service_user = ServiceUser::from_sdp_user(
+            sdp_user,
+            client_profile_url,
+            Some(&uuid::Uuid::new_v4().to_string()),
+        )
+        .unwrap();
+        service_user
+            .restore(api, IDENTITY_MANAGER_SECRET_NAME)
+            .await
     }
 
     async fn delete_user(
@@ -156,60 +197,35 @@ impl IdentityCreator {
         let mut n_missing_users = self.service_users_pool_size;
         // This could be actived credentials or deactivated ones.
         for sdp_user in users {
-            // Derive now our ServiceUser from SDPUser
-            let service_user = ServiceUser::from((&sdp_user, &client_profile_url));
-            let activated = !sdp_user.disabled;
-            if activated {
-                n_missing_users -= 1;
-            }
-            let msg = IdentityManagerProtocol::FoundServiceUser(service_user, activated);
-            identity_manager_proto_tx.send(msg).await?;
-        }
-        // When recovering users from controller we never get the password so if for some reason it's not
-        // saved in the cluster we can not recover that user.
-        // When this happens we need to delete the user (from appgate and whatever info we have about it
-        // in the cluster)
-        /*
-        if !passwd_field_exists {
-            info!(
-                "ServiceUser {} [{}] missing password field in storage, deleting it.",
-                user.name, user.id
-            );
-            if let Err(err) = self
-                .delete_user(
-                    system,
-                    &user.id,
-                    user_field_exists,
-                    passwd_field_exists,
-                    url_field_exists,
-                )
-                .await
+            // We got a SDPUSer. We dont have any wayt to recover passwords
+            // from there (SDPUsers dont contain the password when fetched from a controller)
+            // IM always saves those creds for ServiceUsers that are deactivated.
+            // If we dont have a password for this user, don't recover it and ask IC to delete as soon as possible.
+
+            // Derive now our ServiceUser from SDPUser, recovering passwords if needed.
+            if let Some(service_user) = self.recover_sdp_user(&sdp_user, &client_profile_url).await
             {
-                error!(
-                    "Error removing ServiceUser with id {} [{}]: {}",
-                    user.name, user.id, err
-                );
-            }
-        } else {
-            let service_credentials_ref = self
-                .create_user_credentials_ref(
-                    &user,
-                    &client_profile_url,
-                    user_field_exists,
-                    passwd_field_exists,
-                    url_field_exists,
-                )
-                .await
-                .unwrap();
-            if user.disabled {
-                info!("Found a fresh service user with id {}, using it", &user.id);
+                let activated = !sdp_user.disabled;
+                if !activated {
+                    n_missing_users -= 1;
+                }
+                let msg = IdentityManagerProtocol::FoundServiceUser(service_user, activated);
+                identity_manager_proto_tx.send(msg).await?;
             } else {
-                info!(
-                    "Found an already activated service user with id {}, using it",
-                    &user.id
+                error!(
+                    "Recovering ServiceUser information from SDPUser {}. Deleting SDPUSer.",
+                    sdp_user.name
                 );
+                if let Err(e) = self.delete_sdp_user(&sdp_user.name).await {
+                    error!(
+                        "Error deleting SDPUser {} from collective: {}",
+                        sdp_user.name,
+                        e.to_string()
+                    );
+                }
             }
-            */
+        }
+
         // Create needed credentials until we reach the desired number of credentials pool
         info!("Creating {} ServiceUsers in system", n_missing_users);
         for _i in 0..n_missing_users {
