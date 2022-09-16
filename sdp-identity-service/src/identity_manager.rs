@@ -1688,16 +1688,25 @@ mod tests {
 
                 assert_message!(m :: IdentityCreatorProtocol::StartService in identity_creator_rx);
                 // Check now that we asked IC to delete the ServiceUser
+                let mut extra_service_identities: HashMap<String, u32> = HashMap::from_iter((1 .. 5)
+                    .map(|i| (format!("service_user{}", i), i))
+                    .collect::<Vec<(String, u32)>>());
                 for i in 1 .. 5 {
                     assert_message!(m :: IdentityCreatorProtocol::DeleteServiceUser(_, _, _) in identity_creator_rx);
                     if let IdentityCreatorProtocol::DeleteServiceUser(service_user, service_ns, service_name) = m {
-                        assert_eq!(service_user.name, format!("service_user{}", i));
-                        assert_eq!(service_ns, format!("ns{}", i));
-                        assert_eq!(service_name, format!("srv{}", i));
+                        if let Some(i) = extra_service_identities.get(&service_user.name) {
+                            assert_eq!(service_user.name, format!("service_user{}", i));
+                            assert_eq!(service_ns, format!("ns{}", i));
+                            assert_eq!(service_name, format!("srv{}", i));
+                            extra_service_identities.remove(&service_user.name);
+                        } else {
+                            assert!(false, "Deleted extra ServiceUSer: {} - {}", service_user.name, i);
+                        }
                     } else {
                         assert!(false, "Got wrong message!");
                     }
                 }
+                assert_eq!(extra_service_identities.len(), 0);
             }
         }
     }
