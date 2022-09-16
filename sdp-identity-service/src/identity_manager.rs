@@ -103,7 +103,7 @@ pub enum IdentityManagerProtocol<From: ServiceCandidate, To: ServiceCandidate + 
     DeletedServiceCandidate(From),
     /// Message to notify that a new ServiceCredential have been created
     /// IdentityCreator creates these ServiceCredentials
-    FoundUserCredentials(ServiceUser, bool),
+    FoundServiceUser(ServiceUser, bool),
     IdentityCreatorReady,
     DeploymentWatcherReady,
     IdentityManagerInitialized,
@@ -443,7 +443,7 @@ impl IdentityManagerRunner<Deployment, ServiceIdentity> {
                     existing_service_candidates.insert(service_candidate.service_id());
                 }
                 // Identity Creator notifies about fresh, unactivated User Credentials
-                IdentityManagerProtocol::FoundUserCredentials(service_user, activated)
+                IdentityManagerProtocol::FoundServiceUser(service_user, activated)
                     if !activated =>
                 {
                     sdp_info!(IdentityManagerProtocol::<F, ServiceIdentity>::IdentityManagerDebug |(
@@ -454,7 +454,7 @@ impl IdentityManagerRunner<Deployment, ServiceIdentity> {
                     im.push(service_user);
                 }
                 // Identity Creator notifies about already activated User Credentials
-                IdentityManagerProtocol::FoundUserCredentials(service_user, activated)
+                IdentityManagerProtocol::FoundServiceUser(service_user, activated)
                     if activated =>
                 {
                     existing_activated_credentials.insert(service_user.name.clone());
@@ -1280,9 +1280,9 @@ mod tests {
                 let tx = identity_manager_tx.clone();
 
                 // Push 2 fresh ServiceUser
-                tx.send(IdentityManagerProtocol::FoundUserCredentials(service_user!(1), false))
+                tx.send(IdentityManagerProtocol::FoundServiceUser(service_user!(1), false))
                     .await.expect("Unable to send message!");
-                tx.send(IdentityManagerProtocol::FoundUserCredentials(service_user!(2), false))
+                tx.send(IdentityManagerProtocol::FoundServiceUser(service_user!(2), false))
                     .await.expect("Unable to send message!");
 
                 // Check they were registered
@@ -1470,7 +1470,7 @@ mod tests {
 
                 // Push 11 fresh ServiceUser
                 for i in 1..12 {
-                    tx.send(IdentityManagerProtocol::FoundUserCredentials(service_user!(i), false))
+                    tx.send(IdentityManagerProtocol::FoundServiceUser(service_user!(i), false))
                     .await.expect("Unable to send message!");
                     assert_message! {
                         (m :: IdentityManagerProtocol::IdentityManagerDebug(_) in watcher_rx) => {
@@ -1538,7 +1538,7 @@ mod tests {
 
                 // Push 11 activated ServiceUser, they should not be added to the pool
                 for i in 1..12 {
-                    tx.send(IdentityManagerProtocol::FoundUserCredentials(service_user!(i), true))
+                    tx.send(IdentityManagerProtocol::FoundServiceUser(service_user!(i), true))
                         .await.expect("Unable to send message!");
                     assert_message! {
                         (m :: IdentityManagerProtocol::IdentityManagerDebug(_) in watcher_rx) => {
@@ -1575,7 +1575,7 @@ mod tests {
                 assert_no_message!(identity_creator_rx);
 
                 // Push a fresh credential now
-                tx.send(IdentityManagerProtocol::FoundUserCredentials(service_user!(13), false))
+                tx.send(IdentityManagerProtocol::FoundServiceUser(service_user!(13), false))
                     .await.expect("Unable to send message!");
                 // Request a new ServiceIdentity
                 tx.send(IdentityManagerProtocol::RequestServiceIdentity {
@@ -1610,7 +1610,7 @@ mod tests {
                 assert_message!(m :: IdentityCreatorProtocol::StartService in identity_creator_rx);
                 // Push some a
                 for i in 1..12 {
-                    tx.send(IdentityManagerProtocol::FoundUserCredentials(service_user!(i), true))
+                    tx.send(IdentityManagerProtocol::FoundServiceUser(service_user!(i), true))
                         .await.expect("Unable to send message!");
                     assert_message! {
                         (m :: IdentityManagerProtocol::IdentityManagerDebug(_) in watcher_rx) => {
@@ -1622,7 +1622,7 @@ mod tests {
                     }
                 }
                 // Add one deactivated
-                tx.send(IdentityManagerProtocol::FoundUserCredentials(service_user!(13), false))
+                tx.send(IdentityManagerProtocol::FoundServiceUser(service_user!(13), false))
                     .await.expect("Unable to send message!");
                 // Notify that IdentityCreator is ready
                 tx.send(IdentityManagerProtocol::IdentityCreatorReady).await.expect("Unable to send message!");

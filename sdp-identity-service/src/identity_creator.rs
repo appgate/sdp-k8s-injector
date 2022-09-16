@@ -162,7 +162,7 @@ impl IdentityCreator {
             if activated {
                 n_missing_users -= 1;
             }
-            let msg = IdentityManagerProtocol::FoundUserCredentials(service_user, activated);
+            let msg = IdentityManagerProtocol::FoundServiceUser(service_user, activated);
             identity_manager_proto_tx.send(msg).await?;
         }
         // When recovering users from controller we never get the password so if for some reason it's not
@@ -219,7 +219,7 @@ impl IdentityCreator {
                 service_user.name
             );
             identity_manager_proto_tx
-                .send(IdentityManagerProtocol::FoundUserCredentials(
+                .send(IdentityManagerProtocol::FoundServiceUser(
                     service_user,
                     false,
                 ))
@@ -277,7 +277,7 @@ impl IdentityCreator {
                                 service_user.name
                             );
                             let msg =
-                                IdentityManagerProtocol::FoundUserCredentials(service_user, false);
+                                IdentityManagerProtocol::FoundServiceUser(service_user, false);
                             if let Err(err) = identity_manager_proto_tx.send(msg).await {
                                 error!("Error notifying identity: {}", err);
                                 // TODO: Try later, identity is already created
