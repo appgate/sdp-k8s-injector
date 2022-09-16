@@ -111,21 +111,22 @@ impl IdentityCreator {
             .map(|u| ServiceUser::from((&u, &profile_url)))
     }
 
+    async fn delete_sdp_user(&mut self, sdp_user_name: &str) -> Result<(), IdentityServiceError> {
+        info!("Deleting SDPUser with name {}", &sdp_user_name);
+        self.system.delete_user(&sdp_user_name).await.map_err(|e| {
+            IdentityServiceError::from_service(e.to_string(), SERVICE_NAME.to_string())
+        })
+    }
+
     async fn delete_user(
         &mut self,
         service_user: &ServiceUser,
         service_ns: &str,
         service_name: &str,
     ) -> Result<(), IdentityServiceError> {
-        info!("Deleting SDPUser with name {}", &service_user.name);
-        self.system
-            .delete_user(&service_user.name)
-            .await
-            .map_err(|e| {
-                IdentityServiceError::from_service(e.to_string(), SERVICE_NAME.to_string())
-            })?;
+        self.delete_sdp_user(&service_user.name).await?;
         service_user
-            .delete(self.secrets_api(service_ns))
+            .delete(self.secrets_api(service_ns), service_ns, service_name)
             .await
             .map_err(|e| {
                 IdentityServiceError::from_service(
@@ -326,7 +327,29 @@ impl IdentityCreator {
                             service_user.name, service_ns, service_name, err
                         );
                     }
-                    // Here we can create the secrets, now we not the namespace anyway
+
+                    // Create secrets now
+                    if let Err(e) = service_user
+                        .create(self.secrets_api(&service_ns), &service_ns, &service_name)
+                        .await
+                    {
+                        error!(
+                            "Error creating secrets for ServiceUser {} [{}/{}]: {}",
+                            service_user.name,
+                            service_ns,
+                            service_name,
+                            e.to_string()
+                        );
+                    }
+                }
+                IdentityCreatorProtocol::DeleteSDPUser(sdp_user_name) => {
+                    if let Err(e) = self.delete_sdp_user(&sdp_user_name).await {
+                        error!(
+                            "Error deleting SDPUser {}: {}",
+                            sdp_user_name,
+                            e.to_string()
+                        );
+                    }
                 }
                 msg => warn!("Ignoring message: {:?}", msg),
             }

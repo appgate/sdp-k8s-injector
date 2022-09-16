@@ -8,9 +8,9 @@ use k8s_openapi::{
     },
     ByteString,
 };
-use kube::api::{Patch as KubePatch, PatchParams};
+use kube::api::{DeleteParams, Patch as KubePatch, PatchParams, PostParams};
 use kube::{Api, ResourceExt};
-use log::{error, info};
+use log::{error, info, warn};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::{
@@ -55,55 +55,34 @@ impl ServiceUser {
         }
     }
 
-    pub async fn delete(&self, api: Api<Secret>) -> Result<(), Box<dyn Error>> {
-        let (user_field, pw_field, url_field) = self.field_names();
-        let (user_field_exists, passwd_field_exists, url_field_exists) =
-            self.has_fields(&api).await;
-        let mut patch_operations: Vec<PatchOperation> = Vec::new();
-        if user_field_exists {
-            patch_operations.push(PatchOperation::Remove(RemoveOperation {
-                path: format!("/data/{}", user_field),
-            }));
+    pub async fn delete(
+        &self,
+        api: Api<Secret>,
+        service_ns: &str,
+        service_name: &str,
+    ) -> Result<(), Box<dyn Error>> {
+        let secret_name = format!("{}-{}", service_ns, service_name);
+        if let Some(_) = api.get_opt(&secret_name).await? {
+            api.delete(&secret_name, &DeleteParams::default())
+                .await?
+                .map_left(|_| println!("Deleted secret {} [{}]", secret_name, service_ns))
+                .map_right(|s| {
+                    println!(
+                        "Deleting secret {} [{}]: {}",
+                        secret_name, service_ns, s.status
+                    )
+                });
+            Ok(())
         } else {
-            info!(
-                "User field in ServiceUser {} not found, ignoring it",
-                &self.name
+            warn!(
+                "Secret {} [{}] does not exists, could not delete it.",
+                secret_name, service_ns
             );
+            Ok(())
         }
-        if passwd_field_exists {
-            patch_operations.push(PatchOperation::Remove(RemoveOperation {
-                path: format!("/data/{}", pw_field),
-            }));
-        } else {
-            info!(
-                "Password field in ServiceUser {} not found, ignoring it",
-                &self.name
-            );
-        }
-        if url_field_exists {
-            patch_operations.push(PatchOperation::Remove(RemoveOperation {
-                path: format!("/data/{}", url_field),
-            }));
-        } else {
-            info!(
-                "Client profile url in ServiceUser {} not found, ignoring it",
-                &self.name
-            );
-        }
-        if patch_operations.len() > 0 {
-            info!("Deleting ServiceUser {} from K8S secret", &self.name);
-            let patch: KubePatch<Secret> = KubePatch::Json(json_patch::Patch(patch_operations));
-            api.patch(
-                SDP_IDENTITY_MANAGER_SECRETS,
-                &PatchParams::default(),
-                &patch,
-            )
-            .await?;
-        }
-        Ok(())
     }
 
-    pub async fn create(&self, api: Api<Secret>) -> Result<(), Box<dyn Error>> {
+    pub async fn patch(&self, api: Api<Secret>, secret_name: &str) -> Result<(), Box<dyn Error>> {
         let (user_field, pw_field, url_field) = self.field_names();
         let (user_field_exists, passwd_field_exists, url_field_exists) =
             self.has_fields(&api).await;
@@ -128,14 +107,36 @@ impl ServiceUser {
             secret.data = Some(data);
             info!("Creating secrets in K8S for ServiceUer: {}", self.name);
             let patch = KubePatch::Merge(secret);
-            api.patch(
-                SDP_IDENTITY_MANAGER_SECRETS,
-                &PatchParams::default(),
-                &patch,
-            )
-            .await?;
+            api.patch(secret_name, &PatchParams::default(), &patch)
+                .await?;
         }
         Ok(())
+    }
+
+    pub async fn create(
+        &self,
+        api: Api<Secret>,
+        service_ns: &str,
+        service_name: &str,
+    ) -> Result<(), Box<dyn Error>> {
+        let (user_field, pw_field, url_field) = self.field_names();
+        let secret_name = format!("{}-{}", service_ns, service_name);
+        if let Some(_) = api.get_opt(&secret_name).await? {
+            self.patch(api, &secret_name).await
+        } else {
+            let mut secret = Secret::default();
+            secret.data = Some(BTreeMap::from([
+                (user_field, ByteString(self.name.as_bytes().to_vec())),
+                (pw_field, ByteString(self.password.as_bytes().to_vec())),
+                (url_field, ByteString(self.profile_url.as_bytes().to_vec())),
+            ]));
+            secret.metadata.name = Some(secret_name);
+            secret.metadata.namespace = Some(service_ns.to_string());
+            api.create(&PostParams::default(), &secret)
+                .await
+                .map_err(|e| Box::new(e))?;
+            Ok(())
+        }
     }
 }
 
