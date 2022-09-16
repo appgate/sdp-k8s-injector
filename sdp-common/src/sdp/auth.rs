@@ -61,12 +61,11 @@ pub struct SDPUser {
 impl SDPUser {
     pub fn new() -> Self {
         let id = Uuid::new_v4();
-        let user_name = Uuid::new_v4();
         let password = Uuid::new_v4();
         Self {
             id: id.to_string(),
             labels: HashMap::new(),
-            name: user_name.to_string(),
+            name: id.to_string(),
             password: Some(password.to_string()),
             disabled: true,
             failed_login_attempts: None,
