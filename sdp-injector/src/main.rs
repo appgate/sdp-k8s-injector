@@ -55,7 +55,6 @@ const SDP_SERVICE_CONTAINER_NAME: &str = "sdp-service";
 const SDP_ANNOTATION_CLIENT_CONFIG: &str = "sdp-injector-client-config";
 const SDP_ANNOTATION_CLIENT_SECRETS: &str = "sdp-injector-client-secrets";
 const SDP_ANNOTATION_CLIENT_DEVICE_ID: &str = "sdp-injector-client-device-id";
-const SDP_DEFAULT_CLIENT_CONFIG: &str = "sdp-injector-client-config";
 const SDP_DNS_SERVICE_NAMES: [&str; 2] = ["kube-dns", "coredns"];
 
 macro_rules! env_var {
@@ -327,7 +326,7 @@ impl ServiceEnvironment {
             service_name: pod.service_id(),
             client_config: config
                 .map(|s| s.clone())
-                .unwrap_or(SDP_DEFAULT_CLIENT_CONFIG.to_string()),
+                .unwrap_or(format!("{}-service-config", pod.service_id())),
             client_secret_name: s.to_string(),
             client_secret_controller_url_key: pwd_field.to_string(),
             client_secret_pwd_key: pwd_field,
@@ -813,14 +812,13 @@ mod tests {
     use crate::{
         load_sidecar_containers, patch_pod, InMemoryIdentityStore, Patched, SDPPatchContext,
         SDPPod, SDPSidecars, ServiceEnvironment, Validated, SDP_ANNOTATION_CLIENT_CONFIG,
-        SDP_ANNOTATION_CLIENT_DEVICE_ID, SDP_ANNOTATION_CLIENT_SECRETS, SDP_DEFAULT_CLIENT_CONFIG,
-        SDP_SERVICE_CONTAINER_NAME, SDP_SIDECARS_FILE_ENV,
+        SDP_ANNOTATION_CLIENT_DEVICE_ID, SDP_ANNOTATION_CLIENT_SECRETS, SDP_SERVICE_CONTAINER_NAME,
+        SDP_SIDECARS_FILE_ENV,
     };
     use json_patch::Patch;
     use k8s_openapi::api::core::v1::{Container, Pod, Service, ServiceSpec, ServiceStatus, Volume};
     use kube::core::admission::AdmissionReview;
     use kube::core::ObjectMeta;
-    use sdp_common::constants::SDP_IDENTITY_MANAGER_SECRETS;
     use sdp_common::crd::{DeviceId, DeviceIdSpec, ServiceIdentity, ServiceIdentitySpec};
     use sdp_common::service::{ServiceCandidate, ServiceUser};
     use sdp_macros::{service_device_ids, service_identity, service_user};
@@ -944,8 +942,8 @@ mod tests {
             TestPatch {
                 pod: test_pod!(0),
                 needs_patching: false,
-                client_config_map: SDP_DEFAULT_CLIENT_CONFIG,
-                client_secrets: SDP_IDENTITY_MANAGER_SECRETS,
+                client_config_map: "ns0-srv0-service-config",
+                client_secrets: "ns0-srv0-service-user",
                 envs: vec![],
                 service: Service::default(),
                 dns_searches: Some(vec![
@@ -984,6 +982,8 @@ mod tests {
                     ("CLIENT_DEVICE_ID".to_string(), Some("6661".to_string())),
                     ("SERVICE_NAME".to_string(), Some("ns1-srv1".to_string())),
                 ],
+                client_config_map: "ns1-srv1-service-config",
+                client_secrets: "ns1-srv1-service-user",
                 ..Default::default()
             },
             TestPatch {
@@ -991,8 +991,10 @@ mod tests {
                                   annotations => vec![("sdp-injector", "false")]),
                 envs: vec![
                     ("POD_N_CONTAINERS".to_string(), Some("1".to_string())),
-                    ("SERVICE_NAME".to_string(), Some("ns2-srv2".to_string())),
+                    ("SERVICE_NAM".to_string(), Some("ns2-srv2".to_string())),
                 ],
+                client_config_map: "ns2-srv2-service-config",
+                client_secrets: "ns2-srv2-service-user",
                 ..Default::default()
             },
             TestPatch {
@@ -1019,6 +1021,7 @@ mod tests {
                                                       (SDP_ANNOTATION_CLIENT_SECRETS, "some-secrets")]),
                 needs_patching: true,
                 client_secrets: "some-secrets",
+                client_config_map: "ns4-srv4-service-config",
                 envs: vec![
                     ("POD_N_CONTAINERS".to_string(), Some("1".to_string())),
                     ("K8S_DNS_SERVICE".to_string(), Some("".to_string())),
@@ -1046,6 +1049,8 @@ mod tests {
                     }),
                     status: Some(ServiceStatus::default()),
                 },
+                client_config_map: "ns5-srv5-service-config",
+                client_secrets: "ns5-srv5-service-user",
                 ..Default::default()
             },
             TestPatch {
@@ -1056,6 +1061,8 @@ mod tests {
                     ("POD_N_CONTAINERS".to_string(), Some("3".to_string())),
                     ("SERVICE_NAME".to_string(), Some("ns6-srv6".to_string())),
                 ],
+                client_config_map: "ns6-srv6-service-config",
+                client_secrets: "ns6-srv6-service-user",
                 ..Default::default()
             },
             TestPatch {
@@ -1067,6 +1074,8 @@ mod tests {
                     ("POD_N_CONTAINERS".to_string(), Some("3".to_string())),
                     ("SERVICE_NAME".to_string(), Some("ns7-srv7".to_string())),
                 ],
+                client_config_map: "ns7-srv7-service-config",
+                client_secrets: "ns7-srv7-service-user",
                 ..Default::default()
             },
             TestPatch {
@@ -1076,6 +1085,8 @@ mod tests {
                     ("POD_N_CONTAINERS".to_string(), Some("2".to_string())),
                     ("SERVICE_NAME".to_string(), Some("ns8-srv8".to_string())),
                 ],
+                client_config_map: "ns8-srv8-service-config",
+                client_secrets: "ns8-srv8-service-user",
                 ..Default::default()
             },
             TestPatch {
@@ -1086,6 +1097,8 @@ mod tests {
                     ("POD_N_CONTAINERS".to_string(), Some("2".to_string())),
                     ("SERVICE_NAME".to_string(), Some("ns9-srv9".to_string())),
                 ],
+                client_config_map: "ns9-srv9-service-config",
+                client_secrets: "ns9-srv9-service-user",
                 ..Default::default()
             },
         ]
@@ -1615,10 +1628,10 @@ POD is missing needed volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-de
             assert_eq!(env.client_secret_name, "ns1-srv1-service-user");
             assert_eq!(
                 env.client_secret_controller_url_key,
-                "url_field1".to_string()
+                "service-url".to_string()
             );
-            assert_eq!(env.client_secret_pwd_key, "password_field1".to_string());
-            assert_eq!(env.client_secret_user_key, "user_field1".to_string());
+            assert_eq!(env.client_secret_pwd_key, "service-password".to_string());
+            assert_eq!(env.client_secret_user_key, "service-username".to_string());
             assert_eq!(env.n_containers, "0".to_string());
             assert_eq!(env.k8s_dns_service_ip, None);
         };
@@ -1657,7 +1670,7 @@ POD is missing needed volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-de
         assert!(env.is_some());
         if let Some(env) = env {
             assert_eq!(env.service_name, "ns1-srv1".to_string());
-            assert_eq!(env.client_config, SDP_DEFAULT_CLIENT_CONFIG.to_string());
+            assert_eq!(env.client_config, "ns1-srv1-service-config");
             assert_eq!(env.client_secret_name, "some-secrets".to_string());
             assert_eq!(
                 env.client_secret_controller_url_key,
@@ -1707,17 +1720,11 @@ POD is missing needed volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-de
                 assert!(env.is_some());
                 if let Some(env) = env {
                     assert_eq!(env.service_name, "ns1-srv1".to_string());
-                    assert_eq!(env.client_config, SDP_DEFAULT_CLIENT_CONFIG.to_string());
-                    assert_eq!(
-                        env.client_secret_name,
-                        SDP_IDENTITY_MANAGER_SECRETS.to_string()
-                    );
-                    assert_eq!(
-                        env.client_secret_controller_url_key,
-                        "url_field1".to_string()
-                    );
-                    assert_eq!(env.client_secret_pwd_key, "password_field1".to_string());
-                    assert_eq!(env.client_secret_user_key, "user_field1".to_string());
+                    assert_eq!(env.client_config, "ns1-srv1-service-config");
+                    assert_eq!(env.client_secret_name, "ns1-srv1-service-user");
+                    assert_eq!(env.client_secret_controller_url_key, "service-url");
+                    assert_eq!(env.client_secret_pwd_key, "service-password");
+                    assert_eq!(env.client_secret_user_key, "service-username");
                     assert_eq!(env.n_containers, "0".to_string());
                     assert_eq!(env.k8s_dns_service_ip, None);
                 };

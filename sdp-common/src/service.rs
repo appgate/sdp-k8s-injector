@@ -28,9 +28,9 @@ pub struct ServiceUser {
 impl ServiceUser {
     pub fn field_names(&self) -> (String, String, String) {
         (
-            format!("{}-user", self.name),
-            format!("{}-pw", self.name),
-            format!("{}-url", self.name),
+            "service-username".to_string(),
+            "service-password".to_string(),
+            "service-url".to_string(),
         )
     }
 
