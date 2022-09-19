@@ -261,7 +261,7 @@ impl ServiceUser {
         service_name: &str,
     ) -> Result<(), Box<dyn Error>> {
         let (user_field, pw_field, url_field) = self.secrets_field_names(true);
-        let secret_name = format!("{}-{}", service_ns, service_name);
+        let secret_name = self.secrets_name(service_ns, service_name);
         if let Some(_) = api.get_opt(&secret_name).await? {
             self.update_secrets_fields(api, &secret_name).await
         } else {
@@ -271,7 +271,7 @@ impl ServiceUser {
                 (pw_field, ByteString(self.password.as_bytes().to_vec())),
                 (url_field, ByteString(self.profile_url.as_bytes().to_vec())),
             ]));
-            secret.metadata.name = Some(self.secrets_name(service_ns, service_name));
+            secret.metadata.name = Some(secret_name);
             secret.metadata.namespace = Some(service_ns.to_string());
             api.create(&PostParams::default(), &secret)
                 .await
