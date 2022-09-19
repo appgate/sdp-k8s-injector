@@ -118,7 +118,7 @@ impl IdentityCreator {
             .map(|u| ServiceUser::from_sdp_user(&u, &profile_url, None))?
         {
             service_user
-                .update_fields(
+                .update_secrets_fields(
                     self.secrets_api(SDP_K8S_NAMESPACE),
                     IDENTITY_MANAGER_SECRET_NAME,
                 )
@@ -144,7 +144,7 @@ impl IdentityCreator {
             ServiceUser::from_sdp_user(&sdp_user, &ClientProfileUrl::default(), None)
         {
             service_user
-                .delete_fields(
+                .delete_secrets_fields(
                     self.secrets_api(SDP_K8S_NAMESPACE),
                     IDENTITY_MANAGER_SECRET_NAME,
                 )
@@ -224,7 +224,7 @@ impl IdentityCreator {
     ) -> Result<(), IdentityServiceError> {
         self.delete_sdp_user(&service_user.name).await?;
         service_user
-            .delete(self.secrets_api(service_ns), service_ns, service_name)
+            .delete_secrets(self.secrets_api(service_ns), service_ns, service_name)
             .await
             .map_err(|e| {
                 IdentityServiceError::from_service(
@@ -267,7 +267,7 @@ impl IdentityCreator {
                 if !activated {
                     n_missing_users -= 1;
                 }
-                let (_, pw_field, _) = service_user.field_names(false);
+                let (_, pw_field, _) = service_user.secrets_field_names(false);
                 known_service_users.insert(pw_field);
                 let msg = IdentityManagerProtocol::FoundServiceUser(service_user, activated);
                 identity_manager_proto_tx.send(msg).await?;
@@ -409,7 +409,7 @@ impl IdentityCreator {
 
                     // Create secrets now
                     if let Err(e) = service_user
-                        .create(self.secrets_api(&service_ns), &service_ns, &service_name)
+                        .create_secrets(self.secrets_api(&service_ns), &service_ns, &service_name)
                         .await
                     {
                         error!(

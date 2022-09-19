@@ -33,7 +33,7 @@ fn bytes_to_string(bs: &ByteString) -> Option<String> {
     }
 }
 
-fn is_secret_namespaced(secrets_name: &str) -> bool {
+fn is_secrets_namespaced(secrets_name: &str) -> bool {
     if secrets_name == IDENTITY_MANAGER_SECRET_NAME {
         false
     } else {
@@ -56,7 +56,7 @@ impl ServiceUser {
             })
     }
 
-    pub fn field_names(&self, namespaced: bool) -> (String, String, String) {
+    pub fn secrets_field_names(&self, namespaced: bool) -> (String, String, String) {
         if namespaced {
             (
                 "service-username".to_string(),
@@ -80,13 +80,13 @@ impl ServiceUser {
         format!("{}-{}-service-config", service_ns, service_name)
     }
 
-    pub async fn get_fields(
+    pub async fn get_secrets_fields(
         &self,
         api: &Api<Secret>,
         secrets_name: &str,
     ) -> (Option<String>, Option<String>, Option<String>) {
-        let namespaced = is_secret_namespaced(secrets_name);
-        let (user_field, pw_field, url_field) = self.field_names(namespaced);
+        let namespaced = is_secrets_namespaced(secrets_name);
+        let (user_field, pw_field, url_field) = self.secrets_field_names(namespaced);
         if let Ok(secret) = api.get(&secrets_name).await {
             secret
                 .data
@@ -104,9 +104,13 @@ impl ServiceUser {
         }
     }
 
-    pub async fn has_fields(&self, api: &Api<Secret>, secrets_name: &str) -> (bool, bool, bool) {
-        let namespaced = is_secret_namespaced(secrets_name);
-        let (user, pwd, url) = self.get_fields(api, secrets_name).await;
+    pub async fn has_secrets_fields(
+        &self,
+        api: &Api<Secret>,
+        secrets_name: &str,
+    ) -> (bool, bool, bool) {
+        let namespaced = is_secrets_namespaced(secrets_name);
+        let (user, pwd, url) = self.get_secrets_fields(api, secrets_name).await;
         if namespaced {
             (user.is_some(), pwd.is_some(), url.is_some())
         } else {
@@ -115,7 +119,7 @@ impl ServiceUser {
     }
 
     pub async fn restore(&self, api: Api<Secret>, secrets_name: &str) -> Option<Self> {
-        let (_, pwd, _) = self.get_fields(&api, secrets_name).await;
+        let (_, pwd, _) = self.get_secrets_fields(&api, secrets_name).await;
         pwd.map(|pwd| Self {
             name: self.name.clone(),
             password: pwd.to_string(),
@@ -123,7 +127,7 @@ impl ServiceUser {
         })
     }
 
-    pub async fn delete(
+    pub async fn delete_secrets(
         &self,
         api: Api<Secret>,
         service_ns: &str,
@@ -150,13 +154,13 @@ impl ServiceUser {
         }
     }
 
-    pub async fn delete_fields(
+    pub async fn delete_secrets_fields(
         &self,
         api: Api<Secret>,
         secrets_name: &str,
     ) -> Result<(), Box<dyn Error>> {
-        let namespaced = is_secret_namespaced(secrets_name);
-        let (user_field, pw_field, url_field) = self.field_names(namespaced);
+        let namespaced = is_secrets_namespaced(secrets_name);
+        let (user_field, pw_field, url_field) = self.secrets_field_names(namespaced);
         let secret = api.get(secrets_name).await?;
         let mut patches = vec![];
         if let Some(data) = secret.data {
@@ -194,15 +198,15 @@ impl ServiceUser {
         Ok(())
     }
 
-    pub async fn update_fields(
+    pub async fn update_secrets_fields(
         &self,
         api: Api<Secret>,
         secrets_name: &str,
     ) -> Result<(), Box<dyn Error>> {
-        let namespaced = is_secret_namespaced(secrets_name);
-        let (user_field, pw_field, url_field) = self.field_names(namespaced);
+        let namespaced = is_secrets_namespaced(secrets_name);
+        let (user_field, pw_field, url_field) = self.secrets_field_names(namespaced);
         let (user_field_exists, passwd_field_exists, url_field_exists) =
-            self.has_fields(&api, secrets_name).await;
+            self.has_secrets_fields(&api, secrets_name).await;
         let mut secret = Secret::default();
         let mut data = BTreeMap::new();
         if !user_field_exists {
@@ -236,16 +240,16 @@ impl ServiceUser {
         Ok(())
     }
 
-    pub async fn create(
+    pub async fn create_secrets(
         &self,
         api: Api<Secret>,
         service_ns: &str,
         service_name: &str,
     ) -> Result<(), Box<dyn Error>> {
-        let (user_field, pw_field, url_field) = self.field_names(true);
+        let (user_field, pw_field, url_field) = self.secrets_field_names(true);
         let secret_name = format!("{}-{}", service_ns, service_name);
         if let Some(_) = api.get_opt(&secret_name).await? {
-            self.update_fields(api, &secret_name).await
+            self.update_secrets_fields(api, &secret_name).await
         } else {
             let mut secret = Secret::default();
             secret.data = Some(BTreeMap::from([
