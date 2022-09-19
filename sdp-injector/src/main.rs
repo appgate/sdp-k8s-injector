@@ -868,16 +868,12 @@ async fn get_dns_service(k8s_client: &Client) -> Result<Option<Body>, Box<dyn Er
 
 #[cfg(test)]
 mod tests {
-<<<<<<< HEAD
     use crate::{
         load_sidecar_containers, patch_pod, InMemoryIdentityStore, Patched, SDPPatchContext,
         SDPPod, SDPSidecars, ServiceEnvironment, Validated, SDP_ANNOTATION_CLIENT_CONFIG,
         SDP_ANNOTATION_CLIENT_DEVICE_ID, SDP_ANNOTATION_CLIENT_SECRETS, SDP_SERVICE_CONTAINER_NAME,
         SDP_SIDECARS_FILE_ENV,
     };
-=======
-    use crate::{load_sidecar_containers, patch_pod, InMemoryIdentityStore, Patched, SDPPatchContext, SDPPod, SDPSidecars, ServiceEnvironment, Validated, SDP_ANNOTATION_CLIENT_CONFIG, SDP_ANNOTATION_CLIENT_DEVICE_ID, SDP_ANNOTATION_CLIENT_SECRETS, SDP_DEFAULT_CLIENT_CONFIG, SDP_SERVICE_CONTAINER_NAME, SDP_SIDECARS_FILE_ENV, InjectorProtocol, InjectorPoolProtocol};
->>>>>>> 2693b74 (* Messaging between injector and pool)
     use json_patch::Patch;
     use k8s_openapi::api::core::v1::{Container, Pod, Service, ServiceSpec, ServiceStatus, Volume};
     use kube::core::admission::AdmissionReview;
