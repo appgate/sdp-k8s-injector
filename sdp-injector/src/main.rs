@@ -111,7 +111,7 @@ macro_rules! env_var {
 trait IdentityStore {
     fn identity<'a>(
         &'a self,
-        service_id: &'a str,
+        pod: &'a Pod,
     ) -> Pin<Box<dyn Future<Output = Option<(ServiceIdentity, DeviceId)>> + Send + '_>>;
 }
 
@@ -136,13 +136,13 @@ impl InMemoryIdentityStore {
 impl IdentityStore for InMemoryIdentityStore {
     fn identity<'a>(
         &'a self,
-        service_id: &'a str,
+        pod: &'a Pod,
     ) -> Pin<Box<dyn Future<Output = Option<(ServiceIdentity, DeviceId)>> + Send + '_>> {
         let fut = async move {
             let hm = self.identities.lock().await;
-            let sid = hm.get(service_id);
+            let sid = hm.get(&pod.service_id());
             let hm = self.device_ids.lock().await;
-            let ds = hm.get(service_id);
+            let ds = hm.get(&pod.service_id());
             match (sid, ds) {
                 (Some(sid), Some(ds)) => Some((sid.clone(), ds.clone())),
                 _ => None,
@@ -160,7 +160,7 @@ struct KubeIdentityStore {
 impl IdentityStore for KubeIdentityStore {
     fn identity<'a>(
         &'a self,
-        service_id: &'a str,
+        pod: &'a Pod,
     ) -> Pin<Box<dyn Future<Output = Option<(ServiceIdentity, DeviceId)>> + Send + '_>> {
         let fut = async move {
             info!("Getting list of ServiceIdentites");
@@ -172,13 +172,13 @@ impl IdentityStore for KubeIdentityStore {
                 .map_err(|e| {
                     error!(
                         "Error fetching service identities list for service {}: {:?}",
-                        service_id, e
+                        pod.service_id(), e
                     );
                 })
                 .map(|ss| ss.items)
                 .unwrap_or(vec![]);
             // Search the service identity for service_id
-            let sid = ss.iter().find(|s| s.service_id().eq(service_id));
+            let sid = ss.iter().find(|s| s.service_id().eq(&pod.service_id()));
 
             info!("Getting list of DeviceIds");
             // List all the service device ids
@@ -189,7 +189,7 @@ impl IdentityStore for KubeIdentityStore {
                 .map_err(|e| {
                     error!(
                         "Error fetching device ids list for service {}: {:?}",
-                        service_id, e
+                        pod.service_id(), e
                     );
                 })
                 .map(|ds| ds.items)
@@ -210,10 +210,10 @@ impl IdentityStore for KubeIdentityStore {
                 }
                 _ => {
                     if sid.is_none() {
-                        error!("Not found service identity for service: {}", service_id);
+                        error!("Not found service identity for service: {}", pod.service_id());
                     }
                     if did.is_none() {
-                        error!("Not found devide ids for service: {}", service_id);
+                        error!("Not found devide ids for service: {}", pod.service_id());
                     }
                     None
                 }
@@ -284,15 +284,15 @@ impl ServiceEnvironment {
         if let Some(env) = ServiceEnvironment::from_pod(pod) {
             Some(env)
         } else {
-            ServiceEnvironment::from_identity_store(pod.service_id().as_str(), store).await
+            ServiceEnvironment::from_identity_store(pod, store).await
         }
     }
 
     async fn from_identity_store<E: IdentityStore>(
-        service_id: &str,
+        pod: &Pod,
         store: Arc<E>,
     ) -> Option<Self> {
-        store.identity(service_id).await.map(|(s, d)| {
+        store.identity(pod).await.map(|(s, d)| {
             let (user_field, password_field, profile_field) =
                 s.spec.service_user.secrets_field_names(true);
             let service_id = s.service_id();
@@ -1614,13 +1614,13 @@ POD is missing needed volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-de
         let pod = test_pod!(1);
         let store = Arc::new(InMemoryIdentityStore::default());
         let env =
-            ServiceEnvironment::from_identity_store(&pod.service_id(), Arc::clone(&store)).await;
+            ServiceEnvironment::from_identity_store(&pod, Arc::clone(&store)).await;
         assert!(env.is_none());
         let id = service_identity!(1);
         let ds = service_device_ids!(1);
         store.register_service_identity(id).await;
         store.register_service_device_ids(ds).await;
-        let env = ServiceEnvironment::from_identity_store(&pod.service_id(), store).await;
+        let env = ServiceEnvironment::from_identity_store(&pod, store).await;
         assert!(env.is_some());
         if let Some(env) = env {
             assert_eq!(env.service_name, pod.service_id());
@@ -1707,16 +1707,18 @@ POD is missing needed volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-de
                 .await
                 .expect("Error notifying client thread in test");
         });
+        let pod2 = test_pod!(2);
         let t2 = tokio::spawn(async move {
             let env =
-                ServiceEnvironment::from_identity_store("ns2-srv2", Arc::clone(&store2)).await;
+                ServiceEnvironment::from_identity_store(&pod2, Arc::clone(&store2)).await;
             assert!(env.is_none());
             if ch_rx
                 .recv()
                 .await
                 .expect("Error receiving notification from server thread in test")
             {
-                let env = ServiceEnvironment::from_identity_store("ns1-srv1", store2).await;
+                let pod1 = test_pod!(1);
+                let env = ServiceEnvironment::from_identity_store(&pod1, store2).await;
                 assert!(env.is_some());
                 if let Some(env) = env {
                     assert_eq!(env.service_name, "ns1-srv1".to_string());
