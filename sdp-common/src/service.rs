@@ -4,7 +4,7 @@ use crate::sdp::{auth::SDPUser, system::ClientProfileUrl};
 use json_patch::PatchOperation::Remove;
 use json_patch::{Patch, RemoveOperation};
 use k8s_openapi::api::apps::v1::Deployment;
-use k8s_openapi::api::core::v1::Pod;
+use k8s_openapi::api::core::v1::{ConfigMap, Pod};
 use k8s_openapi::{api::core::v1::Secret, ByteString};
 use kube::api::{DeleteParams, Patch as KubePatch, PatchParams, PostParams};
 use kube::{Api, ResourceExt};
@@ -15,6 +15,20 @@ use std::collections::HashMap;
 use std::{collections::BTreeMap, error::Error};
 
 pub const SDP_INJECTOR_ANNOTATION: &str = "sdp-injector";
+
+struct ServiceConfigFields {
+    configmap_name: String,
+    log_level: String,
+}
+
+impl ServiceConfigFields {
+    fn new(service_ns: &str, service_name: &str) -> Self {
+        ServiceConfigFields {
+            configmap_name: format!("{}-{}-service-config", service_ns, service_name),
+            log_level: "client-log-level".to_string(),
+        }
+    }
+}
 
 #[derive(Clone, JsonSchema, Debug, Serialize, Deserialize, PartialEq)]
 pub struct ServiceUser {
@@ -264,6 +278,39 @@ impl ServiceUser {
                 .map_err(|e| Box::new(e))?;
             Ok(())
         }
+    }
+
+    // TODO: Get values from config
+    // TODO: Do it in its own struct (same for secrets)
+    pub async fn create_config(
+        &self,
+        api: Api<ConfigMap>,
+        service_ns: &str,
+        service_name: &str,
+    ) -> Result<(), Box<dyn Error>> {
+        let service_config_fields = ServiceConfigFields::new(&service_ns, &service_name);
+        if let Some(_cm) = api
+            .get_opt(&service_config_fields.configmap_name.as_str())
+            .await?
+        {
+            warn!(
+                "Found old config for service {} [{}]. Deleting it.",
+                service_name, service_ns
+            );
+            api.delete(
+                &service_config_fields.configmap_name,
+                &DeleteParams::default(),
+            )
+            .await?;
+        }
+        let mut cm = ConfigMap::default();
+        cm.metadata.name = Some(service_config_fields.configmap_name);
+        cm.data = Some(BTreeMap::from_iter([(
+            service_config_fields.log_level.to_string(),
+            "INFO".to_string(),
+        )]));
+        api.create(&PostParams::default(), &cm).await?;
+        Ok(())
     }
 }
 
