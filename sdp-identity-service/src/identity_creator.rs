@@ -3,7 +3,7 @@ use std::collections::{HashMap, HashSet};
 use json_patch::PatchOperation::Remove;
 use json_patch::{Patch, RemoveOperation};
 use k8s_openapi::api::apps::v1::Deployment;
-use k8s_openapi::api::core::v1::Secret;
+use k8s_openapi::api::core::v1::{ConfigMap, Secret};
 use kube::api::{Patch as KubePatch, PatchParams};
 use kube::{Api, Client};
 use log::{error, info, warn};
@@ -101,6 +101,11 @@ impl IdentityCreator {
 
     // TODO: We should avoid to clone this client all the time
     fn secrets_api(&self, service_ns: &str) -> Api<Secret> {
+        Api::namespaced(self.client.clone(), service_ns)
+    }
+
+    // TODO: We should avoid to clone this client all the time
+    fn configmap_api(&self, service_ns: &str) -> Api<ConfigMap> {
         Api::namespaced(self.client.clone(), service_ns)
     }
 
@@ -229,7 +234,22 @@ impl IdentityCreator {
             .map_err(|e| {
                 IdentityServiceError::from_service(
                     format!(
-                        "Unable to delete ServiceUser witn name {} [{}/{}]: {}",
+                        "Unable to delete secrets for ServiceUser witn name {} [{}/{}]: {}",
+                        service_user.name,
+                        service_ns,
+                        service_name,
+                        e.to_string()
+                    ),
+                    "IdentityCreator".to_string(),
+                )
+            })?;
+        service_user
+            .delete_config(self.configmap_api(service_ns), service_ns, service_name)
+            .await
+            .map_err(|e| {
+                IdentityServiceError::from_service(
+                    format!(
+                        "Unable to delete secrets for ServiceUser witn name {} [{}/{}]: {}",
                         service_user.name,
                         service_ns,
                         service_name,
@@ -408,8 +428,29 @@ impl IdentityCreator {
                     }
 
                     // Create secrets now
+                    info!(
+                        "Creating secrets for ServiceUser with name {} [{}/{}]",
+                        service_user.name, service_ns, service_name
+                    );
                     if let Err(e) = service_user
                         .create_secrets(self.secrets_api(&service_ns), &service_ns, &service_name)
+                        .await
+                    {
+                        error!(
+                            "Error creating secrets for ServiceUser {} [{}/{}]: {}",
+                            service_user.name,
+                            service_ns,
+                            service_name,
+                            e.to_string()
+                        );
+                    }
+
+                    info!(
+                        "Creating config for ServiceUser with name {} [{}/{}]",
+                        service_user.name, service_ns, service_name
+                    );
+                    if let Err(e) = service_user
+                        .create_config(self.configmap_api(&service_ns), &service_ns, &service_name)
                         .await
                     {
                         error!(

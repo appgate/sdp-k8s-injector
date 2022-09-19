@@ -168,6 +168,34 @@ impl ServiceUser {
         }
     }
 
+    pub async fn delete_config(
+        &self,
+        api: Api<ConfigMap>,
+        service_ns: &str,
+        service_name: &str,
+    ) -> Result<(), Box<dyn Error>> {
+        let service_config_fields = ServiceConfigFields::new(&service_ns, &service_name);
+        let config_map_name = service_config_fields.configmap_name;
+        if let Some(_) = api.get_opt(&config_map_name).await? {
+            api.delete(&config_map_name, &DeleteParams::default())
+                .await?
+                .map_left(|_| info!("Deleted secret {} [{}]", config_map_name, service_ns))
+                .map_right(|s| {
+                    info!(
+                        "Deleting config {} [{}]: {}",
+                        config_map_name, service_ns, s.status
+                    )
+                });
+            Ok(())
+        } else {
+            warn!(
+                "Config {} [{}] does not exists, could not delete it.",
+                config_map_name, service_ns
+            );
+            Ok(())
+        }
+    }
+
     pub async fn delete_secrets_fields(
         &self,
         api: Api<Secret>,
