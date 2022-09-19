@@ -115,7 +115,7 @@ macro_rules! service_device_ids {
             DeviceIdSpec {
                 service_name: format!("{}{}", stringify!(srv), $n),
                 service_namespace: format!("{}{}", stringify!(ns), $n),
-                uuids: vec![format!("{}{}", stringify!(666), $n)],
+                uuids: vec![format!("00000000-0000-0000-0000-00000000000{}", $n)],
             },
         )
     };
