@@ -121,7 +121,6 @@ impl IdentityCreator {
                 .update_fields(
                     self.secrets_api(SDP_K8S_NAMESPACE),
                     IDENTITY_MANAGER_SECRET_NAME,
-                    false,
                 )
                 .await
                 .map_err(|e| {
@@ -148,7 +147,6 @@ impl IdentityCreator {
                 .delete_fields(
                     self.secrets_api(SDP_K8S_NAMESPACE),
                     IDENTITY_MANAGER_SECRET_NAME,
-                    false,
                 )
                 .await
                 .map_err(|e| {

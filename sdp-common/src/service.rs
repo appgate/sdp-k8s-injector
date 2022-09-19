@@ -1,3 +1,4 @@
+use crate::constants::IDENTITY_MANAGER_SECRET_NAME;
 pub use crate::crd::ServiceIdentity;
 use crate::sdp::{auth::SDPUser, system::ClientProfileUrl};
 use json_patch::PatchOperation::Remove;
@@ -29,6 +30,14 @@ fn bytes_to_string(bs: &ByteString) -> Option<String> {
             None
         }
         Ok(v) => Some(v),
+    }
+}
+
+fn is_secret_namespaced(secrets_name: &str) -> bool {
+    if secrets_name == IDENTITY_MANAGER_SECRET_NAME {
+        false
+    } else {
+        true
     }
 }
 
@@ -75,8 +84,8 @@ impl ServiceUser {
         &self,
         api: &Api<Secret>,
         secrets_name: &str,
-        namespaced: bool,
     ) -> (Option<String>, Option<String>, Option<String>) {
+        let namespaced = is_secret_namespaced(secrets_name);
         let (user_field, pw_field, url_field) = self.field_names(namespaced);
         if let Ok(secret) = api.get(&secrets_name).await {
             secret
@@ -95,13 +104,9 @@ impl ServiceUser {
         }
     }
 
-    pub async fn has_fields(
-        &self,
-        api: &Api<Secret>,
-        secrets_name: &str,
-        namespaced: bool,
-    ) -> (bool, bool, bool) {
-        let (user, pwd, url) = self.get_fields(api, secrets_name, namespaced).await;
+    pub async fn has_fields(&self, api: &Api<Secret>, secrets_name: &str) -> (bool, bool, bool) {
+        let namespaced = is_secret_namespaced(secrets_name);
+        let (user, pwd, url) = self.get_fields(api, secrets_name).await;
         if namespaced {
             (user.is_some(), pwd.is_some(), url.is_some())
         } else {
@@ -110,7 +115,7 @@ impl ServiceUser {
     }
 
     pub async fn restore(&self, api: Api<Secret>, secrets_name: &str) -> Option<Self> {
-        let (_, pwd, _) = self.get_fields(&api, secrets_name, false).await;
+        let (_, pwd, _) = self.get_fields(&api, secrets_name).await;
         pwd.map(|pwd| Self {
             name: self.name.clone(),
             password: pwd.to_string(),
@@ -148,17 +153,17 @@ impl ServiceUser {
     pub async fn delete_fields(
         &self,
         api: Api<Secret>,
-        secret_name: &str,
-        namespaced: bool,
+        secrets_name: &str,
     ) -> Result<(), Box<dyn Error>> {
+        let namespaced = is_secret_namespaced(secrets_name);
         let (user_field, pw_field, url_field) = self.field_names(namespaced);
-        let secret = api.get(secret_name).await?;
+        let secret = api.get(secrets_name).await?;
         let mut patches = vec![];
         if let Some(data) = secret.data {
             if data.contains_key(&user_field) {
                 info!(
                     "Deleting user field entry for ServiceUser {} in {}",
-                    &self.name, secret_name
+                    &self.name, secrets_name
                 );
                 patches.push(Remove(RemoveOperation {
                     path: format!("/data/{}", user_field),
@@ -167,7 +172,7 @@ impl ServiceUser {
             if data.contains_key(&pw_field) {
                 info!(
                     "Deleting user field entry for ServiceUser {} in {}",
-                    &self.name, secret_name
+                    &self.name, secrets_name
                 );
                 patches.push(Remove(RemoveOperation {
                     path: format!("/data/{}", pw_field),
@@ -176,14 +181,14 @@ impl ServiceUser {
             if data.contains_key(&url_field) {
                 info!(
                     "Deleting user field entry for ServiceUser {} in {}",
-                    &self.name, secret_name
+                    &self.name, secrets_name
                 );
                 patches.push(Remove(RemoveOperation {
                     path: format!("/data/{}", url_field),
                 }));
             }
             let patch: KubePatch<Secret> = KubePatch::Json(Patch(patches));
-            api.patch(&secret_name, &PatchParams::default(), &patch)
+            api.patch(&secrets_name, &PatchParams::default(), &patch)
                 .await?;
         }
         Ok(())
@@ -192,12 +197,12 @@ impl ServiceUser {
     pub async fn update_fields(
         &self,
         api: Api<Secret>,
-        secret_name: &str,
-        namespaced: bool,
+        secrets_name: &str,
     ) -> Result<(), Box<dyn Error>> {
+        let namespaced = is_secret_namespaced(secrets_name);
         let (user_field, pw_field, url_field) = self.field_names(namespaced);
         let (user_field_exists, passwd_field_exists, url_field_exists) =
-            self.has_fields(&api, secret_name, namespaced).await;
+            self.has_fields(&api, secrets_name).await;
         let mut secret = Secret::default();
         let mut data = BTreeMap::new();
         if !user_field_exists {
@@ -225,7 +230,7 @@ impl ServiceUser {
             secret.data = Some(data);
             info!("Creating secrets in K8S for ServiceUer: {}", self.name);
             let patch = KubePatch::Merge(secret);
-            api.patch(&secret_name, &PatchParams::default(), &patch)
+            api.patch(&secrets_name, &PatchParams::default(), &patch)
                 .await?;
         }
         Ok(())
@@ -240,7 +245,7 @@ impl ServiceUser {
         let (user_field, pw_field, url_field) = self.field_names(true);
         let secret_name = format!("{}-{}", service_ns, service_name);
         if let Some(_) = api.get_opt(&secret_name).await? {
-            self.update_fields(api, &secret_name, true).await
+            self.update_fields(api, &secret_name).await
         } else {
             let mut secret = Secret::default();
             secret.data = Some(BTreeMap::from([
