@@ -15,7 +15,6 @@ use sdp_common::sdp::auth::SDPUser;
 use sdp_common::sdp::system::{ClientProfile, ClientProfileUrl, System};
 use sdp_common::service::ServiceUser;
 use tokio::sync::mpsc::{Receiver, Sender};
-use uuid::Uuid;
 
 use crate::errors::IdentityServiceError;
 use crate::identity_manager::{IdentityManagerProtocol, ServiceIdentity};
@@ -141,11 +140,9 @@ impl IdentityCreator {
         info!("Deleting SDPUser with name {}", &sdp_user_name);
         // Create a default SDPUser with the name of the one we want to delete
         let sdp_user = SDPUser::from_name(sdp_user_name.to_string());
-        let client_profile_url = ClientProfileUrl {
-            url: Uuid::new_v4().to_string(),
-        };
         // Derive a ServiceUser that we can use to delete the secret fields
-        if let Some(service_user) = ServiceUser::from_sdp_user(&sdp_user, &client_profile_url, None)
+        if let Some(service_user) =
+            ServiceUser::from_sdp_user(&sdp_user, &ClientProfileUrl::default(), None)
         {
             service_user
                 .delete_fields(

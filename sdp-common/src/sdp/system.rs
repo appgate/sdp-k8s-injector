@@ -8,6 +8,7 @@ use reqwest::{Client, Url};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
+use uuid::Uuid;
 
 const SDP_SYSTEM_HOSTS: &str = "SDP_SYSTEM_HOSTS";
 const SDP_SYSTEM_API_VERSION: &str = "v17";
@@ -118,6 +119,14 @@ pub struct ClientProfiles {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ClientProfileUrl {
     pub url: String,
+}
+
+impl Default for ClientProfileUrl {
+    fn default() -> Self {
+        Self {
+            url: Uuid::new_v4().to_string(),
+        }
+    }
 }
 
 #[derive(Debug)]
