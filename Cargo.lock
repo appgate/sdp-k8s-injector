@@ -1355,6 +1355,7 @@ name = "sdp-injector"
 version = "0.1.0"
 dependencies = [
  "env_logger",
+ "futures",
  "futures-util",
  "http",
  "hyper",
