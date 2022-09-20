@@ -47,7 +47,6 @@ spec:
                   required:
                     - name
                     - password
-                    - username
                     - profile_url
                   type: object
                 service_name:
