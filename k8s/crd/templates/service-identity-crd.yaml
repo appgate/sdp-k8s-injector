@@ -36,24 +36,19 @@ spec:
                   additionalProperties:
                     type: string
                   type: object
-                service_credentials:
+                service_user:
                   properties:
-                    id:
-                      type: string
                     name:
                       type: string
-                    password_field:
+                    password:
                       type: string
-                    secret:
-                      type: string
-                    user_field:
+                    profile_url:
                       type: string
                   required:
-                    - id
                     - name
-                    - password_field
-                    - secret
-                    - user_field
+                    - password
+                    - username
+                    - profile_url
                   type: object
                 service_name:
                   type: string
@@ -62,7 +57,7 @@ spec:
               required:
                 - disabled
                 - labels
-                - service_credentials
+                - service_user
                 - service_name
                 - service_namespace
               type: object
