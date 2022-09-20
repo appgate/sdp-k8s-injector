@@ -180,7 +180,21 @@ impl IdentityStore for KubeIdentityStore {
         pool_tx: Sender<InjectorPoolProtocol>,
     ) -> Pin<Box<dyn Future<Output = Option<(ServiceIdentity, Uuid)>> + Send + '_>> {
         let fut = async move {
-            info!("Getting list of ServiceIdentites");
+
+            let pod_name = pod.metadata.name.as_ref().unwrap();
+
+            info!("Waiting for the InjectorPool to be ready");
+            while let Some(message) = injector_rx.recv().await {
+                match message {
+                    InjectorProtocol::InjectorPoolReady => {
+                        info!("InjectorPool is ready");
+                        break;
+                    },
+                    _ => {}
+                }
+            }
+
+            info!("Getting list of ServiceIdentities");
             // List all the service identities
             let ss = self
                 .service_identity_api
@@ -221,8 +235,10 @@ impl IdentityStore for KubeIdentityStore {
                 owner_ref.is_some()
             });
 
+            info!("Requesting device id for pod {}", pod_name);
             pool_tx.send(InjectorPoolProtocol::RequestDeviceId {
-                service_id: pod.service_id().to_string()
+                service_id: pod.service_id().to_string(),
+                pod_name: pod_name.to_string()
             }).await.expect("Error when requesting device id from injector pool");
 
             let mut device_id: Uuid = Uuid::nil();
@@ -231,9 +247,10 @@ impl IdentityStore for KubeIdentityStore {
                     InjectorProtocol::FoundDeviceId {
                         uuid
                     } => {
-                        info!("Using device id {} for pod {}", uuid.to_string(), pod.metadata.name.as_ref().unwrap());
+                        info!("Using device id {} for pod {}", uuid.to_string(), pod_name);
                         device_id = uuid;
                     }
+                    _ => {}
                 }
             }
 
@@ -1838,7 +1855,7 @@ async fn injector_handler<E: IdentityStore>(
     let pool_client = kubernetes::get_k8s_client().await;
     let (pool_tx, pool_rx) = channel::<InjectorPoolProtocol>(50);
     tokio::spawn(async {
-        let did_pool = InjectorPool::new(pool_client);
+        let mut did_pool = InjectorPool::new(pool_client);
         did_pool.run(pool_rx, injector_tx).await;
     });
 
@@ -1891,6 +1908,7 @@ pub type Acceptor = tokio_rustls::TlsAcceptor;
 
 #[derive(Debug)]
 pub enum InjectorProtocol {
+    InjectorPoolReady,
     FoundDeviceId{
         uuid: Uuid
     }
