@@ -16,7 +16,7 @@ use k8s_openapi::api::core::v1::{
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::Status;
 use kube::api::{DynamicObject, ListParams};
 use kube::core::admission::{AdmissionRequest, AdmissionResponse, AdmissionReview};
-use kube::{Api, Client, Config, Resource};
+use kube::{Api, Client, Config, Resource, ResourceExt};
 use log::{debug, error, info, warn};
 use rustls::{Certificate, PrivateKey, ServerConfig};
 use rustls_pemfile::{read_one, Item};
@@ -180,9 +180,6 @@ impl IdentityStore for KubeIdentityStore {
         pool_tx: Sender<InjectorPoolProtocol>,
     ) -> Pin<Box<dyn Future<Output = Option<(ServiceIdentity, Uuid)>> + Send + '_>> {
         let fut = async move {
-
-            let pod_name = pod.metadata.name.as_ref().unwrap();
-
             info!("Waiting for the InjectorPool to be ready");
             while let Some(message) = injector_rx.recv().await {
                 match message {
@@ -235,10 +232,9 @@ impl IdentityStore for KubeIdentityStore {
                 owner_ref.is_some()
             });
 
-            info!("Requesting device id for pod {}", pod_name);
+            info!("Requesting device id for pod");
             pool_tx.send(InjectorPoolProtocol::RequestDeviceId {
                 service_id: pod.service_id().to_string(),
-                pod_name: pod_name.to_string()
             }).await.expect("Error when requesting device id from injector pool");
 
             let mut device_id: Uuid = Uuid::nil();
@@ -247,12 +243,15 @@ impl IdentityStore for KubeIdentityStore {
                     InjectorProtocol::FoundDeviceId {
                         uuid
                     } => {
-                        info!("Using device id {} for pod {}", uuid.to_string(), pod_name);
+                        info!("Using device id {}", uuid.to_string());
                         device_id = uuid;
+                        break;
                     }
                     _ => {}
                 }
             }
+
+            info!("INJECTOR DEVICE ID USING {}", device_id.to_string());
 
             match (sid, device_id) {
                 (Some(sid), device_id) => {
