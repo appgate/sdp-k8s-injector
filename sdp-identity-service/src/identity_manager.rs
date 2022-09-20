@@ -15,8 +15,8 @@ use tokio::sync::mpsc::{Receiver, Sender};
 use crate::deployment_watcher::DeploymentWatcherProtocol;
 use crate::identity_creator::IdentityCreatorProtocol;
 
-/// Trait that represents the pool of ServiceCredential entities
-/// We can pop and push ServiceCredential entities
+/// Trait that represents the pool of ServiceUser entities
+/// We can pop and push ServiceUser entities
 trait ServiceUsersPool {
     fn pop(&mut self) -> Option<ServiceUser>;
     fn push(&mut self, user_credentials_ref: ServiceUser) -> ();
@@ -101,8 +101,8 @@ pub enum IdentityManagerProtocol<From: ServiceCandidate, To: ServiceCandidate + 
     DeleteServiceIdentity(To),
     FoundServiceCandidate(From),
     DeletedServiceCandidate(From),
-    /// Message to notify that a new ServiceCredential have been created
-    /// IdentityCreator creates these ServiceCredentials
+    /// Message to notify that a new ServiceUser have been created
+    /// IdentityCreator creates these ServiceUSer
     FoundServiceUser(ServiceUser, bool),
     IdentityCreatorReady,
     DeploymentWatcherReady,
@@ -155,11 +155,11 @@ impl ServiceIdentityProvider for IdentityManagerPool {
         self.services.get(&service_id)
             .map(|i| i.clone())
             .or_else(|| {
-                if let Some(id) = self.pop().map(|service_crendetials_ref| {
+                if let Some(id) = self.pop().map(|service_user| {
                     let service_identity_spec = ServiceIdentitySpec {
                         service_name: ServiceCandidate::name(from),
                         service_namespace: ServiceCandidate::namespace(from),
-                        service_credentials: service_crendetials_ref,
+                        service_user,
                         labels: ServiceCandidate::labels(from),
                         disabled: false,
                     };
@@ -277,7 +277,7 @@ pub struct IdentityManagerRunner<
 /// - IC notifies IM with defined ServiceUser (active and not active)
 /// - DW notifies IM with the current defined ServiceCandidates
 /// - IM cleans up extra ServiceUser (credentials active in system without a ServiceIdentrity)
-/// - IM cleans up ServiceIdentities that have ServiceCrendeitalsRef not active
+/// - IM cleans up ServiceIdentities that have ServiceUser not active
 /// - IM cleans up ServiceIdentities that don't have a ServiceCandidate attached
 /// - IM asks DW to start
 /// - DW sends the list of all CandidateServices (Deployments)
@@ -862,7 +862,7 @@ mod tests {
         let si_spec = si.unwrap();
         assert_eq!(si_spec.spec().service_name, service_name);
         assert_eq!(si_spec.spec().service_namespace, service_ns);
-        assert_eq!(si_spec.spec().service_credentials.name, c.name);
+        assert_eq!(si_spec.spec().service_user.name, c.name);
     }
 
     #[test]
@@ -885,7 +885,7 @@ mod tests {
 
                 // service already registered, we just return the credentials we have for it
                 let d1_id = im.next_identity(&d1_1);
-                check_service_identity(d1_id, &id1.spec().service_credentials, "srv1", "ns1");
+                check_service_identity(d1_id, &id1.spec().service_user, "srv1", "ns1");
             }
         }
 
@@ -941,7 +941,7 @@ mod tests {
                 (
                     spec.service_namespace.as_str(),
                     spec.service_name.as_str(),
-                    spec.service_credentials.name.as_str(),
+                    spec.service_user.name.as_str(),
                 )
             })
             .collect();

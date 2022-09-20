@@ -459,6 +459,6 @@ pub trait HasCredentials {
 
 impl HasCredentials for ServiceIdentity {
     fn credentials<'a>(&'a self) -> &'a ServiceUser {
-        &self.spec.service_credentials
+        &self.spec.service_user
     }
 }

@@ -294,7 +294,7 @@ impl ServiceEnvironment {
     ) -> Option<Self> {
         store.identity(service_id).await.map(|(s, d)| {
             let (user_field, password_field, profile_field) =
-                s.spec.service_credentials.secrets_field_names(true);
+                s.spec.service_user.secrets_field_names(true);
             let service_id = s.service_id();
             let secrets_name = s
                 .credentials()
