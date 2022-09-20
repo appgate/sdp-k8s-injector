@@ -1,15 +1,13 @@
 use std::collections::HashMap;
 use kube::api::ListParams;
-use kube::{Api, Client, ResourceExt};
+use kube::{Api, Client};
 use sdp_common::crd::DeviceId;
 use tokio::sync::mpsc::{Receiver, Sender};
 use uuid::Uuid;
 use k8s_openapi::api::core::v1::Pod;
 use log::info;
 use sdp_common::kubernetes::SDP_K8S_NAMESPACE;
-use crate::{InjectorProtocol, SDP_ANNOTATION_CLIENT_DEVICE_ID};
-use sdp_common::service::Annotated;
-use kube::Resource;
+use crate::InjectorProtocol;
 
 #[derive(Debug)]
 pub enum InjectorPoolProtocol {
@@ -34,8 +32,8 @@ impl InjectorPool {
     ) {
         info!("Initializing InjectorPool by reading existing device ids");
         // Initialize the pool with existing device ids
-        let existing_device_ids = self.device_id_api.list(&ListParams::default()).await.expect("Unable to list device ids");
-        let pods = self.pod_api.list(&ListParams::default()).await.expect("Unable to list pods");
+        let _existing_device_ids = self.device_id_api.list(&ListParams::default()).await.expect("Unable to list device ids");
+        let _pods = self.pod_api.list(&ListParams::default()).await.expect("Unable to list pods");
 
         injector_tx.send(InjectorProtocol::InjectorPoolReady)
             .await

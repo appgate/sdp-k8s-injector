@@ -347,7 +347,7 @@ impl ServiceEnvironment {
         injector_rx: Receiver<InjectorProtocol>,
         pool_tx: Sender<InjectorPoolProtocol>,
     ) -> Option<Self> {
-        store.identity(pod).await.map(|(s, d)| {
+        store.identity(pod, injector_rx, pool_tx.clone()).await.map(|(s, d)| {
             let (user_field, password_field, profile_field) =
                 s.spec.service_user.secrets_field_names(true);
             let service_id = s.service_id();
@@ -868,12 +868,7 @@ async fn get_dns_service(k8s_client: &Client) -> Result<Option<Body>, Box<dyn Er
 
 #[cfg(test)]
 mod tests {
-    use crate::{
-        load_sidecar_containers, patch_pod, InMemoryIdentityStore, Patched, SDPPatchContext,
-        SDPPod, SDPSidecars, ServiceEnvironment, Validated, SDP_ANNOTATION_CLIENT_CONFIG,
-        SDP_ANNOTATION_CLIENT_DEVICE_ID, SDP_ANNOTATION_CLIENT_SECRETS, SDP_SERVICE_CONTAINER_NAME,
-        SDP_SIDECARS_FILE_ENV,
-    };
+    use crate::{load_sidecar_containers, patch_pod, InMemoryIdentityStore, Patched, SDPPatchContext, SDPPod, SDPSidecars, ServiceEnvironment, Validated, SDP_ANNOTATION_CLIENT_CONFIG, SDP_ANNOTATION_CLIENT_DEVICE_ID, SDP_ANNOTATION_CLIENT_SECRETS, SDP_SERVICE_CONTAINER_NAME, SDP_SIDECARS_FILE_ENV, InjectorProtocol, InjectorPoolProtocol};
     use json_patch::Patch;
     use k8s_openapi::api::core::v1::{Container, Pod, Service, ServiceSpec, ServiceStatus, Volume};
     use kube::core::admission::AdmissionReview;
