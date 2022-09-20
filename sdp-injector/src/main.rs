@@ -16,7 +16,7 @@ use k8s_openapi::api::core::v1::{
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::Status;
 use kube::api::{DynamicObject, ListParams};
 use kube::core::admission::{AdmissionRequest, AdmissionResponse, AdmissionReview};
-use kube::{Api, Client, Config, Resource, ResourceExt};
+use kube::{Api, Client, Config, Resource};
 use log::{debug, error, info, warn};
 use rustls::{Certificate, PrivateKey, ServerConfig};
 use rustls_pemfile::{read_one, Item};
@@ -180,18 +180,7 @@ impl IdentityStore for KubeIdentityStore {
         pool_tx: Sender<InjectorPoolProtocol>,
     ) -> Pin<Box<dyn Future<Output = Option<(ServiceIdentity, Uuid)>> + Send + '_>> {
         let fut = async move {
-            info!("Waiting for the InjectorPool to be ready");
-            while let Some(message) = injector_rx.recv().await {
-                match message {
-                    InjectorProtocol::InjectorPoolReady => {
-                        info!("InjectorPool is ready");
-                        break;
-                    },
-                    _ => {}
-                }
-            }
 
-            info!("Getting list of ServiceIdentities");
             // List all the service identities
             let ss = self
                 .service_identity_api
@@ -208,31 +197,6 @@ impl IdentityStore for KubeIdentityStore {
             // Search the service identity for service_id
             let sid = ss.iter().find(|s| s.service_id().eq(&pod.service_id()));
 
-            info!("Getting list of DeviceIds");
-            // List all the service device ids
-            let ds = self
-                .service_device_ids_api
-                .list(&ListParams::default())
-                .await
-                .map_err(|e| {
-                    error!(
-                        "Error fetching device ids list for service {}: {:?}",
-                        pod.service_id(), e
-                    );
-                })
-                .map(|ds| ds.items)
-                .unwrap_or(vec![]);
-
-            let did = ds.iter().find(|d| {
-                let owner_refs = d.meta().owner_references.as_ref();
-                let owner_ref = owner_refs.and_then(|os| {
-                    os.iter()
-                        .find(|o| sid.is_some() && o.name == sid.unwrap().service_id())
-                });
-                owner_ref.is_some()
-            });
-
-            info!("Requesting device id for pod");
             pool_tx.send(InjectorPoolProtocol::RequestDeviceId {
                 service_id: pod.service_id().to_string(),
             }).await.expect("Error when requesting device id from injector pool");
@@ -243,7 +207,6 @@ impl IdentityStore for KubeIdentityStore {
                     InjectorProtocol::FoundDeviceId {
                         uuid
                     } => {
-                        info!("Using device id {}", uuid.to_string());
                         device_id = uuid;
                         break;
                     }
@@ -251,19 +214,17 @@ impl IdentityStore for KubeIdentityStore {
                 }
             }
 
-            info!("INJECTOR DEVICE ID USING {}", device_id.to_string());
-
             match (sid, device_id) {
                 (Some(sid), device_id) => {
-                    info!("Found service id and device id");
+                    info!("Found service id {} and device id {} for service {}", sid.metadata.name.as_ref().unwrap(), device_id.to_string(), pod.service_id());
                     Some((sid.clone(), device_id))
                 }
                 _ => {
                     if sid.is_none() {
-                        error!("Not found service identity for service: {}", pod.service_id());
+                        error!("Error finding service identity for service: {}", pod.service_id());
                     }
-                    if did.is_none() {
-                        error!("Not found devide ids for service: {}", pod.service_id());
+                    if device_id.is_nil() {
+                        error!("Error finding device id for service: {}", pod.service_id());
                     }
                     None
                 }
@@ -1027,7 +988,8 @@ mod tests {
                 ..Default::default()
             },
             TestPatch {
-                pod: test_pod!(1, containers => vec!["random-service"]),
+                pod: test_pod!(1, containers => vec!["random-service"],
+                                  annotations => vec![(SDP_ANNOTATION_CLIENT_DEVICE_ID, "00000000-0000-0000-0000-000000000001")]),
                 needs_patching: true,
                 envs: vec![
                     ("POD_N_CONTAINERS".to_string(), Some("1".to_string())),
