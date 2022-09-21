@@ -100,12 +100,10 @@ sdp-demo      Active   1m     enabled
 
 ### Kubernetes parameters
 
-| Name                    | Description                                          | Value       |
-|-------------------------|------------------------------------------------------|-------------|
-| `serviceAccount.create` | Enable the creation of a ServiceAccount for SDP pods | `true`      |
-| `rbac.create`           | Whether to create & use RBAC resources or not        | `true`      |
-| `service.type`          | Type of the service                                  | `ClusterIP` |
-| `service.port`          | Port of the service                                  | `443`       |
+| Name           | Description         | Value       |
+| -------------- | ------------------- | ----------- |
+| `service.type` | Type of the service | `ClusterIP` |
+| `service.port` | Port of the service | `443`       |
 
 
 This table above was generated using [readme-generator-for-helm](https://github.com/bitnami-labs/readme-generator-for-helm)

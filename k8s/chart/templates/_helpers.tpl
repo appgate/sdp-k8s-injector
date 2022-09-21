@@ -54,11 +54,7 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 ServiceAccount
 */}}
 {{- define "sdp-k8s-client.serviceAccountName" -}}
-{{- if .Values.serviceAccount.create }}
-{{- default (include "sdp-k8s-client.fullname" .) .Values.serviceAccount.name }}
-{{- else }}
-{{- default "default" .Values.serviceAccount.name }}
-{{- end }}
+{{- include "sdp-k8s-client.fullname" .}}
 {{- end }}
 
 {{/*

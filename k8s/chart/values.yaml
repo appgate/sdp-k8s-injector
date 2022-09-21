@@ -102,19 +102,6 @@ sdp:
 
 ## @section Kubernetes parameters
 
-## Specifies whether a ServiceAccount should be created
-##
-## @param serviceAccount.create Enable the creation of a ServiceAccount for SDP pods
-serviceAccount:
-  create: true
-
-## Specifies whether RBAC resources should be created
-##
-## @param rbac.create Whether to create & use RBAC resources or not
-##
-rbac:
-  create: true
-
 ## Specifies the service configuration
 ##
 ## @param service.type Type of the service
