@@ -38,7 +38,7 @@ pub struct ServiceUser {
 }
 
 fn bytes_to_string(bs: &ByteString) -> Option<String> {
-    match serde_json::to_string(bs) {
+    match String::from_utf8(bs.0.clone()) {
         Err(e) => {
             error!("Unable to read secret: {}", e.to_string());
             None
@@ -136,7 +136,7 @@ impl ServiceUser {
         let (_, pwd, _) = self.get_secrets_fields(&api, secrets_name).await;
         pwd.map(|pwd| Self {
             name: self.name.clone(),
-            password: pwd.to_string(),
+            password: pwd.clone(),
             profile_url: self.profile_url.clone(),
         })
     }
