@@ -16,7 +16,7 @@ use k8s_openapi::api::core::v1::{
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::Status;
 use kube::api::{DynamicObject, ListParams};
 use kube::core::admission::{AdmissionRequest, AdmissionResponse, AdmissionReview};
-use kube::{Api, Client, Config, Resource};
+use kube::{Api, Client, Config};
 use log::{debug, error, info, warn};
 use rustls::{Certificate, PrivateKey, ServerConfig};
 use rustls_pemfile::{read_one, Item};
@@ -37,11 +37,10 @@ use std::pin::Pin;
 use std::str::from_utf8;
 use std::sync::Arc;
 use tls_listener::TlsListener;
-use tokio::sync::mpsc::{channel, Sender};
 use tokio::sync::{broadcast, Mutex};
 use uuid::Uuid;
 
-use crate::pool::{InjectorPool, InjectorPoolProtocol};
+use crate::pool::InjectorPool;
 use sdp_common::service::{
     is_injection_disabled, Annotated, HasCredentials, ServiceCandidate, ServiceIdentity, Validated,
 };
@@ -144,10 +143,7 @@ impl InMemoryIdentityStore {
             .parse()
             .unwrap();
         for uuid in service_device_ids.spec.uuids {
-            let pod_name = format!(
-                "{}-replica{}-testpod{}",
-                service_device_ids.spec.service_name, index, index
-            );
+            let pod_name = format!("ns{}-srv{}", index, index);
             hm.insert(
                 pod_name,
                 Uuid::parse_str(&uuid).expect("Unable to parse UUID"),
@@ -178,8 +174,7 @@ impl IdentityStore for InMemoryIdentityStore {
 
 struct KubeIdentityStore {
     service_identity_api: Api<ServiceIdentity>,
-    service_ids_queue_rx: broadcast::Receiver<InjectorProtocol>,
-    service_ids_queue_tx: Sender<InjectorProtocol>,
+    service_ids_queue_tx: broadcast::Sender<InjectorProtocol>,
 }
 
 impl IdentityStore for KubeIdentityStore {
@@ -204,25 +199,35 @@ impl IdentityStore for KubeIdentityStore {
             // Search the service identity for service_id
             let sid = ss.iter().find(|s| s.service_id().eq(&service_id));
 
+            let sent_message_id = Uuid::new_v4();
             self.service_ids_queue_tx
                 .send(InjectorProtocol::RequestDeviceId {
+                    message_id: sent_message_id,
                     service_id: service_id.to_string(),
                 })
-                .await
-                .expect("Error when requesting device id from injector pool");
+                .expect(&format!(
+                    "Error when sending RequestDeviceId (service_id: {})",
+                    service_id
+                ));
 
-            let mut device_id: Uuid = Uuid::nil();
-            while let Ok(message) = self.service_ids_queue_rx.recv().await {
+            let mut assigned_device_id: Uuid = Uuid::nil();
+            while let Ok(message) = self.service_ids_queue_tx.subscribe().recv().await {
                 match message {
-                    InjectorProtocol::FoundDeviceId { uuid } => {
-                        device_id = uuid;
-                        break;
+                    InjectorProtocol::FoundDeviceId {
+                        message_id,
+                        device_id,
+                    } => {
+                        if message_id == sent_message_id {
+                            info!("Found device id {} for message {}", device_id, message_id);
+                            assigned_device_id = device_id;
+                            break;
+                        }
                     }
                     _ => {}
                 }
             }
 
-            match (sid, device_id) {
+            match (sid, assigned_device_id) {
                 (Some(sid), device_id) => {
                     info!(
                         "Found service id {} and device id {} for service {}",
@@ -236,7 +241,7 @@ impl IdentityStore for KubeIdentityStore {
                     if sid.is_none() {
                         error!("Error finding service identity for service: {}", service_id);
                     }
-                    if device_id.is_nil() {
+                    if assigned_device_id.is_nil() {
                         error!("Error finding device id for service: {}", service_id);
                     }
                     None
@@ -831,9 +836,9 @@ async fn get_dns_service(k8s_client: &Client) -> Result<Option<Body>, Box<dyn Er
 #[cfg(test)]
 mod tests {
     use crate::{
-        load_sidecar_containers, patch_pod, InMemoryIdentityStore, InjectorPoolProtocol,
-        InjectorProtocol, Patched, SDPPatchContext, SDPPod, SDPSidecars, ServiceEnvironment,
-        Validated, SDP_ANNOTATION_CLIENT_CONFIG, SDP_ANNOTATION_CLIENT_DEVICE_ID,
+        load_sidecar_containers, patch_pod, InMemoryIdentityStore, InjectorProtocol, Patched,
+        SDPPatchContext, SDPPod, SDPSidecars, ServiceEnvironment, Validated,
+        SDP_ANNOTATION_CLIENT_CONFIG, SDP_ANNOTATION_CLIENT_DEVICE_ID,
         SDP_ANNOTATION_CLIENT_SECRETS, SDP_SERVICE_CONTAINER_NAME, SDP_SIDECARS_FILE_ENV,
     };
     use json_patch::Patch;
@@ -1656,8 +1661,7 @@ POD is missing needed volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-de
     async fn test_service_environment_from_identity_store() {
         let pod = test_pod!(1);
         let store = Arc::new(InMemoryIdentityStore::default());
-        let (injector_tx, injector_rx) = channel::<InjectorProtocol>(10);
-        let (pool_tx, pool_rx) = channel::<InjectorPoolProtocol>(10);
+        let (pool_tx, pool_rx) = broadcast::channel::<InjectorProtocol>(10);
         let env = ServiceEnvironment::from_identity_store(&pod, Arc::clone(&store)).await;
         assert!(env.is_none());
         let id = service_identity!(1);
@@ -1666,7 +1670,7 @@ POD is missing needed volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-de
         store.register_service_device_ids(ds).await;
 
         let (injector_tx, injector_rx) = channel::<InjectorProtocol>(10);
-        let (pool_tx, pool_rx) = channel::<InjectorPoolProtocol>(10);
+        let (pool_tx, pool_rx) = broadcast::channel::<InjectorProtocol>(10);
         let env = ServiceEnvironment::from_identity_store(&pod, store).await;
         assert!(env.is_some());
         if let Some(env) = env {
@@ -1756,8 +1760,6 @@ POD is missing needed volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-de
         });
         let pod2 = test_pod!(2);
         let t2 = tokio::spawn(async move {
-            let (injector_tx, mut injector_rx) = channel::<InjectorProtocol>(10);
-            let (pool_tx, pool_rx) = channel::<InjectorPoolProtocol>(10);
             let env = ServiceEnvironment::from_identity_store(&pod2, Arc::clone(&store2)).await;
             assert!(env.is_none());
             if ch_rx
@@ -1766,8 +1768,6 @@ POD is missing needed volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-de
                 .expect("Error receiving notification from server thread in test")
             {
                 let pod1 = test_pod!(1);
-                let (injector_tx, injector_rx2) = channel::<InjectorProtocol>(10);
-                let (pool_tx2, pool_rx) = channel::<InjectorProtocol>(10);
                 let env = ServiceEnvironment::from_identity_store(&pod1, store2).await;
                 assert!(env.is_some());
                 if let Some(env) = env {
@@ -1870,8 +1870,14 @@ pub type Acceptor = tokio_rustls::TlsAcceptor;
 #[derive(Debug, Clone)]
 pub enum InjectorProtocol {
     InjectorPoolReady,
-    FoundDeviceId { uuid: Uuid },
-    RequestDeviceId { service_id: String },
+    FoundDeviceId {
+        message_id: Uuid,
+        device_id: Uuid,
+    },
+    RequestDeviceId {
+        message_id: Uuid,
+        service_id: String,
+    },
 }
 
 #[tokio::main]
@@ -1894,15 +1900,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let k8s_client: Client = Client::try_from(k8s_config).expect("Unable to create k8s client");
     let k8s_client_cp2 = k8s_client.clone();
     let service_identity_api: Api<ServiceIdentity> = Api::namespaced(k8s_client, "sdp-system");
-    let (injector_tx, _injector_rx) = channel::<InjectorProtocol>(50);
-    let (pool_tx, _pool_rx) = broadcast::channel::<InjectorProtocol>(50);
+    let (pool_tx, pool_rx) = broadcast::channel::<InjectorProtocol>(50);
     let pool_client = kubernetes::get_k8s_client().await;
-    let mut pool_rx2 = pool_tx.subscribe();
-    let injector_tx2 = injector_tx.clone();
     let store = KubeIdentityStore {
         service_identity_api: service_identity_api,
-        service_ids_queue_rx: pool_tx.subscribe(),
-        service_ids_queue_tx: injector_tx,
+        service_ids_queue_tx: pool_tx.clone(),
     };
     let sdp_sidecars: SDPSidecars =
         load_sidecar_containers().expect("Unable to load the sidecar information");
@@ -1936,7 +1938,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     });
     tokio::spawn(async move {
         let mut did_pool = InjectorPool::new(pool_client);
-        did_pool.run(pool_rx2, injector_tx2).await;
+        did_pool.run(pool_rx, pool_tx.clone()).await;
     });
     let server = Server::builder(accept::from_stream(incoming)).serve(make_service);
     server.await?;

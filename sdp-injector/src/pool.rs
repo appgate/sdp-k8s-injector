@@ -6,14 +6,8 @@ use kube::{Api, Client};
 use log::{error, info};
 use sdp_common::crd::DeviceId;
 use sdp_common::kubernetes::SDP_K8S_NAMESPACE;
-use tokio::sync::mpsc::{Receiver, Sender};
-use tokio::sync::{broadcast, watch};
+use tokio::sync::broadcast;
 use uuid::Uuid;
-
-#[derive(Debug)]
-pub enum InjectorPoolProtocol {
-    RequestDeviceId { service_id: String },
-}
 
 pub struct InjectorPool {
     device_id_api: Api<DeviceId>,
@@ -25,11 +19,14 @@ impl InjectorPool {
     pub async fn run(
         &mut self,
         mut pool_rx: broadcast::Receiver<InjectorProtocol>,
-        injector_tx: Sender<InjectorProtocol>,
+        pool_tx: broadcast::Sender<InjectorProtocol>,
     ) {
         while let Ok(message) = pool_rx.recv().await {
             match message {
-                InjectorProtocol::RequestDeviceId { service_id } => {
+                InjectorProtocol::RequestDeviceId {
+                    message_id,
+                    service_id,
+                } => {
                     match self.device_id_api.get_opt(&service_id).await {
                         Ok(None) => {
                             info!(
@@ -66,10 +63,6 @@ impl InjectorPool {
 
                                     // Found a replicaset owned by the deployment
                                     if replicaset_name == deployment_name {
-                                        info!(
-                                            "Found owner for replicaset {}: deployment {}",
-                                            replicaset_name, replicaset_owner.name
-                                        );
                                         let pods = self
                                             .pod_api
                                             .list(&ListParams::default())
@@ -86,15 +79,9 @@ impl InjectorPool {
                                                     .unwrap()
                                                     .clone();
                                                 let pod_owner = &pod_owners[0];
-                                                let pod_name =
-                                                    pod.metadata.name.as_ref().unwrap().clone();
 
                                                 // Found a pod owned by the replicaset
                                                 if pod_owner.name == replicaset_name {
-                                                    info!(
-                                                        "Found owner for pod {}: replicaset {}",
-                                                        pod_name, pod_owner.name
-                                                    );
                                                     // Iterate through environment variable, looking for CLIENT_DEVICE_ID
                                                     for container in
                                                         &pod.spec.as_ref().unwrap().containers
@@ -129,20 +116,20 @@ impl InjectorPool {
                             info!("Available uuids: {:?}", available_uuids);
 
                             let available_uuid = available_uuids.get(0).unwrap();
-                            injector_tx
+                            pool_tx
                                 .send(InjectorProtocol::FoundDeviceId {
-                                    uuid: Uuid::parse_str(&available_uuid).unwrap(),
+                                    message_id: message_id,
+                                    device_id: Uuid::parse_str(&available_uuid).unwrap(),
                                 })
-                                .await
-                                .expect("Error when sending FoundDeviceId message to Injector")
+                                .expect("Error when sending FoundDeviceId message to Injector");
                         }
                         Err(err) => {
                             error!("Error when getting the device id: {:?}", err);
                         }
                     }
                 }
-                InjectorProtocol::InjectorPoolReady => {}
-                InjectorProtocol::FoundDeviceId { uuid } => {}
+
+                _ => {}
             }
         }
     }
