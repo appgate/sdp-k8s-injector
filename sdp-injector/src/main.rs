@@ -205,10 +205,7 @@ impl IdentityStore for KubeIdentityStore {
                     message_id: sent_message_id,
                     service_id: service_id.to_string(),
                 })
-                .expect(&format!(
-                    "Error when sending RequestDeviceId (service_id: {})",
-                    service_id
-                ));
+                .expect("Error when sending RequestDeviceId",);
 
             let mut assigned_device_id: Uuid = Uuid::nil();
             while let Ok(message) = self.service_ids_queue_tx.subscribe().recv().await {

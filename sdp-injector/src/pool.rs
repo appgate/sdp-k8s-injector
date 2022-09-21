@@ -114,14 +114,17 @@ impl InjectorPool {
                             }
 
                             info!("Available uuids: {:?}", available_uuids);
-
-                            let available_uuid = available_uuids.get(0).unwrap();
-                            pool_tx
-                                .send(InjectorProtocol::FoundDeviceId {
-                                    message_id: message_id,
-                                    device_id: Uuid::parse_str(&available_uuid).unwrap(),
-                                })
-                                .expect("Error when sending FoundDeviceId message to Injector");
+                            if available_uuids.len() > 0 {
+                                let available_uuid = available_uuids.get(0).unwrap();
+                                pool_tx
+                                    .send(InjectorProtocol::FoundDeviceId {
+                                        message_id: message_id,
+                                        device_id: Uuid::parse_str(&available_uuid).unwrap(),
+                                    })
+                                    .expect("Error when sending FoundDeviceId message");
+                            } else {
+                                info!("No available uuids in Device ID {}", service_id.to_string());
+                            }
                         }
                         Err(err) => {
                             error!("Error when getting the device id: {:?}", err);
