@@ -1,73 +1,53 @@
-# Kubernetes Client for Appgate SDP
-The k8s service Client is a member of the Appgate SDP Client family that enables it to be used in Kubernetes clusters.
-By injecting an SDP Client into pods on-demand, traffic *from* specific Kubernetes workloads can now be captured and sent to protected resources behind an SDP Gateway. The k8s service Client captures traffic in much the same way as other SDP Clients. The Entitlements will be defined in the Policy which in this case is likely to be assigned based on the use of the 'Services' IDP combined with any labels that were used when the k8s service Client was injected.
+# SDP Kubernetes Client
+SDP Kubernetes Client is a member of the Appgate SDP Client family that enables it to be used in Kubernetes clusters. By injecting a sidecar into pods on-demand, egress traffic from Kubernetes workloads can now be captured and sent to protected resources behind an SDP Gateway. It captures traffic in much the same way as other SDP Clients. The Entitlements will be defined in the Policy which in this case is likely to be assigned based on the use of the 'Services' identity provider combined with any labels that were used when the SDP Kubernetes Client was injected.
 
-Remember you can already control access *to* specific Kubernetes workloads using the URL access feature (HTTP up action type).
+Remember you can already control ingress access to specific Kubernetes workloads using the URL access feature (HTTP up action type).
 
 ## Requirements
-The following tools are required to install the k8s service Client:
+The following tools are required to install the SDP Kubernetes Client:
 * helm v3.7.0+ - https://helm.sh/docs/intro/install/
 * kubectl - https://kubernetes.io/docs/tasks/tools/#kubectl
 
 ## Getting Started
-1. Install SDP Kubernetes Client CRD
+> Browse the available versions on [Appgate GitHub Container Registry](https://github.com/appgate/sdp-k8s-client/pkgs/container/charts%2Fsdp-k8s-client)
+
+1. Install the SDP Kubernetes Client CRD with Helm
 	```bash
 	$ export HELM_EXPERIMENTAL_OCI=1
 	$ helm install sdp-k8s-client-crd oci://ghcr.io/appgate/charts/sdp-k8s-client-crd --version <VERSION>
 	```
-    Browse the available versions on [Appgate GitHub Container Registry](https://github.com/appgate/sdp-k8s-client/pkgs/container/charts%2Fsdp-k8s-client)
 
-
-2. Install the k8s service Client with Helm
+2. Install the SDP Kubernetes Client with Helm
 	```bash
 	$ export HELM_EXPERIMENTAL_OCI=1
 	$ helm install sdp-k8s-client oci://ghcr.io/appgate/charts/sdp-k8s-client --version <VERSION>
 	```
-	Browse the available versions on [Appgate GitHub Container Registry](https://github.com/appgate/sdp-k8s-client/pkgs/container/charts%2Fsdp-k8s-client)
 
-
-3. Create a `sdp-demo` namespace and label the namespace with `sdp-injection="enabled"` for k8s service Client injection
+3. Create a `sdp-demo` namespace and label the namespace with `sdp-injection="enabled"` for sidecar injection
 	```bash
 	$ kubectl create namespace sdp-demo
 	$ kubectl label namespace sdp-demo --overwrite sdp-injection="enabled"
 	```
 
-
-4. Create a secret containing username, password, and profile URL for default authentication
+4. Create a secret containing the username and password for admin authentication
 	```bash
 	$ kubectl create secret generic sdp-injector-client-secrets \
 	   --namespace sdp-demo \
 	   --from-literal=client-username="<USERNAME>" \
-	   --from-literal=client-password="<PASSWORD>" \
-	   --from-literal=client-controller-url="<PROFILE_URL>"
+	   --from-literal=client-password="<PASSWORD>"
 	```
 
-
-4. Create a configmap containing values for default configuration
+5. Test the installation by verifying a route through a gateway (via tun0), and ping a resource protected by SDP
 	```bash
-	$ kubectl create configmap sdp-injector-client-config \
-	   --namespace sdp-demo \
-	   --from-literal=client-log-level="<LOG_LEVEL>"
-	```
-
-	The following configurations are supported:
-
-| Name               | Description                                                                                               | Example                                |
-|--------------------|-----------------------------------------------------------------------------------------------------------|----------------------------------------|
-| `client-log-level` | The log level of the Client                                                                               | `Info` `Debug`                         |
-| `client-device-id` | The device ID to use for the Client in UUID v4 format. If empty, the injector will generate a random UUID | `860ab4cc-50f4-4c18-9e9c-1709d5419f1d` |
-
-
-6. Test the deployment by creating a busybox pod, verify a route through an SDP Gateway (via tun0), and ping a resource behind an SDP Gateway
-	```bash
-	$ kubectl run --namespace sdp-demo -i --tty busybox --image=busybox -- sh
+	$ kubectl create deployment pingtest --namespace sdp-demo --image=busybox --replicas=1 -- sleep infinity
+	$ kubectl exec -it $(kubectl get pod -n sdp-demo -l app=pingtest -o name --no-headers) -- sh
 	$ /# ip route | grep tun0
 	$ /# ping <IP_ADDRESS>
 	```
 
 ## Advanced Usage
 ### Namespace Labels
-SDP injection is bound to namespaces. Adding the label `sdp-injection="enabled"` to a namespace will instruct the injector to inject a k8s service Client to all pods in the namespace.
+SDP injection is bound to namespaces. Adding the label `sdp-injection="enabled"` to a namespace will instruct the SDP Kubernetes Client to inject a sidecar to all pods in the namespace.
 ```bash
 $ kubectl label --overwrite namespace sdp-demo sdp-injection="enabled"
 ```
@@ -78,54 +58,18 @@ NAME          STATUS   AGE    SDP-INJECTION
 sdp-demo      Active   1m     enabled
 ```
 
-### Excluding Pods from Injection
-To prevent Client injection at a per-Pod basis, annotate the pod with `sdp-injector="false"`. Any pod with this annotation will not get an k8s service Client even if it exists inside a namespace label with `sdp-injection="enabled"`
-```bash
-$ kubectl annotate --overwrite pod <POD> sdp-injector="false"
-```
-
-### Using Non-Default Secret or ConfigMap
-By default, the SDP injector will look for configmap `sdp-injector-client-config` for configuration and secret `sdp-injector-client-secrets` for authentication.
-
-To use a non-default configuration/authentication at a per-Pod basis, annotate the pod with `sdp-injector-client-config="<CONFIGMAP>"` or `sdp-injector-client-secrets="<SECRET>"`. This annotation will instruct the injector to use this configmap/secret instead of the default.
-
-Use non-default configuration
-```bash
-$ kubectl annotate --overwrite pod <POD> sdp-injector-client-config="<CONFIGMAP>"
-```
-
-Use non-default authentication credentials
-```bash
-$ kubectl annotate --overwrite pod <POD> sdp-injector-client-secrets="<SECRET>"
-```
-
-## How It Works
-### sdp-dnsmasq
-SDP Clients can make DNS queries for specific hosts to specific DNS servers behind the SDP Gateways. This is configured by the sdp-driver which notifies the system about which domains should use the DNS servers behind the SDP Gateways.
-
-In the case of the k8s service Client, a dnsmasq instance is configured according to the instructions that the sdp-driver sends. Since only sdp-driver container can modify `/etc/resolv.conf`, the setup is done in the following steps:
-
-1. The sdp-dnsmasq container grabs the address of the kube-dns service and starts a new dnsmasq instance using that DNS server as upstream. This allows the dnsmasq instance to forward everything into the kube-dns service.
-2. The sdp-dnsmasq container opens a UNIX socket to receive instructions from the sdp-driver container for when there are specific domain based DNS settings.
-3. The sdp-driver container waits for the service to connect. Once connected, the sdp-driver calls the [sdp-driver-set-dns](./assets/sdp-driver-set-dns) script.
-4. [sdp-driver-set-dns](./assets/sdp-driver-set-dns) configures `/etc/resolv.conf` to point to sdp-dnsmasq. From this point onwards, sdp-dnsmasq takes the responsibility of resolving names inside the pod.
-5. Any new instructions are sent to sdp-dnsmasq via UNIX socket by the sdp-driver. Then sdp-dnsmasq configures dnsmasq with the latest DNS domain and DNS server updates.
-
-## Known Issues
-### Google Kubernetes Engine (GKE)
-When running on GKE, the firewall needs to be configured to allow traffic from the Kubernetes API into the nodes to the port 8443 even if the service is listening. See [issue on GitHub](https://github.com/istio/istio/issues/19532)
-
 ## Parameters
 
 ### SDP parameters
 
 | Name                                   | Description                                                                              | Value                             |
-| -------------------------------------- | ---------------------------------------------------------------------------------------- | --------------------------------- |
+|----------------------------------------|------------------------------------------------------------------------------------------|-----------------------------------|
 | `global.image.repository`              | Image registry to use for all SDP images.                                                | `ghcr.io/appgate/sdp-k8s-client`  |
 | `global.image.tag`                     | Image tag to use for all SDP images. If not set, it defaults to `.Chart.appVersion`.     | `""`                              |
 | `global.image.pullPolicy`              | Image pull policy to use for all SDP images.                                             | `IfNotPresent`                    |
 | `global.image.pullSecrets`             | Image pull secret to use for all SDP images.                                             | `[]`                              |
 | `cert-manager.installCRDs`             | Whether to install cert-manager CRDs.                                                    | `true`                            |
+| `sdp.host`                             | Hostname of the SDP controller                                                           | `""`                              |
 | `sdp.injector.logLevel`                | SDP Injector log level.                                                                  | `info`                            |
 | `sdp.injector.replica`                 | Number of Device ID Service replicas to deploy                                           | `1`                               |
 | `sdp.injector.certDays`                | How many days will be the SDP Injector certificate be valid.                             | `365`                             |
@@ -157,7 +101,7 @@ When running on GKE, the firewall needs to be configured to allow traffic from t
 ### Kubernetes parameters
 
 | Name                    | Description                                          | Value       |
-| ----------------------- | ---------------------------------------------------- | ----------- |
+|-------------------------|------------------------------------------------------|-------------|
 | `serviceAccount.create` | Enable the creation of a ServiceAccount for SDP pods | `true`      |
 | `rbac.create`           | Whether to create & use RBAC resources or not        | `true`      |
 | `service.type`          | Type of the service                                  | `ClusterIP` |
@@ -165,3 +109,48 @@ When running on GKE, the firewall needs to be configured to allow traffic from t
 
 
 This table above was generated using [readme-generator-for-helm](https://github.com/bitnami-labs/readme-generator-for-helm)
+
+
+## How It Works
+### Overview
+SDP Kubernetes Client consists of three components:
+* Identity Service
+* Device ID Service
+* Injector
+
+### Identity Service
+SDP Identity Service is mainly responsible for the management of the Service User credentials. It consists of three subcomponents:
+* Deployment Watcher
+* Identity Creator
+* Identity Manager
+
+As the name implies, **Deployment Watcher** continuously monitors for the creation of Deployment in the namespace labeled for sidecar injection. **Identity Creator** communicates with the SDP system to generate SDP system and maintains an in-memory pool of Service User credentials. **Identity Manager** facilitates the messaging between these subcomponents.
+
+When the SDP Identity Service is initialized, the Identity Creator immediately creates Service Users on the SDP system and stores them as inactive credentials in its in-memory pool. When the Deployment Watcher discovers a newly created Deployment eligible for injection, it requests the Identity Manager to create a new ServiceIdentity. Upon creating a new ServiceIdentity, the Identity Manager instructs the Identity Creator to activate the corresponding Service User credentials which generates a secret containing the Service User credentials in the deployment's namespace. This secret is, later, mounted in the pod and its credentials exposed as environment variables to the sidecar container.
+
+### Device ID Service
+Device ID Service is responsible for assigning UUIDs to each pod in the deployment
+* Service Identity Watcher
+* Device ID Manager
+
+When a new ServiceIdentity is created by the Identity Service, the **Service Identity Watcher** notifies the **Device ID Manager** to generate a DeviceID. For every pod in the deployment (defined by .spec.replica), the manager generates a UUID and stores it in the Device ID.
+
+### Injector
+Injector is an admission webhook server that mutates pod creation requests. By registering a [Mutating Admission Webhook](https://kubernetes.io/docs/reference/access-authn-authz/extensible-admission-controllers/) allows the injector intercept all pod creation requests in sdp-injection enabled namespace and patch the necessary configurations to enable egress traffic from Kubernetes workloads to resources protected by SDP.
+
+When patching the pod, the Injector reads the ServiceIdentity and DeviceID (created by the aforementioned service) to inject the correct credentials and device ID into the pod.
+
+### sdp-dnsmasq
+SDP Clients can make DNS queries for specific hosts to specific DNS servers behind the SDP Gateways. This is configured by the sdp-driver which notifies the system about which domains should use the DNS servers behind the SDP Gateways.
+
+In the case of the SDP Kubernetes Client, a dnsmasq instance is configured according to the instructions that the sdp-driver sends. Since only sdp-driver container can modify `/etc/resolv.conf`, the setup is done in the following steps:
+
+1. The sdp-dnsmasq container grabs the address of the kube-dns service and starts a new dnsmasq instance using that DNS server as upstream. This allows the dnsmasq instance to forward everything into the kube-dns service.
+2. The sdp-dnsmasq container opens a UNIX socket to receive instructions from the sdp-driver container for when there are specific domain based DNS settings.
+3. The sdp-driver container waits for the service to connect. Once connected, the sdp-driver calls the [sdp-driver-set-dns](./assets/sdp-driver-set-dns) script.
+4. [sdp-driver-set-dns](./assets/sdp-driver-set-dns) configures `/etc/resolv.conf` to point to sdp-dnsmasq. From this point onwards, sdp-dnsmasq takes the responsibility of resolving names inside the pod.
+5. Any new instructions are sent to sdp-dnsmasq via UNIX socket by the sdp-driver. Then sdp-dnsmasq configures dnsmasq with the latest DNS domain and DNS server updates.
+
+## Known Issues
+### Google Kubernetes Engine (GKE)
+When running on GKE, the firewall needs to be configured to allow traffic from the Kubernetes API into the nodes to the port 8443 even if the service is listening. See [issue on GitHub](https://github.com/istio/istio/issues/19532)
