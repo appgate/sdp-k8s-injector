@@ -405,10 +405,6 @@ impl ServiceCandidate for Deployment {
                 .iter()
                 .map(|(k, v)| (k.to_string(), v.to_string())),
         );
-        let annotations = ResourceExt::annotations(self)
-            .iter()
-            .map(|(k, v)| (k.to_string(), v.to_string()));
-        labels.extend(annotations);
         labels.extend([
             ("namespace".to_string(), ServiceCandidate::namespace(self)),
             ("name".to_string(), ServiceCandidate::name(self)),
