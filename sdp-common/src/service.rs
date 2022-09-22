@@ -400,10 +400,18 @@ impl ServiceCandidate for Deployment {
     }
 
     fn labels(&self) -> HashMap<String, String> {
-        HashMap::from([
+        let mut labels = HashMap::from_iter(ResourceExt::labels(self)
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string())));
+        let annotations = ResourceExt::annotations(self)
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()));
+        labels.extend(annotations);
+        labels.extend([
             ("namespace".to_string(), ServiceCandidate::namespace(self)),
             ("name".to_string(), ServiceCandidate::name(self)),
-        ])
+        ]);
+        labels
     }
 
     fn is_candidate(&self) -> bool {
