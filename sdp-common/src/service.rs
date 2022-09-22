@@ -400,9 +400,11 @@ impl ServiceCandidate for Deployment {
     }
 
     fn labels(&self) -> HashMap<String, String> {
-        let mut labels = HashMap::from_iter(ResourceExt::labels(self)
-            .iter()
-            .map(|(k, v)| (k.to_string(), v.to_string())));
+        let mut labels = HashMap::from_iter(
+            ResourceExt::labels(self)
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string())),
+        );
         let annotations = ResourceExt::annotations(self)
             .iter()
             .map(|(k, v)| (k.to_string(), v.to_string()));
