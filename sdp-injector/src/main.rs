@@ -850,7 +850,6 @@ mod tests {
     use std::iter::FromIterator;
     use std::rc::Rc;
     use std::sync::Arc;
-    use tokio::sync::broadcast;
     use tokio::sync::mpsc::channel;
 
     fn load_sidecar_containers_env() -> Result<SDPSidecars, String> {
@@ -1439,9 +1438,6 @@ POD is missing needed volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-de
                 .register_service_device_ids(service_device_ids!(n))
                 .await;
 
-            let (injector_tx, injector_rx) = channel::<InjectorProtocol>(50);
-            let (pool_tx, pool_rx) = broadcast::channel::<InjectorProtocol>(50);
-
             let identity_storage = Arc::clone(&identity_storage);
             let mut env = ServiceEnvironment::create(&pod, identity_storage)
                 .await
@@ -1546,8 +1542,7 @@ POD is missing needed volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-de
                     k8s_dns_service: None,
                 };
 
-                let (_injector_tx, injector_rx) = channel::<InjectorProtocol>(50);
-                let (pool_tx, _pool_rx) = channel::<InjectorProtocol>(50);
+                let (_injector_tx, _injector_rx) = channel::<InjectorProtocol>(50);
 
                 patch_pod(admission_review.request.unwrap(), sdp_patch_context)
                     .await
@@ -1658,7 +1653,6 @@ POD is missing needed volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-de
     async fn test_service_environment_from_identity_store() {
         let pod = test_pod!(1);
         let store = Arc::new(InMemoryIdentityStore::default());
-        let (pool_tx, pool_rx) = broadcast::channel::<InjectorProtocol>(10);
         let env = ServiceEnvironment::from_identity_store(&pod, Arc::clone(&store)).await;
         assert!(env.is_none());
         let id = service_identity!(1);
@@ -1666,8 +1660,6 @@ POD is missing needed volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-de
         store.register_service_identity(id).await;
         store.register_service_device_ids(ds).await;
 
-        let (injector_tx, injector_rx) = channel::<InjectorProtocol>(10);
-        let (pool_tx, pool_rx) = broadcast::channel::<InjectorProtocol>(10);
         let env = ServiceEnvironment::from_identity_store(&pod, store).await;
         assert!(env.is_some());
         if let Some(env) = env {
