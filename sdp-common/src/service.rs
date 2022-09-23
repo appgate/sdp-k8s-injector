@@ -81,9 +81,9 @@ impl ServiceUser {
             )
         } else {
             (
-                format!("{}-service-username", self.name),
-                format!("{}-service-password", self.name),
-                format!("{}-service-url", self.name),
+                format!("{}-service-username", self.id),
+                format!("{}-service-password", self.id),
+                format!("{}-service-url", self.id),
             )
         }
     }
