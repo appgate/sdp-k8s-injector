@@ -19,7 +19,7 @@ spec:
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      serviceAccountName: {{ include "sdp-k8s-client.serviceAccountName" .}}
+      serviceAccountName: {{ include "sdp-k8s-client.serviceAccountName" .}}-device-id-service
       containers:
         - name: {{ .Chart.Name }}-device-id-service
           env:
