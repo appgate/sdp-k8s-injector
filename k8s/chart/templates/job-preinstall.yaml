@@ -18,7 +18,7 @@ spec:
         app.kubernetes.io/instance: {{ .Release.Name | quote }}
         helm.sh/chart: "{{ .Chart.Name }}-{{ .Chart.Version }}"
     spec:
-      serviceAccountName: {{ include "sdp-k8s-client.serviceAccountName" . }}
+      serviceAccountName: {{ include "sdp-k8s-client.serviceAccountName" . }}-hooks
       restartPolicy: Never
       volumes:
         - name: sdp-ca-config
@@ -35,6 +35,10 @@ spec:
       securityContext:
         runAsUser: 1000
       initContainers:
+        - name: delete-secret
+          image: "bitnami/kubectl"
+          command: [ "kubectl" ]
+          args: [ "delete", "secret", "{{ include "sdp-k8s-client.injector-secret" . }}", "--namespace", "{{ include "sdp-k8s-client.namespace" . }}", "--ignore-not-found", "true" ]
         - name: create-sdp-ca-key
           image: "alpine/openssl"
           volumeMounts:

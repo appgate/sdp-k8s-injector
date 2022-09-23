@@ -1,0 +1,33 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "sdp-k8s-client.name" . }}-postdelete
+  namespace: {{ include "sdp-k8s-client.namespace" . }}
+  labels:
+    {{- include "sdp-k8s-client.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": pre-install
+    "helm.sh/hook-weight": "0"
+rules:
+  - apiGroups: [ "" ]
+    resources: [ "configmaps", "secrets" ]
+    verbs: [ "delete" ]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "sdp-k8s-client.name" . }}-postdelete
+  namespace: {{ include "sdp-k8s-client.namespace" . }}
+  labels:
+    {{- include "sdp-k8s-client.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": pre-install
+    "helm.sh/hook-weight": "0"
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "sdp-k8s-client.serviceAccountName" . }}-hooks
+    namespace: {{ include "sdp-k8s-client.namespace" . }}
+roleRef:
+  kind: Role
+  name: {{ include "sdp-k8s-client.name" . }}-postdelete
+  apiGroup: rbac.authorization.k8s.io
