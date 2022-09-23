@@ -1,0 +1,59 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "sdp-k8s-client.name" . }}-injector
+  namespace: sdp-system
+  labels:
+    {{- include "sdp-k8s-client.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [ "injector.sdp.com" ]
+    resources: [ "deviceids" ]
+    verbs: [ "get" ]
+  - apiGroups: [ "injector.sdp.com" ]
+    resources: [ "serviceidentities" ]
+    verbs: [ "get", "list" ]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "sdp-k8s-client.name" . }}-injector
+  namespace: sdp-system
+  labels:
+  {{- include "sdp-k8s-client.labels" . | nindent 4 }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "sdp-k8s-client.serviceAccountName" . }}-injector
+    namespace: {{ include "sdp-k8s-client.namespace" . }}
+roleRef:
+  kind: Role
+  name: {{ include "sdp-k8s-client.name" . }}-injector
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "sdp-k8s-client.name" . }}-injector
+  labels:
+  {{- include "sdp-k8s-client.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [ "" ]
+    resources: [ "pods", "services"]
+    verbs: [ "list" ]
+  - apiGroups: [ "apps" ]
+    resources: [ "replicasets"]
+    verbs: [ "list" ]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "sdp-k8s-client.name" . }}-injector
+  labels:
+  {{- include "sdp-k8s-client.labels" . | nindent 4 }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "sdp-k8s-client.serviceAccountName" . }}-injector
+    namespace: {{ include "sdp-k8s-client.namespace" . }}
+roleRef:
+  kind: ClusterRole
+  name: {{ include "sdp-k8s-client.name" . }}-injector
+  apiGroup: rbac.authorization.k8s.io
