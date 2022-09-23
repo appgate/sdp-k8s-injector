@@ -292,8 +292,8 @@ impl System {
         let mut url = Url::from(self.hosts[0].clone());
         url.set_path(&format!("/admin/service-users"));
         info!(
-            "Creating new ServiceUser in SDP system: {}",
-            service_user.id
+            "Modifying new ServiceUser in SDP system: [{}] {}",
+            service_user.name, service_user.id
         );
         self.put::<SDPUser>(url, service_user).await
     }

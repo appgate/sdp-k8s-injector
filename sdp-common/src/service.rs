@@ -32,6 +32,7 @@ impl ServiceConfigFields {
 
 #[derive(Clone, JsonSchema, Debug, Serialize, Deserialize, PartialEq)]
 pub struct ServiceUser {
+    pub id: String,
     pub name: String,
     pub password: String,
     pub profile_url: String,
@@ -64,6 +65,7 @@ impl ServiceUser {
         password
             .or_else(|| sdp_user.password.as_ref().map(|s| s.as_str()))
             .map(|pwd| Self {
+                id: sdp_user.id.clone(),
                 name: sdp_user.name.clone(),
                 password: pwd.to_string(),
                 profile_url: client_profile_url.url.clone(),
@@ -135,6 +137,7 @@ impl ServiceUser {
     pub async fn restore(&self, api: Api<Secret>, secrets_name: &str) -> Option<Self> {
         let (_, pwd, _) = self.get_secrets_fields(&api, secrets_name).await;
         pwd.map(|pwd| Self {
+            id: self.id.clone(),
             name: self.name.clone(),
             password: pwd.clone(),
             profile_url: self.profile_url.clone(),
@@ -361,6 +364,14 @@ pub trait Validated {
     fn validate(&self) -> Result<(), String>;
 }
 
+pub fn generate_service_id(namespace: &str, name: &str, internal: bool) -> String {
+    if internal {
+        format!("{}_{}", namespace, name)
+    } else {
+        format!("{}-{}", namespace, name)
+    }
+}
+
 /// Trait that defines entities that are candidates to be services
 /// Basically a service candidate needs to be able to define :
 ///  - namespace
@@ -372,7 +383,10 @@ pub trait ServiceCandidate {
     fn labels(&self) -> HashMap<String, String>;
     fn is_candidate(&self) -> bool;
     fn service_id(&self) -> String {
-        format!("{}-{}", self.namespace(), self.name()).to_string()
+        generate_service_id(&self.namespace(), &self.name(), false)
+    }
+    fn service_id_key(&self) -> String {
+        generate_service_id(&self.namespace(), &self.name(), true)
     }
 }
 

@@ -41,7 +41,7 @@ trait ServiceIdentityProvider {
     ) -> Vec<&Self::To> {
         self.identities()
             .iter()
-            .filter(|id| !current_service_candidates.contains(&id.service_id()))
+            .filter(|id| !current_service_candidates.contains(&id.service_id_key()))
             .map(|id| *id)
             .collect()
     }
@@ -143,16 +143,16 @@ impl ServiceIdentityProvider for IdentityManagerPool {
     type To = ServiceIdentity;
 
     fn register_identity(&mut self, to: Self::To) -> () {
-        self.services.insert(to.service_id(), to);
+        self.services.insert(to.service_id_key(), to);
     }
 
     fn unregister_identity(&mut self, to: &Self::To) -> Option<Self::To> {
-        self.services.remove(&to.service_id())
+        self.services.remove(&to.service_id_key())
     }
 
     fn next_identity(&mut self, from: &Self::From) -> Option<Self::To> {
         let service_id = from.service_id();
-        self.services.get(&service_id)
+        self.services.get(&from.service_id_key())
             .map(|i| i.clone())
             .or_else(|| {
                 if let Some(id) = self.pop().map(|service_user| {
@@ -179,7 +179,7 @@ impl ServiceIdentityProvider for IdentityManagerPool {
     }
 
     fn identity(&self, from: &Self::From) -> Option<&Self::To> {
-        self.services.get(&from.service_id())
+        self.services.get(&from.service_id_key())
     }
 
     fn identities(&self) -> Vec<&Self::To> {
@@ -440,7 +440,7 @@ impl IdentityManagerRunner<Deployment, ServiceIdentity> {
                             .await
                             .expect("Error requesting new ServiceIdentity");
                     }
-                    existing_service_candidates.insert(service_candidate.service_id());
+                    existing_service_candidates.insert(service_candidate.service_id_key());
                 }
                 // Identity Creator notifies about fresh, unactivated User Credentials
                 IdentityManagerProtocol::FoundServiceUser(service_user, activated)
@@ -534,7 +534,7 @@ impl IdentityManagerRunner<Deployment, ServiceIdentity> {
                         } else {
                             // Make sure we dont try to delete it twice!
                             removed_service_identities
-                                .insert(service_identity.service_id().clone());
+                                .insert(service_identity.service_id_key().clone());
                         }
                     }
 
@@ -554,7 +554,8 @@ impl IdentityManagerRunner<Deployment, ServiceIdentity> {
                     for service_identity in
                         im.orphan_service_identities(&existing_activated_credentials)
                     {
-                        if !removed_service_identities.contains(&service_identity.service_id()) {
+                        if !removed_service_identities.contains(&service_identity.service_id_key())
+                        {
                             info!(
                                 "ServiceIdentity {} has deactivated ServiceUser. Deleting it.",
                                 service_identity.service_id()
@@ -573,7 +574,7 @@ impl IdentityManagerRunner<Deployment, ServiceIdentity> {
                             } else {
                                 // Make sure we dont try to delete it twice!
                                 removed_service_identities
-                                    .insert(service_identity.service_id().clone());
+                                    .insert(service_identity.service_id_key().clone());
                             }
                         }
                     }
@@ -972,7 +973,7 @@ mod tests {
                 // 4 service identities registered and only 1 on start
                 let xs = service_identities_to_tuple(
                     im.extra_service_identities(&HashSet::from(
-                    [identities[0].service_id()]
+                    [identities[0].service_id_key()]
                 )));
                 assert_eq!(xs.len(), 3);
                 assert_eq!(xs, vec![
@@ -985,10 +986,10 @@ mod tests {
                 let xs: Vec<(&str, &str, &str)> = service_identities_to_tuple(
                     im.extra_service_identities(&HashSet::from(
                         [
-                            identities[0].service_id(),
-                            identities[1].service_id(),
-                            identities[2].service_id(),
-                            identities[3].service_id(),
+                            identities[0].service_id_key(),
+                            identities[1].service_id_key(),
+                            identities[2].service_id_key(),
+                            identities[3].service_id_key(),
                         ])));
                 assert_eq!(xs.len(), 0);
                 assert_eq!(xs, vec![]);
@@ -997,11 +998,11 @@ mod tests {
                 let xs: Vec<(&str, &str, &str)> = service_identities_to_tuple(
                     im.extra_service_identities(&HashSet::from(
                         [
-                            identities[0].service_id(),
-                            identities[1].service_id(),
-                            identities[2].service_id(),
-                            identities[3].service_id(),
-                            service_identity!(5).service_id(),
+                            identities[0].service_id_key(),
+                            identities[1].service_id_key(),
+                            identities[2].service_id_key(),
+                            identities[3].service_id_key(),
+                            service_identity!(5).service_id_key(),
                         ])));
                 assert_eq!(xs.len(), 0);
                 assert_eq!(xs, vec![]);

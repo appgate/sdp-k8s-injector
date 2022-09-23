@@ -80,6 +80,7 @@ macro_rules! deployment {
 macro_rules! service_user {
     ($n:expr) => {
         ServiceUser {
+            id: format!("{}{}", stringify!(service_user_id), $n),
             name: format!("{}{}", stringify!(service_user), $n),
             password: format!("{}{}", stringify!(password), $n),
             profile_url: format!("{}{}", stringify!(profile_url), $n),

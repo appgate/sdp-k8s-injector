@@ -38,6 +38,8 @@ spec:
                   type: object
                 service_user:
                   properties:
+                    id:
+                      type: string
                     name:
                       type: string
                     password:
@@ -45,6 +47,7 @@ spec:
                     profile_url:
                       type: string
                   required:
+                    - id
                     - name
                     - password
                     - profile_url

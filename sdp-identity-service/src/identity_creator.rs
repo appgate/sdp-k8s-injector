@@ -13,7 +13,7 @@ use sdp_common::constants::{
 use sdp_common::kubernetes::SDP_K8S_NAMESPACE;
 use sdp_common::sdp::auth::SDPUser;
 use sdp_common::sdp::system::{ClientProfile, ClientProfileUrl, System};
-use sdp_common::service::ServiceUser;
+use sdp_common::service::{generate_service_id, ServiceUser};
 use tokio::sync::mpsc::{Receiver, Sender};
 
 use crate::errors::IdentityServiceError;
@@ -416,9 +416,13 @@ impl IdentityCreator {
                     let mut sdp_user = SDPUser::from(&service_user);
                     sdp_user.disabled = false;
                     sdp_user.labels = labels;
+                    sdp_user.name = generate_service_id(&service_ns, &service_name, true);
+                    let mut service_user = service_user.clone();
+                    service_user.name = sdp_user.name.clone();
+
                     info!(
                         "Activating ServiceUser with name {} [{}/{}]",
-                        service_user.name, service_ns, service_name
+                        sdp_user.name, service_ns, service_name
                     );
                     if let Err(err) = system.modify_user(&sdp_user).await {
                         error!(
