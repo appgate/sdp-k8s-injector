@@ -9,6 +9,7 @@ use log::{error, info, warn};
 use sdp_common::crd::{DeviceId, ServiceIdentity};
 use sdp_common::service::{HasCredentials, ServiceCandidate};
 use tokio::sync::mpsc::{Receiver, Sender};
+use sdp_common::kubernetes::SDP_K8S_NAMESPACE;
 
 #[derive(Debug)]
 pub enum ServiceIdentityWatcherProtocol {
@@ -86,7 +87,7 @@ impl<'a> ServiceIdentityWatcher<ServiceIdentity> {
 
 impl<'a> ServiceIdentityWatcher<ServiceIdentity> {
     pub fn new(client: Client) -> Self {
-        let api: Api<ServiceIdentity> = Api::all(client);
+        let api: Api<ServiceIdentity> = Api::namespaced(client, SDP_K8S_NAMESPACE);
         ServiceIdentityWatcher {
             service_identity_api: api,
         }

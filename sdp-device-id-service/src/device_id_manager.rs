@@ -202,7 +202,7 @@ impl DeviceIdAPI for KubeDeviceIdManager {
 
     fn list(&self) -> Pin<Box<dyn Future<Output = Result<Vec<DeviceId>, KError>> + Send + '_>> {
         let fut = async move {
-            let device_id_api: Api<DeviceId> = Api::all(self.client.clone());
+            let device_id_api: Api<DeviceId> = Api::namespaced(self.client.clone(), SDP_K8S_NAMESPACE);
             device_id_api
                 .list(&ListParams::default())
                 .await
