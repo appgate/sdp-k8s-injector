@@ -45,15 +45,15 @@ impl DeviceIdProvider for DeviceIdManagerPool {
     type To = DeviceId;
 
     fn register(&mut self, to: Self::To) -> () {
-        self.device_id_map.insert(to.service_id(), to);
+        self.device_id_map.insert(to.service_id_key(), to);
     }
 
     fn unregister(&mut self, to: &Self::To) -> Option<Self::To> {
-        self.device_id_map.remove(&to.service_id())
+        self.device_id_map.remove(&to.service_id_key())
     }
 
     fn device_id(&self, from: &Self::From) -> Option<&Self::To> {
-        self.device_id_map.get(&from.service_id())
+        self.device_id_map.get(&from.service_id_key())
     }
 
     fn device_ids(&self) -> Vec<&Self::To> {

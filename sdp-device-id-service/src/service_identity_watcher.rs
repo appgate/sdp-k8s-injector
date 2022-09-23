@@ -48,7 +48,7 @@ impl<'a> ServiceIdentityWatcher<ServiceIdentity> {
                 .expect("Error watching for service identity events")
             {
                 Some(Event::Applied(service_identity)) => {
-                    let service_id = service_identity.service_id().clone();
+                    let service_id = service_identity.service_id_key().clone();
                     if !applied.contains(&service_id) {
                         if let Err(err) = tx
                             .send(DeviceIdManagerProtocol::FoundServiceIdentity {
@@ -62,7 +62,7 @@ impl<'a> ServiceIdentityWatcher<ServiceIdentity> {
                     }
                 }
                 Some(Event::Deleted(service_identity)) => {
-                    let service_id = service_identity.service_id().clone();
+                    let service_id = service_identity.service_id_key().clone();
                     applied.remove(&service_id);
                 }
                 // TODO: Use this event

@@ -87,7 +87,7 @@ impl<'a> DeploymentWatcher<Deployment> {
         loop {
             match xs.try_next().await.expect("Error getting event!") {
                 Some(Event::Applied(deployment)) if deployment.is_candidate() => {
-                    let service_id = deployment.service_id().clone();
+                    let service_id = deployment.service_id_key().clone();
                     if !applied.contains(&service_id) {
                         info!("New service candidate: {}", &service_id);
                         if let Err(err) = tx
@@ -110,7 +110,7 @@ impl<'a> DeploymentWatcher<Deployment> {
                     );
                 }
                 Some(Event::Deleted(deployment)) if deployment.is_candidate() => {
-                    let service_id = deployment.service_id().clone();
+                    let service_id = deployment.service_id_key().clone();
                     info!("Deleted service candidate {}", &service_id);
                     if let Err(err) = tx
                         .send(IdentityManagerProtocol::DeletedServiceCandidate(

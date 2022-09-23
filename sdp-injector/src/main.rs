@@ -129,7 +129,7 @@ struct InMemoryIdentityStore {
 impl InMemoryIdentityStore {
     async fn register_service_identity(&self, service_identity: ServiceIdentity) -> () {
         let mut hm = self.identities.lock().await;
-        hm.insert(service_identity.service_id(), service_identity);
+        hm.insert(service_identity.service_id_key(), service_identity);
     }
 
     async fn register_service_device_ids(&self, service_device_ids: DeviceId) -> () {
@@ -143,7 +143,7 @@ impl InMemoryIdentityStore {
             .parse()
             .unwrap();
         for uuid in service_device_ids.spec.uuids {
-            let pod_name = format!("ns{}-srv{}", index, index);
+            let pod_name = format!("ns{}_srv{}", index, index);
             hm.insert(
                 pod_name,
                 Uuid::parse_str(&uuid).expect("Unable to parse UUID"),
@@ -315,7 +315,7 @@ impl ServiceEnvironment {
     }
 
     async fn from_identity_store<E: IdentityStore>(pod: &Pod, store: Arc<E>) -> Option<Self> {
-        store.identity(&pod.service_id()).await.map(|(s, d)| {
+        store.identity(&pod.service_id_key()).await.map(|(s, d)| {
             let (user_field, password_field, profile_field) =
                 s.spec.service_user.secrets_field_names(true);
             let service_id = s.service_id();
