@@ -18,10 +18,10 @@ use kube::api::{DynamicObject, ListParams};
 use kube::core::admission::{AdmissionRequest, AdmissionResponse, AdmissionReview};
 use kube::{Api, Client, Config};
 use log::{debug, error, info, warn};
+use pool::{IdentityStore, InjectorPoolProtocolResponse};
 use rustls::{Certificate, PrivateKey, ServerConfig};
 use rustls_pemfile::{read_one, Item};
 use sdp_common::crd::DeviceId;
-use sdp_common::kubernetes;
 use serde::Deserialize;
 use std::collections::hash_map::RandomState;
 use std::collections::{HashMap, HashSet};
@@ -37,10 +37,12 @@ use std::pin::Pin;
 use std::str::from_utf8;
 use std::sync::Arc;
 use tls_listener::TlsListener;
-use tokio::sync::{broadcast, Mutex};
+use tokio::sync::mpsc;
+use tokio::sync::mpsc::{channel, Sender};
 use uuid::Uuid;
 
-use crate::pool::InjectorPool;
+use crate::pool::{InjectorPool, InjectorPoolProtocol};
+use crate::watchers::{watch, Watcher};
 use sdp_common::service::{
     is_injection_disabled, Annotated, HasCredentials, ServiceCandidate, ServiceIdentity, Validated,
 };
@@ -61,6 +63,7 @@ const SDP_ANNOTATION_CLIENT_DEVICE_ID: &str = "sdp-injector-client-device-id";
 const SDP_DNS_SERVICE_NAMES: [&str; 2] = ["kube-dns", "coredns"];
 
 mod pool;
+mod watchers;
 
 macro_rules! env_var {
     (value :: $env_name:expr => $value:expr) => {{
@@ -112,140 +115,67 @@ macro_rules! env_var {
         env
     }};
 }
-
-trait IdentityStore {
-    fn identity<'a>(
-        &'a self,
-        service_id: &'a str,
-    ) -> Pin<Box<dyn Future<Output = Option<(ServiceIdentity, Uuid)>> + Send + '_>>;
-}
-
-#[derive(Default)]
-struct InMemoryIdentityStore {
-    identities: Mutex<HashMap<String, ServiceIdentity>>,
-    device_ids: Mutex<HashMap<String, Uuid>>,
-}
-
-impl InMemoryIdentityStore {
-    async fn register_service_identity(&self, service_identity: ServiceIdentity) -> () {
-        let mut hm = self.identities.lock().await;
-        hm.insert(service_identity.service_id_key(), service_identity);
-    }
-
-    async fn register_service_device_ids(&self, service_device_ids: DeviceId) -> () {
-        let mut hm = self.device_ids.lock().await;
-        let mut index: u32 = service_device_ids
-            .spec
-            .service_name
-            .chars()
-            .filter(|c| c.is_digit(10))
-            .collect::<String>()
-            .parse()
-            .unwrap();
-        for uuid in service_device_ids.spec.uuids {
-            let pod_name = format!("ns{}_srv{}", index, index);
-            hm.insert(
-                pod_name,
-                Uuid::parse_str(&uuid).expect("Unable to parse UUID"),
-            );
-            index += 1;
-        }
-    }
-}
-
-impl IdentityStore for InMemoryIdentityStore {
-    fn identity<'a>(
-        &'a self,
-        service_id: &'a str,
-    ) -> Pin<Box<dyn Future<Output = Option<(ServiceIdentity, Uuid)>> + Send + '_>> {
-        let fut = async move {
-            let hm = self.identities.lock().await;
-            let sid = hm.get(&service_id.to_string());
-            let hm = self.device_ids.lock().await;
-            let ds = hm.get(&service_id.to_string());
-            match (sid, ds) {
-                (Some(sid), Some(ds)) => Some((sid.clone(), ds.clone())),
-                _ => None,
-            }
-        };
-        Box::pin(fut)
-    }
-}
-
 struct KubeIdentityStore {
-    service_identity_api: Api<ServiceIdentity>,
-    service_ids_queue_tx: broadcast::Sender<InjectorProtocol>,
+    pool_q_tx: Sender<InjectorPoolProtocol<ServiceIdentity>>,
 }
 
-impl IdentityStore for KubeIdentityStore {
+impl IdentityStore<ServiceIdentity> for KubeIdentityStore {
     fn identity<'a>(
         &'a self,
         service_id: &'a str,
     ) -> Pin<Box<dyn Future<Output = Option<(ServiceIdentity, Uuid)>> + Send + '_>> {
         let fut = async move {
-            // List all the service identities
-            let ss = self
-                .service_identity_api
-                .list(&ListParams::default())
+            let (q_tx, mut q_rx) = channel::<InjectorPoolProtocolResponse<ServiceIdentity>>(1);
+            if let Err(e) = self
+                .pool_q_tx
+                .send(InjectorPoolProtocol::RequestDeviceId(
+                    q_tx,
+                    service_id.to_string(),
+                ))
                 .await
-                .map_err(|e| {
-                    error!(
-                        "Error fetching service identities list for service {}: {:?}",
-                        service_id, e
-                    );
-                })
-                .map(|ss| ss.items)
-                .unwrap_or(vec![]);
-            // Search the service identity for service_id
-            let sid = ss.iter().find(|s| s.service_id().eq(&service_id));
-
-            let sent_message_id = Uuid::new_v4();
-            self.service_ids_queue_tx
-                .send(InjectorProtocol::RequestDeviceId {
-                    message_id: sent_message_id,
-                    service_id: service_id.to_string(),
-                })
-                .expect("Error when sending RequestDeviceId");
-
-            let mut assigned_device_id: Uuid = Uuid::nil();
-            while let Ok(message) = self.service_ids_queue_tx.subscribe().recv().await {
-                match message {
-                    InjectorProtocol::FoundDeviceId {
-                        message_id,
+            {
+                error!("Error trying to get a device if: {}", e.to_string());
+                None
+            } else {
+                match q_rx.recv().await {
+                    Some(InjectorPoolProtocolResponse::AssignedDeviceId(
+                        service_identity,
                         device_id,
-                    } => {
-                        if message_id == sent_message_id {
-                            info!("Found device id {} for message {}", device_id, message_id);
-                            assigned_device_id = device_id;
-                            break;
-                        }
-                    }
-                    _ => {}
-                }
-            }
-
-            match (sid, assigned_device_id) {
-                (Some(sid), device_id) => {
-                    info!(
-                        "Found service id {} and device id {} for service {}",
-                        sid.metadata.name.as_ref().unwrap(),
-                        device_id.to_string(),
-                        service_id
-                    );
-                    Some((sid.clone(), device_id))
-                }
-                _ => {
-                    if sid.is_none() {
-                        error!("Error finding service identity for service: {}", service_id);
-                    }
-                    if assigned_device_id.is_nil() {
-                        error!("Error finding device id for service: {}", service_id);
-                    }
-                    None
+                    )) => Some((service_identity, device_id)),
+                    Some(InjectorPoolProtocolResponse::NotFound) => None,
+                    None => None,
                 }
             }
         };
         Box::pin(fut)
+    }
+
+    fn register_service(
+        &mut self,
+        _service: ServiceIdentity,
+    ) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
+        Box::pin(async move { () })
+    }
+
+    fn register_device_ids(
+        &mut self,
+        _device_id: DeviceId,
+    ) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
+        Box::pin(async move { () })
+    }
+
+    fn unregister_service<'a>(
+        &'a mut self,
+        _service: &'a ServiceIdentity,
+    ) -> Pin<Box<dyn Future<Output = Option<(ServiceIdentity, DeviceId)>> + Send + '_>> {
+        Box::pin(async move { None })
+    }
+
+    fn unregister_device_ids<'a>(
+        &'a mut self,
+        _device_id: &'a DeviceId,
+    ) -> Pin<Box<dyn Future<Output = Option<(ServiceIdentity, DeviceId)>> + Send + '_>> {
+        Box::pin(async move { None })
     }
 }
 
@@ -306,7 +236,7 @@ struct ServiceEnvironment {
 }
 
 impl ServiceEnvironment {
-    async fn create<E: IdentityStore>(pod: &Pod, store: Arc<E>) -> Option<Self> {
+    async fn create<E: IdentityStore<ServiceIdentity>>(pod: &Pod, store: Arc<E>) -> Option<Self> {
         if let Some(env) = ServiceEnvironment::from_pod(pod) {
             Some(env)
         } else {
@@ -314,7 +244,10 @@ impl ServiceEnvironment {
         }
     }
 
-    async fn from_identity_store<E: IdentityStore>(pod: &Pod, store: Arc<E>) -> Option<Self> {
+    async fn from_identity_store<E: IdentityStore<ServiceIdentity>>(
+        pod: &Pod,
+        store: Arc<E>,
+    ) -> Option<Self> {
         store.identity(&pod.service_id_key()).await.map(|(s, d)| {
             let (user_field, password_field, profile_field) =
                 s.spec.service_user.secrets_field_names(true);
@@ -617,14 +550,14 @@ struct SDPSidecars {
 }
 
 #[derive(Clone)]
-struct SDPInjectorContext<E: IdentityStore> {
+struct SDPInjectorContext<E: IdentityStore<ServiceIdentity>> {
     sdp_sidecars: Arc<SDPSidecars>,
     k8s_client: Client,
     identity_store: Arc<E>,
 }
 
 #[derive(Debug, Clone)]
-struct SDPPatchContext<E: IdentityStore> {
+struct SDPPatchContext<E: IdentityStore<ServiceIdentity>> {
     sdp_sidecars: Arc<SDPSidecars>,
     identity_store: Arc<E>,
     k8s_dns_service: Option<Service>,
@@ -691,7 +624,7 @@ async fn patch_deployment(
     Ok(admission_response.into_review())
 }
 
-async fn patch_pod<E: IdentityStore>(
+async fn patch_pod<E: IdentityStore<ServiceIdentity>>(
     admission_request: AdmissionRequest<Pod>,
     sdp_patch_context: SDPPatchContext<E>,
 ) -> Result<AdmissionReview<DynamicObject>, Box<dyn Error>> {
@@ -746,7 +679,7 @@ async fn patch_pod<E: IdentityStore>(
     Ok(admission_response.into_review())
 }
 
-async fn mutate<E: IdentityStore>(
+async fn mutate<E: IdentityStore<ServiceIdentity>>(
     body: Bytes,
     sdp_injector_context: Arc<SDPInjectorContext<E>>,
 ) -> Result<Body, Box<dyn Error>> {
@@ -833,10 +766,10 @@ async fn get_dns_service(k8s_client: &Client) -> Result<Option<Body>, Box<dyn Er
 #[cfg(test)]
 mod tests {
     use crate::{
-        load_sidecar_containers, patch_pod, InMemoryIdentityStore, InjectorProtocol, Patched,
-        SDPPatchContext, SDPPod, SDPSidecars, ServiceEnvironment, Validated,
-        SDP_ANNOTATION_CLIENT_CONFIG, SDP_ANNOTATION_CLIENT_DEVICE_ID,
-        SDP_ANNOTATION_CLIENT_SECRETS, SDP_SERVICE_CONTAINER_NAME, SDP_SIDECARS_FILE_ENV,
+        load_sidecar_containers, patch_pod, InMemoryIdentityStore, Patched, SDPPatchContext,
+        SDPPod, SDPSidecars, ServiceEnvironment, Validated, SDP_ANNOTATION_CLIENT_CONFIG,
+        SDP_ANNOTATION_CLIENT_DEVICE_ID, SDP_ANNOTATION_CLIENT_SECRETS, SDP_SERVICE_CONTAINER_NAME,
+        SDP_SIDECARS_FILE_ENV,
     };
     use json_patch::Patch;
     use k8s_openapi::api::core::v1::{Container, Pod, Service, ServiceSpec, ServiceStatus, Volume};
@@ -1805,7 +1738,7 @@ fn load_ssl() -> Result<ServerConfig, Box<dyn Error>> {
     }
 }
 
-async fn injector_handler<E: IdentityStore>(
+async fn injector_handler<E: IdentityStore<ServiceIdentity>>(
     req: Request<Body>,
     sdp_context: Arc<SDPInjectorContext<E>>,
 ) -> Result<Response<Body>, hyper::Error> {
@@ -1856,19 +1789,6 @@ async fn injector_handler<E: IdentityStore>(
 
 pub type Acceptor = tokio_rustls::TlsAcceptor;
 
-#[derive(Debug, Clone)]
-pub enum InjectorProtocol {
-    InjectorPoolReady,
-    FoundDeviceId {
-        message_id: Uuid,
-        device_id: Uuid,
-    },
-    RequestDeviceId {
-        message_id: Uuid,
-        service_id: String,
-    },
-}
-
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     env_logger::init();
@@ -1888,12 +1808,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .unwrap_or(false);
     let k8s_client: Client = Client::try_from(k8s_config).expect("Unable to create k8s client");
     let k8s_client_cp2 = k8s_client.clone();
-    let service_identity_api: Api<ServiceIdentity> = Api::namespaced(k8s_client, "sdp-system");
-    let (pool_tx, pool_rx) = broadcast::channel::<InjectorProtocol>(50);
-    let pool_client = kubernetes::get_k8s_client().await;
+    let service_identity_api: Api<ServiceIdentity> =
+        Api::namespaced(k8s_client.clone(), "sdp-system");
+    let device_ids_api: Api<DeviceId> = Api::namespaced(k8s_client, "sdp-system");
+    let (pool_tx, pool_rx) = channel::<InjectorPoolProtocol<ServiceIdentity>>(50);
     let store = KubeIdentityStore {
-        service_identity_api: service_identity_api,
-        service_ids_queue_tx: pool_tx.clone(),
+        pool_q_tx: pool_tx.clone(),
     };
     let sdp_sidecars: SDPSidecars =
         load_sidecar_containers().expect("Unable to load the sidecar information");
@@ -1925,9 +1845,33 @@ async fn main() -> Result<(), Box<dyn Error>> {
             ready(true)
         }
     });
+
+    // Thread to watch ServideIdentity entities
+    // We register new ServiceIdentity entieies in the store when created and de unregister them when deleted.
+    let (watcher_tx, watcher_rx) = mpsc::channel::<InjectorPoolProtocol<ServiceIdentity>>(50);
+    let watcher_tx2 = watcher_tx.clone();
     tokio::spawn(async move {
-        let mut did_pool = InjectorPool::new(pool_client);
-        did_pool.run(pool_rx, pool_tx.clone()).await;
+        let watcher = Watcher {
+            api: service_identity_api,
+            queue_tx: watcher_tx,
+        };
+        watch(watcher).await;
+    });
+
+    // Thread to watch DeviceId entities
+    // We register new DeviceId entieies in the store when created and de unregister them when deleted.
+    tokio::spawn(async move {
+        let watcher = Watcher {
+            api: device_ids_api,
+            queue_tx: watcher_tx2,
+        };
+        watch(watcher).await;
+    });
+
+    // Spawn the main Store
+    tokio::spawn(async move {
+        let mut did_pool = InjectorPool::new(None);
+        did_pool.run(pool_rx, watcher_rx).await;
     });
     let server = Server::builder(accept::from_stream(incoming)).serve(make_service);
     server.await?;
