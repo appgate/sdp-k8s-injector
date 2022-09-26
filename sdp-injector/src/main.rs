@@ -315,7 +315,7 @@ impl ServiceEnvironment {
     }
 
     async fn from_identity_store<E: IdentityStore>(pod: &Pod, store: Arc<E>) -> Option<Self> {
-        store.identity(&pod.service_id_key()).await.map(|(s, d)| {
+        store.identity(&pod.service_id()).await.map(|(s, d)| {
             let (user_field, password_field, profile_field) =
                 s.spec.service_user.secrets_field_names(true);
             let service_id = s.service_id();
