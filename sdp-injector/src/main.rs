@@ -36,9 +36,11 @@ use std::path::PathBuf;
 use std::pin::Pin;
 use std::str::from_utf8;
 use std::sync::Arc;
+use std::time::Duration;
 use tls_listener::TlsListener;
 use tokio::sync::mpsc::{channel, Sender};
 use tokio::sync::{mpsc, Mutex, MutexGuard};
+use tokio::time::timeout;
 use uuid::Uuid;
 
 use crate::pool::{InjectorPool, InjectorPoolProtocol};
@@ -137,13 +139,14 @@ impl IdentityStore<ServiceIdentity> for KubeIdentityStore {
                 error!("Error trying to get a device if: {}", e.to_string());
                 None
             } else {
-                match q_rx.recv().await {
-                    Some(InjectorPoolProtocolResponse::AssignedDeviceId(
+                match timeout(Duration::from_secs(5), q_rx.recv()).await {
+                    Ok(Some(InjectorPoolProtocolResponse::AssignedDeviceId(
                         service_identity,
                         device_id,
-                    )) => Some((service_identity, device_id)),
-                    Some(InjectorPoolProtocolResponse::NotFound) => None,
-                    None => None,
+                    ))) => Some((service_identity, device_id)),
+                    Ok(Some(InjectorPoolProtocolResponse::NotFound)) => None,
+                    Ok(None) => None,
+                    Err(_e) => None,
                 }
             }
         };
