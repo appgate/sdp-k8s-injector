@@ -15,7 +15,6 @@ pub enum InjectorPoolProtocol<A: ServiceCandidate + HasCredentials> {
     DeletedServiceIdentity(A),
     DeletedDevideId(DeviceId),
     RequestDeviceId(Sender<InjectorPoolProtocolResponse<A>>, String),
-    AssignedDeviceId(Uuid),
     ReleasedDevideId(String, Uuid),
 }
 
@@ -39,12 +38,12 @@ pub trait IdentityStore<A: ServiceCandidate + HasCredentials>: Send + Sync {
 
     fn unregister_service<'a>(
         &'a mut self,
-        service: &'a A,
+        service_id: &'a str,
     ) -> Pin<Box<dyn Future<Output = Option<(A, DeviceId)>> + Send + '_>>;
 
     fn unregister_device_ids<'a>(
         &'a mut self,
-        device_id: &'a DeviceId,
+        device_id: &'a str,
     ) -> Pin<Box<dyn Future<Output = Option<(A, DeviceId)>> + Send + '_>>;
 }
 
@@ -91,11 +90,11 @@ impl IdentityStore<ServiceIdentity> for InMemoryIdentityStore {
 
     fn unregister_service<'a>(
         &'a mut self,
-        service: &'a ServiceIdentity,
+        service_id: &'a str,
     ) -> Pin<Box<dyn Future<Output = Option<(ServiceIdentity, DeviceId)>> + Send + '_>> {
         let fut = async move {
-            let device_id = self.device_ids.remove(&service.service_id_key());
-            let service_id = self.identities.remove(&service.service_id_key());
+            let device_id = self.device_ids.remove(service_id);
+            let service_id = self.identities.remove(service_id);
             match (service_id, device_id) {
                 (Some(sid), Some(did)) => Some((sid, did)),
                 _ => None,
@@ -106,11 +105,11 @@ impl IdentityStore<ServiceIdentity> for InMemoryIdentityStore {
 
     fn unregister_device_ids<'a>(
         &'a mut self,
-        device_id: &'a DeviceId,
+        device_id: &'a str,
     ) -> Pin<Box<dyn Future<Output = Option<(ServiceIdentity, DeviceId)>> + Send + '_>> {
         let fut = async move {
-            let service_id = self.identities.remove(&device_id.service_id_key());
-            let device_id = self.device_ids.remove(&device_id.service_id_key());
+            let service_id = self.identities.remove(device_id);
+            let device_id = self.device_ids.remove(device_id);
             match (service_id, device_id) {
                 (Some(sid), Some(did)) => Some((sid, did)),
                 _ => None,
@@ -154,13 +153,13 @@ impl InjectorPool<ServiceIdentity> {
                         self.store.register_service(s);
                     },
                     Some(InjectorPoolProtocol::DeletedServiceIdentity(s)) => {
-                        self.store.unregister_service(&s);
+                        self.store.unregister_service(&s.service_id_key());
                     },
                     Some(InjectorPoolProtocol::FoundDevideId(id)) => {
                         self.store.register_device_ids(id);
                     },
                     Some(InjectorPoolProtocol::DeletedDevideId(id)) => {
-                        self.store.unregister_device_ids(&id);
+                        self.store.unregister_device_ids(&id.service_id_key());
                     },
                     Some(ev) => {
                         warn!("Ignored event {:?}", ev);
@@ -173,13 +172,17 @@ impl InjectorPool<ServiceIdentity> {
             val = pool_rx.recv() => {
                 match val {
                     Some(InjectorPoolProtocol::RequestDeviceId(q_tx, service_id)) => {
-                        if let Some((a, b)) = self.store.identity(&service_id).await {
-                            if let Err(e) = q_tx.send(InjectorPoolProtocolResponse::NotFound).await {
-                                error!("Error assigning devide id: {}", e.to_string());
-                            }
+                        let msg = if let Some((service_identity, uuid)) = self.store.identity(&service_id).await {
+                            InjectorPoolProtocolResponse::AssignedDeviceId(service_identity.clone(), uuid)
+                        } else {
+                            InjectorPoolProtocolResponse::NotFound
+                        };
+                        if let Err(e) = q_tx.send(msg).await {
+                            error!("Error assigning devide id: {}", e.to_string());
                         }
                     },
-                    Some(InjectorPoolProtocol::ReleasedDevideId(_service_id, _device_id)) => {
+                    Some(InjectorPoolProtocol::ReleasedDevideId(service_id, device_ids)) => {
+                        self.store.unregister_service(&service_id);
                         // Remove device id from the list of reserved ids
                     },
                     Some(ev) => {
