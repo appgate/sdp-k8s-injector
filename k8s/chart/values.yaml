@@ -27,7 +27,9 @@ cert-manager:
 
 sdp:
   ## @param sdp.host Hostname of the SDP controller
+  ## @param sdp.adminSecret Name of the secret for initial authentication
   host: ""
+  adminSecret: ""
 
   ## @param sdp.injector.logLevel SDP Injector log level.
   ## @param sdp.injector.replica Number of Device ID Service replicas to deploy
