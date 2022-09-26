@@ -24,7 +24,7 @@ pub enum InjectorPoolProtocolResponse<A: ServiceCandidate + HasCredentials> {
     NotFound,
 }
 
-pub trait IdentityStore<A: ServiceCandidate + HasCredentials>: Send {
+pub trait IdentityStore<A: ServiceCandidate + HasCredentials>: Send + Sync {
     fn identity<'a>(
         &'a self,
         service_id: &'a str,
@@ -49,7 +49,7 @@ pub trait IdentityStore<A: ServiceCandidate + HasCredentials>: Send {
 }
 
 pub struct InjectorPool<A: ServiceCandidate + HasCredentials> {
-    store: Box<dyn IdentityStore<A>>,
+    store: Box<dyn IdentityStore<A> + Send>,
 }
 
 #[derive(Default)]
@@ -172,9 +172,11 @@ impl InjectorPool<ServiceIdentity> {
             },
             val = pool_rx.recv() => {
                 match val {
-                    Some(InjectorPoolProtocol::RequestDeviceId(q_tx, _service_id)) => {
-                        if let Err(e) = q_tx.send(InjectorPoolProtocolResponse::NotFound).await {
-                            error!("Error assigning devide id: {}", e.to_string());
+                    Some(InjectorPoolProtocol::RequestDeviceId(q_tx, service_id)) => {
+                        if let Some((a, b)) = self.store.identity(&service_id).await {
+                            if let Err(e) = q_tx.send(InjectorPoolProtocolResponse::NotFound).await {
+                                error!("Error assigning devide id: {}", e.to_string());
+                            }
                         }
                     },
                     Some(InjectorPoolProtocol::ReleasedDevideId(_service_id, _device_id)) => {
@@ -305,7 +307,7 @@ impl InjectorPool<ServiceIdentity> {
         }
     }*/
 
-    pub fn new(store: Option<Box<dyn IdentityStore<ServiceIdentity>>>) -> Self {
+    pub fn new(store: Option<Box<dyn IdentityStore<ServiceIdentity> + Send>>) -> Self {
         InjectorPool {
             store: store.unwrap_or(Box::new(InMemoryIdentityStore::new())),
         }
