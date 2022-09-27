@@ -28,8 +28,10 @@ cert-manager:
 sdp:
   ## @param sdp.host Hostname of the SDP controller
   ## @param sdp.adminSecret Name of the secret for initial authentication
+  ## @param sdp.clientVersion Version of the SDP client to inject as sidecars.
   host: ""
   adminSecret: ""
+  clientVersion: 6.0.1
 
   ## @param sdp.selfClient.enabled Whether to set up an SDP client on the Identity Service
   ## @param sdp.selfClient.adminSecret Name of the secret for initial authentication
@@ -45,7 +47,7 @@ sdp:
   ## @param sdp.injector.replica Number of Device ID Service replicas to deploy
   ## @param sdp.injector.certDays How many days will be the SDP Injector certificate be valid.
   ## @param sdp.injector.image.repository SDP Injector image repository. If set, it overrides `.global.image.repository`.
-  ## @param sdp.injector.image.tag SDP Injector image tag.
+  ## @param sdp.injector.image.tag SDP Injector image tag. If set, it overrides `sdp.clientVersion`.
   ## @param sdp.injector.image.pullPolicy SDP Injector pull policy. If set, it overrides `.global.image.pullPolicy`.
   injector:
     logLevel: info
@@ -53,37 +55,37 @@ sdp:
     certDays: 365
     image:
       repository: ""
-      tag: 5.5.1
+      tag: ""
       pullPolicy: Always
 
   ## @param sdp.deviceIdService.logLevel SDP Device ID Service log level.
   ## @param sdp.deviceIdService.replica Number of SDP Device ID Service replicas to deploy
   ## @param sdp.deviceIdService.image.repository SDP Device ID Service image repository. If set, it overrides `.global.image.repository`.
-  ## @param sdp.deviceIdService.image.tag SDP Device ID Service image tag.
+  ## @param sdp.deviceIdService.image.tag SDP Device ID Service image tag. If set, it overrides `.chart.appVersion`.
   ## @param sdp.deviceIdService.image.pullPolicy SDP Device ID Service pull policy. If set, it overrides `.global.image.pullPolicy`.
   deviceIdService:
     logLevel: info
     replica: 1
     image:
       repository: ""
-      tag: 0.1.0
+      tag: ""
       pullPolicy: Always
 
   ## @param sdp.identityService.logLevel SDP Identity Service log level.
   ## @param sdp.identityService.replica Number of SDP Identity Service replicas to deploy
   ## @param sdp.identityService.image.repository SDP Identity Service image repository. If set, it overrides `.global.image.repository`.
-  ## @param sdp.identityService.image.tag SDP Identity Service image tag.
+  ## @param sdp.identityService.image.tag SDP Identity Service image tag. If set, it overrides `.chart.appVersion`.
   ## @param sdp.identityService.image.pullPolicy SDP Identity Service pull policy. If set, it overrides `.global.image.pullPolicy`.
   identityService:
     logLevel: info
     replica: 1
     image:
       repository: ""
-      tag: 0.1.0
+      tag: ""
       pullPolicy: Always
 
   ## @param sdp.headlessService.image.tag SDP Headless Service image repository. If set, it overrides `.global.image.repository`.
-  ## @param sdp.headlessService.image.repository SDP Headless Service image tag. If set, it overrides `.global.image.tag`.
+  ## @param sdp.headlessService.image.repository SDP Headless Service image tag. If set, it overrides `.sdp.clientVersion`.
   ## @param sdp.headlessService.image.pullPolicy SDP Headless Service image pull policy. If set, it overrides `.global.image.pullPolicy`.
   headlessService:
     image:
@@ -92,7 +94,7 @@ sdp:
       pullPolicy: Always
 
   ## @param sdp.headlessDriver.image.repository SDP Headless Driver image repository. If set, it overrides `.global.image.repository`.
-  ## @param sdp.headlessDriver.image.tag SDP Headless Driver image tag. If set, it overrides `.global.image.tag`.
+  ## @param sdp.headlessDriver.image.tag SDP Headless Driver image tag. If set, it overrides `sdp.clientVersion`.
   ## @param sdp.headlessDriver.image.pullPolicy SDP Headless Service image pull policy. If set, it overrides `.global.image.pullPolicy`.
   headlessDriver:
     image:
@@ -101,7 +103,7 @@ sdp:
       pullPolicy: Always
 
   ## @param sdp.dnsmasq.image.repository SDP Dnsmasq image repository. If set, it overrides `.global.image.repository`.
-  ## @param sdp.dnsmasq.image.tag SDP Dnsmasq image tag. If set, it overrides `.global.image.tag`.
+  ## @param sdp.dnsmasq.image.tag SDP Dnsmasq image tag. If set, it overrides `sdp.clientVersion`.
   ## @param sdp.dnsmasq.image.pullPolicy SDP Dnsmasq image pull policy. If set, it overrides `.global.image.pullPolicy`.
   ## @param sdp.dnsmasq.dnsConfig.searches Search domains to add to the Pod DNS configuration
   dnsmasq:
