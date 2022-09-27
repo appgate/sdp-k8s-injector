@@ -344,7 +344,7 @@ impl ServiceEnvironment {
         if container_name == SDP_SERVICE_CONTAINER_NAME {
             envs.extend([
                 env_var!(
-                    configMap :: "APPGATE_LOGLEVEL" => self.client_config),
+                    configMap :: "APPGATE_LOG_LEVEL" => self.client_config),
                 env_var!(
                     value :: "APPGATE_DEVICE_ID" => self.client_device_id.clone()),
                 env_var!(

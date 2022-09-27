@@ -27,7 +27,7 @@ impl ServiceConfigFields {
     fn new(service_ns: &str, service_name: &str) -> Self {
         ServiceConfigFields {
             configmap_name: format!("{}-{}-service-config", service_ns, service_name),
-            log_level: "client-log-level".to_string(),
+            log_level: "appgate-log-level".to_string(),
         }
     }
 }
