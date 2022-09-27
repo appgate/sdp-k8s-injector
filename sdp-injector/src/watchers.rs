@@ -83,23 +83,27 @@ impl SimpleWatchingProtocol<InjectorPoolProtocol<ServiceIdentity>> for Pod {
     }
 
     fn deleted(&self) -> Option<InjectorPoolProtocol<ServiceIdentity>> {
-        self.annotation(POD_DEVICE_ID_ANNOTATION)
-            .and_then(|device_id| {
-                let uuid = uuid::Uuid::parse_str(device_id);
-                match uuid {
-                    Err(e) => {
-                        error!(
-                            "Error parsing device id from {}: {}",
-                            device_id,
-                            e.to_string()
-                        );
-                        None
+        if self.is_candidate() {
+            self.annotation(POD_DEVICE_ID_ANNOTATION)
+                .and_then(|device_id| {
+                    let uuid = uuid::Uuid::parse_str(device_id);
+                    match uuid {
+                        Err(e) => {
+                            error!(
+                                "Error parsing device id from {}: {}",
+                                device_id,
+                                e.to_string()
+                            );
+                            None
+                        }
+                        Ok(uuid) => Some(InjectorPoolProtocol::ReleasedDevideId(
+                            self.service_id_key(),
+                            uuid,
+                        )),
                     }
-                    Ok(uuid) => Some(InjectorPoolProtocol::ReleasedDevideId(
-                        self.service_id_key(),
-                        uuid,
-                    )),
-                }
-            })
+                })
+        } else {
+            None
+        }
     }
 }
