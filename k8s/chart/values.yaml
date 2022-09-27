@@ -47,7 +47,7 @@ sdp:
   ## @param sdp.injector.replica Number of Device ID Service replicas to deploy
   ## @param sdp.injector.certDays How many days will be the SDP Injector certificate be valid.
   ## @param sdp.injector.image.repository SDP Injector image repository. If set, it overrides `.global.image.repository`.
-  ## @param sdp.injector.image.tag SDP Injector image tag. If set, it overrides `sdp.clientVersion`.
+  ## @param sdp.injector.image.tag SDP Injector image tag. If set, it overrides `chart.appVersion`.
   ## @param sdp.injector.image.pullPolicy SDP Injector pull policy. If set, it overrides `.global.image.pullPolicy`.
   injector:
     logLevel: info
