@@ -435,7 +435,10 @@ impl Patched for SDPPod {
         // Fill DNS service ip
         environment.k8s_dns_service_ip = self.k8s_dns_service.maybe_ip().map(|s| s.clone());
 
-        let mut patches = vec![];
+        let mut patches = vec![Add(AddOperation {
+            path: "/metadata/annotations/sdp-injection".to_string(),
+            value: serde_json::to_value("enabled")?,
+        })];
         if self.is_candidate() {
             let k8s_dns_service_ip = self.k8s_dns_service.maybe_ip();
             match k8s_dns_service_ip {
