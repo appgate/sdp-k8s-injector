@@ -344,15 +344,15 @@ impl ServiceEnvironment {
         if container_name == SDP_SERVICE_CONTAINER_NAME {
             envs.extend([
                 env_var!(
-                    configMap :: "CLIENT_LOG_LEVEL" => self.client_config),
+                    configMap :: "APPGATE_LOGLEVEL" => self.client_config),
                 env_var!(
-                    value :: "CLIENT_DEVICE_ID" => self.client_device_id.clone()),
+                    value :: "APPGATE_DEVICE_ID" => self.client_device_id.clone()),
                 env_var!(
-                    secrets :: "CLIENT_CONTROLLER_URL" => (self.client_secret_name, self.client_secret_controller_url_key)),
+                    secrets :: "APPGATE_PROFILE_URL" => (self.client_secret_name, self.client_secret_controller_url_key)),
                 env_var!(
-                    secrets :: "CLIENT_USERNAME" => (self.client_secret_name, self.client_secret_user_key)),
+                    secrets :: "APPGATE_USERNAME" => (self.client_secret_name, self.client_secret_user_key)),
                 env_var!(
-                    secrets :: "CLIENT_PASSWORD" => (self.client_secret_name, self.client_secret_pwd_key)),
+                    secrets :: "APPGATE_PASSWORD" => (self.client_secret_name, self.client_secret_pwd_key)),
                 env_var!(
                     fieldRef :: "POD_NODE" => "spec.nodeName"),
                 env_var!(
@@ -958,7 +958,7 @@ mod tests {
                     ("POD_N_CONTAINERS".to_string(), Some("1".to_string())),
                     ("K8S_DNS_SERVICE".to_string(), Some("".to_string())),
                     (
-                        "CLIENT_DEVICE_ID".to_string(),
+                        "APPGATE_DEVICE_ID".to_string(),
                         Some("00000000-0000-0000-0000-000000000001".to_string()),
                     ),
                     ("SERVICE_NAME".to_string(), Some("ns1-srv1".to_string())),
@@ -991,7 +991,7 @@ mod tests {
                     ("POD_N_CONTAINERS".to_string(), Some("1".to_string())),
                     ("K8S_DNS_SERVICE".to_string(), Some("".to_string())),
                     (
-                        "CLIENT_DEVICE_ID".to_string(),
+                        "APPGATE_DEVICE_ID".to_string(),
                         Some("00000000-0000-0000-0000-000000000003".to_string()),
                     ),
                     ("SERVICE_NAME".to_string(), Some("ns3-srv3".to_string())),
@@ -1010,7 +1010,7 @@ mod tests {
                     ("POD_N_CONTAINERS".to_string(), Some("1".to_string())),
                     ("K8S_DNS_SERVICE".to_string(), Some("".to_string())),
                     (
-                        "CLIENT_DEVICE_ID".to_string(),
+                        "APPGATE_DEVICE_ID".to_string(),
                         Some("00000000-0000-0000-0000-000000000004".to_string()),
                     ),
                     ("SERVICE_NAME".to_string(), Some("ns4-srv4".to_string())),
@@ -1027,7 +1027,7 @@ mod tests {
                     ("K8S_DNS_SERVICE".to_string(), Some("10.0.0.10".to_string())),
                     ("SERVICE_NAME".to_string(), Some("ns5-srv5".to_string())),
                     (
-                        "CLIENT_DEVICE_ID".to_string(),
+                        "APPGATE_DEVICE_ID".to_string(),
                         Some("00000000-0000-0000-0000-000000000005".to_string()),
                     ),
                 ],
