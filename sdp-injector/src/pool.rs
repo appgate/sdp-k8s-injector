@@ -197,8 +197,12 @@ impl IdentityStore<ServiceIdentity> for InMemoryIdentityStore {
         uuid: Uuid,
     ) -> Pin<Box<dyn Future<Output = Option<Uuid>> + Send + '_>> {
         let fut = async move {
-            match self.device_ids.get(&service_id.to_string()) {
-                Some(RegisteredDeviceId(n_all, all, n_available, available))
+            let service_id = service_id.to_string();
+            match (
+                self.identities.get(&service_id),
+                self.device_ids.get(&service_id),
+            ) {
+                (Some(_), Some(RegisteredDeviceId(n_all, all, n_available, available)))
                     if all.contains(&uuid) =>
                 {
                     if n_available < n_all {
@@ -225,14 +229,18 @@ impl IdentityStore<ServiceIdentity> for InMemoryIdentityStore {
                         None
                     }
                 }
-                Some(RegisteredDeviceId(_, _, _, _)) => {
+                (Some(_), Some(RegisteredDeviceId(_, _, _, _))) => {
                     error!(
                         "Device id {} is not in the list of allowed device ids for service {}",
                         uuid, service_id
                     );
                     None
                 }
-                None => {
+                (None, _) => {
+                    error!("Service id {} hasis not registered", service_id);
+                    None
+                }
+                (_, None) => {
                     error!("Service id {} has not device ids registered", service_id);
                     None
                 }

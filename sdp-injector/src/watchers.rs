@@ -1,4 +1,5 @@
 use futures::{StreamExt, TryStreamExt};
+use k8s_openapi::api::core::v1::Pod;
 use kube::Resource;
 use kube::{
     api::ListParams,
@@ -19,8 +20,8 @@ pub struct Watcher<E, P> {
 }
 
 pub trait SimpleWatchingProtocol<P> {
-    fn applied(&self) -> P;
-    fn deleted(&self) -> P;
+    fn applied(&self) -> Option<P>;
+    fn deleted(&self) -> Option<P>;
 }
 
 pub async fn watch<E, P>(simple_watcher: Watcher<E, P>) -> ()
@@ -32,13 +33,17 @@ where
     loop {
         match xs.try_next().await {
             Ok(Some(Event::Applied(e))) => {
-                if let Err(e) = simple_watcher.queue_tx.send(e.applied()).await {
-                    error!("Error sending Applied message: {}", e.to_string())
+                if let Some(msg) = e.applied() {
+                    if let Err(e) = simple_watcher.queue_tx.send(msg).await {
+                        error!("Error sending Applied message: {}", e.to_string())
+                    }
                 }
             }
             Ok(Some(Event::Deleted(e))) => {
-                if let Err(e) = simple_watcher.queue_tx.send(e.deleted()).await {
-                    error!("Error sending Deleted message: {}", e.to_string())
+                if let Some(msg) = e.deleted() {
+                    if let Err(e) = simple_watcher.queue_tx.send(msg).await {
+                        error!("Error sending Deleted message: {}", e.to_string())
+                    }
                 }
             }
             Ok(Some(Event::Restarted(_))) => {}
@@ -51,21 +56,21 @@ where
 }
 
 impl SimpleWatchingProtocol<InjectorPoolProtocol<ServiceIdentity>> for ServiceIdentity {
-    fn applied(&self) -> InjectorPoolProtocol<ServiceIdentity> {
-        InjectorPoolProtocol::FoundServiceIdentity(self.clone())
+    fn applied(&self) -> Option<InjectorPoolProtocol<ServiceIdentity>> {
+        Some(InjectorPoolProtocol::FoundServiceIdentity(self.clone()))
     }
 
-    fn deleted(&self) -> InjectorPoolProtocol<ServiceIdentity> {
-        InjectorPoolProtocol::DeletedServiceIdentity(self.clone())
+    fn deleted(&self) -> Option<InjectorPoolProtocol<ServiceIdentity>> {
+        Some(InjectorPoolProtocol::DeletedServiceIdentity(self.clone()))
     }
 }
 
 impl SimpleWatchingProtocol<InjectorPoolProtocol<ServiceIdentity>> for DeviceId {
-    fn applied(&self) -> InjectorPoolProtocol<ServiceIdentity> {
-        InjectorPoolProtocol::FoundDevideId(self.clone())
+    fn applied(&self) -> Option<InjectorPoolProtocol<ServiceIdentity>> {
+        Some(InjectorPoolProtocol::FoundDevideId(self.clone()))
     }
 
-    fn deleted(&self) -> InjectorPoolProtocol<ServiceIdentity> {
-        InjectorPoolProtocol::DeletedDevideId(self.clone())
+    fn deleted(&self) -> Option<InjectorPoolProtocol<ServiceIdentity>> {
+        Some(InjectorPoolProtocol::DeletedDevideId(self.clone()))
     }
 }
