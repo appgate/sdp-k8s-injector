@@ -8,4 +8,4 @@ type: application
 version: 0.3.0
 
 # Chart appVersion should be the same as ../chart/Chart.yaml
-appVersion: "5.5.1"
+appVersion: "0.1.0"
