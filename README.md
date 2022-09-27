@@ -39,12 +39,14 @@ The following tools are required to install the SDP Kubernetes Client:
         --set .sdp.host="<SDP_HOSTNAME>" \
         --set .sdp.adminSecret="<SECRET>"
     ```
-5. Create `sdp-demo` namespace and label the namespace with `sdp-injection="enabled"`
+5. To test the sidecar injection, create an example namespace `sdp-demo` and label it with `sdp-injection="enabled"`
     ```bash
     $ kubectl create namespace sdp-demo
     $ kubectl label namespace sdp-demo --overwrite sdp-injection="enabled"
     ```
-6. Test the installation by verifying a route through a gateway (via tun0), and ping a resource protected by SDP
+6. Create busybox deployment in the same namespace and verify:
+   1. There is a route through the gateway (via tun0)
+   2. A resource protected by SDP is reachable
     ```bash
     $ kubectl create deployment pingtest --namespace sdp-demo --image=busybox --replicas=1 -- sleep infinity
     $ kubectl exec -it $(kubectl get pod -n sdp-demo -l app=pingtest -o name --no-headers) -- sh
