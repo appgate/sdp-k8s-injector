@@ -21,6 +21,7 @@ use log::{debug, error, info, warn};
 use pool::{IdentityStore, InjectorPoolProtocolResponse, RegisteredDeviceId};
 use rustls::{Certificate, PrivateKey, ServerConfig};
 use rustls_pemfile::{read_one, Item};
+use sdp_common::constants::POD_DEVICE_ID_ANNOTATION;
 use sdp_common::crd::DeviceId;
 use serde::Deserialize;
 use std::collections::hash_map::RandomState;
@@ -435,10 +436,16 @@ impl Patched for SDPPod {
         // Fill DNS service ip
         environment.k8s_dns_service_ip = self.k8s_dns_service.maybe_ip().map(|s| s.clone());
 
-        let mut patches = vec![Add(AddOperation {
-            path: "/metadata/annotations/sdp-injection".to_string(),
-            value: serde_json::to_value("enabled")?,
-        })];
+        let mut patches = vec![
+            Add(AddOperation {
+                path: "/metadata/annotations/sdp-injection".to_string(),
+                value: serde_json::to_value("enabled")?,
+            }),
+            Add(AddOperation {
+                path: format!("/metadata/annotations/{}", POD_DEVICE_ID_ANNOTATION),
+                value: serde_json::to_value(&environment.client_device_id)?,
+            }),
+        ];
         if self.is_candidate() {
             let k8s_dns_service_ip = self.k8s_dns_service.maybe_ip();
             match k8s_dns_service_ip {
