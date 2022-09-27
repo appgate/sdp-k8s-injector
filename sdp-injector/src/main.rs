@@ -436,18 +436,19 @@ impl Patched for SDPPod {
         // Fill DNS service ip
         environment.k8s_dns_service_ip = self.k8s_dns_service.maybe_ip().map(|s| s.clone());
 
-        let mut patches = vec![
-            Add(AddOperation {
-                path: "/metadata/annotations/sdp-injection".to_string(),
-                value: serde_json::to_value("enabled")?,
-            }),
-            Add(AddOperation {
-                path: format!("/metadata/annotations/{}", POD_DEVICE_ID_ANNOTATION),
-                value: serde_json::to_value(&environment.client_device_id)?,
-            }),
-        ];
+        let mut patches = vec![];
         if self.is_candidate() {
             let k8s_dns_service_ip = self.k8s_dns_service.maybe_ip();
+            patches = vec![
+                Add(AddOperation {
+                    path: "/metadata/annotations/sdp-injection".to_string(),
+                    value: serde_json::to_value("enabled")?,
+                }),
+                Add(AddOperation {
+                    path: format!("/metadata/annotations/{}", POD_DEVICE_ID_ANNOTATION),
+                    value: serde_json::to_value(&environment.client_device_id)?,
+                }),
+            ];
             match k8s_dns_service_ip {
                 Some(ip) => {
                     info!("Found K8S DNS service IP: {}", ip);
