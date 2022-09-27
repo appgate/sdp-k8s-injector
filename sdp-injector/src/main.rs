@@ -18,7 +18,7 @@ use kube::api::{DynamicObject, ListParams};
 use kube::core::admission::{AdmissionRequest, AdmissionResponse, AdmissionReview};
 use kube::{Api, Client, Config};
 use log::{debug, error, info, warn};
-use pool::{IdentityStore, InjectorPoolProtocolResponse};
+use pool::{IdentityStore, InjectorPoolProtocolResponse, RegisteredDeviceId};
 use rustls::{Certificate, PrivateKey, ServerConfig};
 use rustls_pemfile::{read_one, Item};
 use sdp_common::crd::DeviceId;
@@ -122,8 +122,8 @@ struct KubeIdentityStore {
 }
 
 impl IdentityStore<ServiceIdentity> for KubeIdentityStore {
-    fn identity<'a>(
-        &'a self,
+    fn pop_device_id<'a>(
+        &'a mut self,
         service_id: &'a str,
     ) -> Pin<Box<dyn Future<Output = Option<(ServiceIdentity, Uuid)>> + Send + '_>> {
         let fut = async move {
@@ -169,15 +169,25 @@ impl IdentityStore<ServiceIdentity> for KubeIdentityStore {
 
     fn unregister_service<'a>(
         &'a mut self,
-        _service: &'a ServiceIdentity,
-    ) -> Pin<Box<dyn Future<Output = Option<(ServiceIdentity, DeviceId)>> + Send + '_>> {
+        _service_id: &'a str,
+    ) -> Pin<Box<dyn Future<Output = Option<(ServiceIdentity, RegisteredDeviceId)>> + Send + '_>>
+    {
         Box::pin(async move { None })
     }
 
     fn unregister_device_ids<'a>(
         &'a mut self,
-        _device_id: &'a DeviceId,
-    ) -> Pin<Box<dyn Future<Output = Option<(ServiceIdentity, DeviceId)>> + Send + '_>> {
+        _device_id: &'a str,
+    ) -> Pin<Box<dyn Future<Output = Option<(ServiceIdentity, RegisteredDeviceId)>> + Send + '_>>
+    {
+        Box::pin(async move { None })
+    }
+
+    fn push_device_id<'a>(
+        &'a mut self,
+        _service_id: &'a str,
+        _uuid: Uuid,
+    ) -> Pin<Box<dyn Future<Output = Option<Uuid>> + Send + '_>> {
         Box::pin(async move { None })
     }
 }
@@ -252,30 +262,33 @@ impl ServiceEnvironment {
 
     async fn from_identity_store<'a, E: IdentityStore<ServiceIdentity>>(
         pod: &Pod,
-        store: MutexGuard<'a, E>,
+        mut store: MutexGuard<'a, E>,
     ) -> Option<Self> {
-        store.identity(&pod.service_id_key()).await.map(|(s, d)| {
-            let (user_field, password_field, profile_field) =
-                s.spec.service_user.secrets_field_names(true);
-            let service_id = s.service_id();
-            let secrets_name = s
-                .credentials()
-                .secrets_name(&s.spec.service_namespace, &s.spec.service_name);
-            let config_name = s
-                .credentials()
-                .config_name(&s.spec.service_namespace, &s.spec.service_name);
-            ServiceEnvironment {
-                service_name: service_id.to_string(),
-                client_config: config_name,
-                client_secret_name: secrets_name,
-                client_secret_controller_url_key: profile_field,
-                client_secret_pwd_key: password_field,
-                client_secret_user_key: user_field,
-                client_device_id: d.to_string(),
-                n_containers: "0".to_string(),
-                k8s_dns_service_ip: None,
-            }
-        })
+        store
+            .pop_device_id(&pod.service_id_key())
+            .await
+            .map(|(s, d)| {
+                let (user_field, password_field, profile_field) =
+                    s.spec.service_user.secrets_field_names(true);
+                let service_id = s.service_id();
+                let secrets_name = s
+                    .credentials()
+                    .secrets_name(&s.spec.service_namespace, &s.spec.service_name);
+                let config_name = s
+                    .credentials()
+                    .config_name(&s.spec.service_namespace, &s.spec.service_name);
+                ServiceEnvironment {
+                    service_name: service_id.to_string(),
+                    client_config: config_name,
+                    client_secret_name: secrets_name,
+                    client_secret_controller_url_key: profile_field,
+                    client_secret_pwd_key: password_field,
+                    client_secret_user_key: user_field,
+                    client_device_id: d.to_string(),
+                    n_containers: "0".to_string(),
+                    k8s_dns_service_ip: None,
+                }
+            })
     }
 
     fn from_pod(pod: &Pod) -> Option<Self> {
