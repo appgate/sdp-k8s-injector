@@ -1838,6 +1838,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let k8s_client_cp2 = k8s_client.clone();
     let service_identity_api: Api<ServiceIdentity> =
         Api::namespaced(k8s_client.clone(), "sdp-system");
+    let pods_api: Api<Pod> = Api::all(k8s_client.clone());
     let device_ids_api: Api<DeviceId> = Api::namespaced(k8s_client, "sdp-system");
     let (pool_tx, pool_rx) = channel::<InjectorPoolProtocol<ServiceIdentity>>(50);
     let store = KubeIdentityStore {
@@ -1878,6 +1879,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     // We register new ServiceIdentity entieies in the store when created and de unregister them when deleted.
     let (watcher_tx, watcher_rx) = mpsc::channel::<InjectorPoolProtocol<ServiceIdentity>>(50);
     let watcher_tx2 = watcher_tx.clone();
+    let watcher_tx3 = watcher_tx.clone();
     tokio::spawn(async move {
         let watcher = Watcher {
             api: service_identity_api,
@@ -1892,6 +1894,17 @@ async fn main() -> Result<(), Box<dyn Error>> {
         let watcher = Watcher {
             api: device_ids_api,
             queue_tx: watcher_tx2,
+        };
+        watch(watcher).await;
+    });
+
+    // Thread to watch Pod entities
+    // When a Pod that is a candidate has been deleted, we just push back the device id it was using
+    // to the pool.
+    tokio::spawn(async move {
+        let watcher = Watcher {
+            api: pods_api,
+            queue_tx: watcher_tx3,
         };
         watch(watcher).await;
     });

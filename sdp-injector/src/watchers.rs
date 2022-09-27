@@ -7,7 +7,9 @@ use kube::{
     Api,
 };
 use log::error;
+use sdp_common::constants::POD_DEVICE_ID_ANNOTATION;
 use sdp_common::crd::{DeviceId, ServiceIdentity};
+use sdp_common::service::{Annotated, ServiceCandidate};
 use serde::de::DeserializeOwned;
 use std::fmt::Debug;
 use tokio::sync::mpsc::Sender;
@@ -72,5 +74,32 @@ impl SimpleWatchingProtocol<InjectorPoolProtocol<ServiceIdentity>> for DeviceId 
 
     fn deleted(&self) -> Option<InjectorPoolProtocol<ServiceIdentity>> {
         Some(InjectorPoolProtocol::DeletedDevideId(self.clone()))
+    }
+}
+
+impl SimpleWatchingProtocol<InjectorPoolProtocol<ServiceIdentity>> for Pod {
+    fn applied(&self) -> Option<InjectorPoolProtocol<ServiceIdentity>> {
+        None
+    }
+
+    fn deleted(&self) -> Option<InjectorPoolProtocol<ServiceIdentity>> {
+        self.annotation(POD_DEVICE_ID_ANNOTATION)
+            .and_then(|device_id| {
+                let uuid = uuid::Uuid::parse_str(device_id);
+                match uuid {
+                    Err(e) => {
+                        error!(
+                            "Error parsing device id from {}: {}",
+                            device_id,
+                            e.to_string()
+                        );
+                        None
+                    }
+                    Ok(uuid) => Some(InjectorPoolProtocol::ReleasedDevideId(
+                        self.service_id_key(),
+                        uuid,
+                    )),
+                }
+            })
     }
 }
