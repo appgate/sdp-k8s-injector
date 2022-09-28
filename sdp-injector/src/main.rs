@@ -137,7 +137,7 @@ impl IdentityStore<ServiceIdentity> for KubeIdentityStore {
                 ))
                 .await
             {
-                error!("Error trying to get a device if: {}", e.to_string());
+                error!("Error trying to get a device id: {}", e.to_string());
                 None
             } else {
                 match timeout(Duration::from_secs(5), q_rx.recv()).await {
