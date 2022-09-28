@@ -298,7 +298,9 @@ impl DeviceIdProvider<ServiceIdentity> {
                     Some(ev) => {
                         info!("Ignored event {:?}", ev);
                     },
-                    None => todo!(),
+                    None => {
+                        warn!("Event not found");
+                    }
                 }
             }
         }
