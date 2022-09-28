@@ -9,16 +9,16 @@ use tokio::sync::mpsc::{Receiver, Sender};
 use uuid::Uuid;
 
 #[derive(Debug)]
-pub enum InjectorPoolProtocol<A: ServiceCandidate + HasCredentials> {
+pub enum DeviceIdProviderRequestProtocol<A: ServiceCandidate + HasCredentials> {
     FoundServiceIdentity(A),
     FoundDevideId(DeviceId),
     DeletedServiceIdentity(A),
     DeletedDevideId(DeviceId),
-    RequestDeviceId(Sender<InjectorPoolProtocolResponse<A>>, String),
+    RequestDeviceId(Sender<DeviceIdProviderResponseProtocol<A>>, String),
     ReleasedDevideId(String, Uuid),
 }
 
-pub enum InjectorPoolProtocolResponse<A: ServiceCandidate + HasCredentials> {
+pub enum DeviceIdProviderResponseProtocol<A: ServiceCandidate + HasCredentials> {
     AssignedDeviceId(A, Uuid),
     NotFound,
 }
@@ -55,7 +55,7 @@ pub trait IdentityStore<A: ServiceCandidate + HasCredentials>: Send + Sync {
     ) -> Pin<Box<dyn Future<Output = Option<(A, RegisteredDeviceId)>> + Send + '_>>;
 }
 
-pub struct InjectorPool<A: ServiceCandidate + HasCredentials> {
+pub struct DeviceIdProvider<A: ServiceCandidate + HasCredentials> {
     store: Box<dyn IdentityStore<A> + Send>,
 }
 
@@ -250,25 +250,25 @@ impl IdentityStore<ServiceIdentity> for InMemoryIdentityStore {
     }
 }
 
-impl InjectorPool<ServiceIdentity> {
+impl DeviceIdProvider<ServiceIdentity> {
     pub async fn run(
         &mut self,
-        mut pool_rx: Receiver<InjectorPoolProtocol<ServiceIdentity>>,
-        mut watcher_rx: Receiver<InjectorPoolProtocol<ServiceIdentity>>,
+        mut provider_rx: Receiver<DeviceIdProviderRequestProtocol<ServiceIdentity>>,
+        mut watcher_rx: Receiver<DeviceIdProviderRequestProtocol<ServiceIdentity>>,
     ) {
         tokio::select! {
             val = watcher_rx.recv() => {
                 match val {
-                    Some(InjectorPoolProtocol::FoundServiceIdentity(s)) => {
+                    Some(DeviceIdProviderRequestProtocol::FoundServiceIdentity(s)) => {
                         self.store.register_service(s);
                     },
-                    Some(InjectorPoolProtocol::DeletedServiceIdentity(s)) => {
+                    Some(DeviceIdProviderRequestProtocol::DeletedServiceIdentity(s)) => {
                         self.store.unregister_service(&s.service_id_key());
                     },
-                    Some(InjectorPoolProtocol::FoundDevideId(id)) => {
+                    Some(DeviceIdProviderRequestProtocol::FoundDevideId(id)) => {
                         self.store.register_device_ids(id);
                     },
-                    Some(InjectorPoolProtocol::DeletedDevideId(id)) => {
+                    Some(DeviceIdProviderRequestProtocol::DeletedDevideId(id)) => {
                         self.store.unregister_device_ids(&id.service_id_key());
                     },
                     Some(ev) => {
@@ -279,19 +279,19 @@ impl InjectorPool<ServiceIdentity> {
                     },
                 }
             },
-            val = pool_rx.recv() => {
+            val = provider_rx.recv() => {
                 match val {
-                    Some(InjectorPoolProtocol::RequestDeviceId(q_tx, service_id)) => {
+                    Some(DeviceIdProviderRequestProtocol::RequestDeviceId(q_tx, service_id)) => {
                         let msg = if let Some((service_identity, uuid)) = self.store.pop_device_id(&service_id).await {
-                            InjectorPoolProtocolResponse::AssignedDeviceId(service_identity.clone(), uuid)
+                            DeviceIdProviderResponseProtocol::AssignedDeviceId(service_identity.clone(), uuid)
                         } else {
-                            InjectorPoolProtocolResponse::NotFound
+                            DeviceIdProviderResponseProtocol::NotFound
                         };
                         if let Err(e) = q_tx.send(msg).await {
                             error!("Error assigning devide id: {}", e.to_string());
                         }
                     },
-                    Some(InjectorPoolProtocol::ReleasedDevideId(service_id, uuid)) => {
+                    Some(DeviceIdProviderRequestProtocol::ReleasedDevideId(service_id, uuid)) => {
                         // Remove device id from the list of reserved ids
                         self.store.push_device_id(&service_id, uuid);
                     },
@@ -305,7 +305,7 @@ impl InjectorPool<ServiceIdentity> {
     }
 
     pub fn new(store: Option<Box<dyn IdentityStore<ServiceIdentity> + Send>>) -> Self {
-        InjectorPool {
+        DeviceIdProvider {
             store: store.unwrap_or(Box::new(InMemoryIdentityStore::new())),
         }
     }

@@ -1,3 +1,4 @@
+use deviceid::{DeviceIdProviderResponseProtocol, IdentityStore, RegisteredDeviceId};
 use futures_util::stream::StreamExt;
 use futures_util::Future;
 use http::{Method, StatusCode, Uri};
@@ -18,7 +19,6 @@ use kube::api::{DynamicObject, ListParams};
 use kube::core::admission::{AdmissionRequest, AdmissionResponse, AdmissionReview};
 use kube::{Api, Client, Config};
 use log::{debug, error, info, warn};
-use pool::{IdentityStore, InjectorPoolProtocolResponse, RegisteredDeviceId};
 use rustls::{Certificate, PrivateKey, ServerConfig};
 use rustls_pemfile::{read_one, Item};
 use sdp_common::constants::POD_DEVICE_ID_ANNOTATION;
@@ -44,7 +44,7 @@ use tokio::sync::{mpsc, Mutex, MutexGuard};
 use tokio::time::timeout;
 use uuid::Uuid;
 
-use crate::pool::{InjectorPool, InjectorPoolProtocol};
+use crate::deviceid::{DeviceIdProvider, DeviceIdProviderRequestProtocol};
 use crate::watchers::{watch, Watcher};
 use sdp_common::service::{
     is_injection_disabled, Annotated, HasCredentials, ServiceCandidate, ServiceIdentity, Validated,
@@ -65,7 +65,7 @@ const SDP_ANNOTATION_CLIENT_SECRETS: &str = "sdp-injector-client-secrets";
 const SDP_ANNOTATION_CLIENT_DEVICE_ID: &str = "sdp-injector-client-device-id";
 const SDP_DNS_SERVICE_NAMES: [&str; 2] = ["kube-dns", "coredns"];
 
-mod pool;
+mod deviceid;
 mod watchers;
 
 macro_rules! env_var {
@@ -119,7 +119,7 @@ macro_rules! env_var {
     }};
 }
 struct KubeIdentityStore {
-    pool_q_tx: Sender<InjectorPoolProtocol<ServiceIdentity>>,
+    device_id_q_tx: Sender<DeviceIdProviderRequestProtocol<ServiceIdentity>>,
 }
 
 impl IdentityStore<ServiceIdentity> for KubeIdentityStore {
@@ -128,10 +128,10 @@ impl IdentityStore<ServiceIdentity> for KubeIdentityStore {
         service_id: &'a str,
     ) -> Pin<Box<dyn Future<Output = Option<(ServiceIdentity, Uuid)>> + Send + '_>> {
         let fut = async move {
-            let (q_tx, mut q_rx) = channel::<InjectorPoolProtocolResponse<ServiceIdentity>>(1);
+            let (q_tx, mut q_rx) = channel::<DeviceIdProviderResponseProtocol<ServiceIdentity>>(1);
             if let Err(e) = self
-                .pool_q_tx
-                .send(InjectorPoolProtocol::RequestDeviceId(
+                .device_id_q_tx
+                .send(DeviceIdProviderRequestProtocol::RequestDeviceId(
                     q_tx,
                     service_id.to_string(),
                 ))
@@ -141,11 +141,11 @@ impl IdentityStore<ServiceIdentity> for KubeIdentityStore {
                 None
             } else {
                 match timeout(Duration::from_secs(5), q_rx.recv()).await {
-                    Ok(Some(InjectorPoolProtocolResponse::AssignedDeviceId(
+                    Ok(Some(DeviceIdProviderResponseProtocol::AssignedDeviceId(
                         service_identity,
                         device_id,
                     ))) => Some((service_identity, device_id)),
-                    Ok(Some(InjectorPoolProtocolResponse::NotFound)) => None,
+                    Ok(Some(DeviceIdProviderResponseProtocol::NotFound)) => None,
                     Ok(None) => None,
                     Err(_e) => None,
                 }
@@ -793,7 +793,7 @@ async fn get_dns_service(k8s_client: &Client) -> Result<Option<Body>, Box<dyn Er
 
 #[cfg(test)]
 mod tests {
-    use crate::pool::{IdentityStore, InMemoryIdentityStore};
+    use crate::deviceid::{IdentityStore, InMemoryIdentityStore};
     use crate::{
         load_sidecar_containers, patch_pod, Patched, SDPPatchContext, SDPPod, SDPSidecars,
         ServiceEnvironment, Validated, SDP_ANNOTATION_CLIENT_CONFIG,
@@ -1851,9 +1851,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
         Api::namespaced(k8s_client.clone(), "sdp-system");
     let pods_api: Api<Pod> = Api::all(k8s_client.clone());
     let device_ids_api: Api<DeviceId> = Api::namespaced(k8s_client, "sdp-system");
-    let (pool_tx, pool_rx) = channel::<InjectorPoolProtocol<ServiceIdentity>>(50);
+    let (device_id_tx, device_id_rx) =
+        channel::<DeviceIdProviderRequestProtocol<ServiceIdentity>>(50);
     let store = KubeIdentityStore {
-        pool_q_tx: pool_tx.clone(),
+        device_id_q_tx: device_id_tx.clone(),
     };
     let sdp_sidecars: SDPSidecars =
         load_sidecar_containers().expect("Unable to load the sidecar information");
@@ -1888,7 +1889,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     // Thread to watch ServideIdentity entities
     // We register new ServiceIdentity entieies in the store when created and de unregister them when deleted.
-    let (watcher_tx, watcher_rx) = mpsc::channel::<InjectorPoolProtocol<ServiceIdentity>>(50);
+    let (watcher_tx, watcher_rx) =
+        mpsc::channel::<DeviceIdProviderRequestProtocol<ServiceIdentity>>(50);
     let watcher_tx2 = watcher_tx.clone();
     let watcher_tx3 = watcher_tx.clone();
     tokio::spawn(async move {
@@ -1910,8 +1912,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
     });
 
     // Thread to watch Pod entities
-    // When a Pod that is a candidate has been deleted, we just push back the device id it was using
-    // to the pool.
+    // When a Pod that is a candidate has been deleted, we just return back the device id
+    // it was using to the device ids provider.
     tokio::spawn(async move {
         let watcher = Watcher {
             api: pods_api,
@@ -1922,8 +1924,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     // Spawn the main Store
     tokio::spawn(async move {
-        let mut did_pool = InjectorPool::new(None);
-        did_pool.run(pool_rx, watcher_rx).await;
+        let mut device_id_provider = DeviceIdProvider::new(None);
+        device_id_provider.run(device_id_rx, watcher_rx).await;
     });
     let server = Server::builder(accept::from_stream(incoming)).serve(make_service);
     server.await?;

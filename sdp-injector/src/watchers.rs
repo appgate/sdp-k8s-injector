@@ -14,7 +14,7 @@ use serde::de::DeserializeOwned;
 use std::fmt::Debug;
 use tokio::sync::mpsc::Sender;
 
-use crate::pool::InjectorPoolProtocol;
+use crate::deviceid::DeviceIdProviderRequestProtocol;
 
 pub struct Watcher<E, P> {
     pub api: Api<E>,
@@ -57,32 +57,38 @@ where
     }
 }
 
-impl SimpleWatchingProtocol<InjectorPoolProtocol<ServiceIdentity>> for ServiceIdentity {
-    fn applied(&self) -> Option<InjectorPoolProtocol<ServiceIdentity>> {
-        Some(InjectorPoolProtocol::FoundServiceIdentity(self.clone()))
+impl SimpleWatchingProtocol<DeviceIdProviderRequestProtocol<ServiceIdentity>> for ServiceIdentity {
+    fn applied(&self) -> Option<DeviceIdProviderRequestProtocol<ServiceIdentity>> {
+        Some(DeviceIdProviderRequestProtocol::FoundServiceIdentity(
+            self.clone(),
+        ))
     }
 
-    fn deleted(&self) -> Option<InjectorPoolProtocol<ServiceIdentity>> {
-        Some(InjectorPoolProtocol::DeletedServiceIdentity(self.clone()))
-    }
-}
-
-impl SimpleWatchingProtocol<InjectorPoolProtocol<ServiceIdentity>> for DeviceId {
-    fn applied(&self) -> Option<InjectorPoolProtocol<ServiceIdentity>> {
-        Some(InjectorPoolProtocol::FoundDevideId(self.clone()))
-    }
-
-    fn deleted(&self) -> Option<InjectorPoolProtocol<ServiceIdentity>> {
-        Some(InjectorPoolProtocol::DeletedDevideId(self.clone()))
+    fn deleted(&self) -> Option<DeviceIdProviderRequestProtocol<ServiceIdentity>> {
+        Some(DeviceIdProviderRequestProtocol::DeletedServiceIdentity(
+            self.clone(),
+        ))
     }
 }
 
-impl SimpleWatchingProtocol<InjectorPoolProtocol<ServiceIdentity>> for Pod {
-    fn applied(&self) -> Option<InjectorPoolProtocol<ServiceIdentity>> {
+impl SimpleWatchingProtocol<DeviceIdProviderRequestProtocol<ServiceIdentity>> for DeviceId {
+    fn applied(&self) -> Option<DeviceIdProviderRequestProtocol<ServiceIdentity>> {
+        Some(DeviceIdProviderRequestProtocol::FoundDevideId(self.clone()))
+    }
+
+    fn deleted(&self) -> Option<DeviceIdProviderRequestProtocol<ServiceIdentity>> {
+        Some(DeviceIdProviderRequestProtocol::DeletedDevideId(
+            self.clone(),
+        ))
+    }
+}
+
+impl SimpleWatchingProtocol<DeviceIdProviderRequestProtocol<ServiceIdentity>> for Pod {
+    fn applied(&self) -> Option<DeviceIdProviderRequestProtocol<ServiceIdentity>> {
         None
     }
 
-    fn deleted(&self) -> Option<InjectorPoolProtocol<ServiceIdentity>> {
+    fn deleted(&self) -> Option<DeviceIdProviderRequestProtocol<ServiceIdentity>> {
         self.is_candidate()
             .then_some(true)
             .and_then(|_| self.annotation(POD_DEVICE_ID_ANNOTATION))
@@ -97,7 +103,7 @@ impl SimpleWatchingProtocol<InjectorPoolProtocol<ServiceIdentity>> for Pod {
                         );
                         None
                     }
-                    Ok(uuid) => Some(InjectorPoolProtocol::ReleasedDevideId(
+                    Ok(uuid) => Some(DeviceIdProviderRequestProtocol::ReleasedDevideId(
                         self.service_id_key(),
                         uuid,
                     )),
