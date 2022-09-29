@@ -1,4 +1,4 @@
-use crate::constants::IDENTITY_MANAGER_SECRET_NAME;
+use crate::constants::{IDENTITY_MANAGER_SECRET_NAME, POD_DEVICE_ID_ANNOTATION};
 pub use crate::crd::ServiceIdentity;
 use crate::sdp::{auth::SDPUser, system::ClientProfileUrl};
 use json_patch::PatchOperation::Remove;
@@ -469,7 +469,9 @@ impl ServiceCandidate for Pod {
     }
 
     fn is_candidate(&self) -> bool {
-        false
+        Annotated::annotation(self, "sdp-injection")
+            .map(|v| v.eq("enabled"))
+            .unwrap_or(false)
     }
 }
 

@@ -202,7 +202,7 @@ fn reader_from_cwd(file_name: &str) -> Result<BufReader<File>, Box<dyn Error>> {
 async fn dns_service_discover<'a>(k8s_client: &'a Client) -> Option<Service> {
     let names: HashSet<&str, RandomState> = HashSet::from_iter(SDP_DNS_SERVICE_NAMES);
     let services_api: Api<Service> = Api::namespaced(k8s_client.clone(), "kube-system");
-    info!("Discovering K8S DNS service");
+    debug!("Discovering K8S DNS service");
     let services = services_api.list(&ListParams::default()).await;
     services
         .map(|xs| {
@@ -427,8 +427,6 @@ impl ServiceCandidate for SDPPod {
 
 impl Patched for SDPPod {
     fn patch(&self, environment: &mut ServiceEnvironment) -> Result<Patch, Box<dyn Error>> {
-        info!("Patching POD with SDP client");
-
         // Fill # of contaienrs
         let n_containers = self.containers().map(|xs| xs.len()).unwrap_or(0);
         environment.n_containers = format!("{}", n_containers);
@@ -441,6 +439,10 @@ impl Patched for SDPPod {
             let k8s_dns_service_ip = self.k8s_dns_service.maybe_ip();
             patches = vec![
                 Add(AddOperation {
+                    path: "/metadata/annotations".to_string(),
+                    value: serde_json::to_value(HashMap::<String, String>::new())?,
+                }),
+                Add(AddOperation {
                     path: "/metadata/annotations/sdp-injection".to_string(),
                     value: serde_json::to_value("enabled")?,
                 }),
@@ -449,13 +451,8 @@ impl Patched for SDPPod {
                     value: serde_json::to_value(&environment.client_device_id)?,
                 }),
             ];
-            match k8s_dns_service_ip {
-                Some(ip) => {
-                    info!("Found K8S DNS service IP: {}", ip);
-                }
-                None => {
-                    warn!("Unable to get K8S service IP");
-                }
+            if k8s_dns_service_ip.is_none() {
+                warn!("Unable to get K8S service IP");
             };
             for c in self.sdp_sidecars.containers.clone().iter_mut() {
                 c.env = Some(environment.variables(&c.name));
@@ -1831,8 +1828,6 @@ pub type Acceptor = tokio_rustls::TlsAcceptor;
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     env_logger::init();
-    info!("Starting sdp-injector!!!!");
-
     let mut k8s_host = String::from("https://");
     k8s_host.push_str(&std::env::var(SDP_K8S_HOST_ENV).unwrap_or(SDP_K8S_HOST_DEFAULT.to_string()));
     let k8s_uri = k8s_host
@@ -1894,6 +1889,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let watcher_tx2 = watcher_tx.clone();
     let watcher_tx3 = watcher_tx.clone();
     tokio::spawn(async move {
+        info!("Starting ServiceIdentity watcher");
         let watcher = Watcher {
             api: service_identity_api,
             queue_tx: watcher_tx,
@@ -1904,6 +1900,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     // Thread to watch DeviceId entities
     // We register new DeviceId entieies in the store when created and de unregister them when deleted.
     tokio::spawn(async move {
+        info!("Starting DeviceId watcher");
         let watcher = Watcher {
             api: device_ids_api,
             queue_tx: watcher_tx2,
@@ -1915,6 +1912,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     // When a Pod that is a candidate has been deleted, we just return back the device id
     // it was using to the device ids provider.
     tokio::spawn(async move {
+        info!("Starting POD watcher");
         let watcher = Watcher {
             api: pods_api,
             queue_tx: watcher_tx3,
@@ -1927,6 +1925,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
         let mut device_id_provider = DeviceIdProvider::new(None);
         device_id_provider.run(device_id_rx, watcher_rx).await;
     });
+
+    info!("Starting sdp-injector server");
     let server = Server::builder(accept::from_stream(incoming)).serve(make_service);
     server.await?;
     Ok(())
