@@ -7,9 +7,9 @@ use kube::runtime::watcher::{self, Event};
 use kube::{Api, Client};
 use log::{error, info, warn};
 use sdp_common::crd::{DeviceId, ServiceIdentity};
+use sdp_common::kubernetes::SDP_K8S_NAMESPACE;
 use sdp_common::service::{HasCredentials, ServiceCandidate};
 use tokio::sync::mpsc::{Receiver, Sender};
-use sdp_common::kubernetes::SDP_K8S_NAMESPACE;
 
 #[derive(Debug)]
 pub enum ServiceIdentityWatcherProtocol {
