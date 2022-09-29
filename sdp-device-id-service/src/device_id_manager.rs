@@ -142,7 +142,7 @@ impl DeviceIdAPI for KubeDeviceIdManager {
                                     service_identity.metadata.uid.clone().unwrap_or_default();
 
                                 if let Some(num_replicas) = replicaset.spec.unwrap().replicas {
-                                    for _ in 0..num_replicas {
+                                    for _ in 0..(2 * num_replicas) {
                                         let uuid = Uuid::new_v4().to_string();
                                         info!(
                                             "Assigning uuid {} to DeviceID {}",
