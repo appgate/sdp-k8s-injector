@@ -8,10 +8,10 @@ metadata:
 rules:
   - apiGroups: [ "injector.sdp.com" ]
     resources: [ "deviceids" ]
-    verbs: [ "get" ]
+    verbs: [ "get", "list", "watch" ]
   - apiGroups: [ "injector.sdp.com" ]
     resources: [ "serviceidentities" ]
-    verbs: [ "get", "list" ]
+    verbs: [ "get", "list", "watch" ]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
