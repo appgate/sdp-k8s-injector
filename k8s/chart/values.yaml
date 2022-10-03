@@ -31,15 +31,13 @@ sdp:
   host: ""
   adminSecret: ""
 
+  ## @param sdp.selfClient.enabled Whether to set up a SDP client on the Identity Service
+  ## @param sdp.selfClient.adminSecret Name of the secret for initial authentication
+  ## @param sdp.selfClient.adminConfig Name of the config for initial authentication
   selfClient:
-    ## @param sdp.selfClient.enabled
     enabled: false
-    ## @param sdp.adminSecret Name of the secret for initial authentication
     adminSecret: ""
-    ## @param sdp.adminSecret Name of the secret for initial authentication
     adminConfig: ""
-    ## @param sdp.adminSecret Name of the secret for initial authentication
-    DNService: ""
 
   ## @param sdp.injector.logLevel SDP Injector log level.
   ## @param sdp.injector.replica Number of Device ID Service replicas to deploy

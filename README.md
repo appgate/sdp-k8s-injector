@@ -80,6 +80,9 @@ sdp-demo      Active   1m     enabled
 | `cert-manager.installCRDs`             | Whether to install cert-manager CRDs.                                                    | `true`                            |
 | `sdp.host`                             | Hostname of the SDP controller                                                           | `""`                              |
 | `sdp.adminSecret`                      | Name of the secret for initial authentication                                            | `""`                              |
+| `sdp.selfClient.enabled`               | Whether to set up a SDP client on the Identity Service                                   | `false`                           |
+| `sdp.selfClient.adminSecret`           | Name of the secret for initial authentication                                            | `""`                              |
+| `sdp.selfClient.adminConfig`           | Name of the config for initial authentication                                            | `""`                              |
 | `sdp.injector.logLevel`                | SDP Injector log level.                                                                  | `info`                            |
 | `sdp.injector.replica`                 | Number of Device ID Service replicas to deploy                                           | `1`                               |
 | `sdp.injector.certDays`                | How many days will be the SDP Injector certificate be valid.                             | `365`                             |
