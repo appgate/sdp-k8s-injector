@@ -31,13 +31,15 @@ sdp:
   host: ""
   adminSecret: ""
 
-  ## @param sdp.selfClient.enabled Whether to set up a SDP client on the Identity Service
+  ## @param sdp.selfClient.enabled Whether to set up an SDP client on the Identity Service
   ## @param sdp.selfClient.adminSecret Name of the secret for initial authentication
   ## @param sdp.selfClient.adminConfig Name of the config for initial authentication
+  ## @param sdp.selfClient.dnsService IP of the kube-dns service
   selfClient:
     enabled: false
     adminSecret: ""
     adminConfig: ""
+    dnsService: ""
 
   ## @param sdp.injector.logLevel SDP Injector log level.
   ## @param sdp.injector.replica Number of Device ID Service replicas to deploy
