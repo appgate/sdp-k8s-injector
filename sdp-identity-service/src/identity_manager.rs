@@ -7,9 +7,10 @@ pub use sdp_common::crd::{ServiceIdentity, ServiceIdentitySpec};
 use sdp_common::service::{HasCredentials, ServiceCandidate, ServiceUser};
 use sdp_macros::{queue_debug, sdp_error, sdp_info, sdp_log, sdp_warn};
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::fmt;
+use std::{fmt, time};
 use std::iter::FromIterator;
 use std::pin::Pin;
+use std::thread::sleep;
 use tokio::sync::mpsc::{Receiver, Sender};
 
 use crate::deployment_watcher::DeploymentWatcherProtocol;
@@ -645,6 +646,9 @@ impl IdentityManagerRunner<Deployment, ServiceIdentity> {
         deployment_watcher_proto_tx: Sender<DeploymentWatcherProtocol>,
         external_queue_tx: Option<Sender<IdentityManagerProtocol<Deployment, ServiceIdentity>>>,
     ) -> () {
+        info!("Sleeping for 10 seconds to let sidecar to catchup");
+        sleep(time::Duration::from_secs(10));
+
         info!("Starting Identity Manager service");
         IdentityManagerRunner::initialize(&mut self.im).await;
 
