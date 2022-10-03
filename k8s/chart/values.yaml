@@ -31,6 +31,16 @@ sdp:
   host: ""
   adminSecret: ""
 
+  selfClient:
+    ## @param sdp.selfClient.enabled
+    enabled: false
+    ## @param sdp.adminSecret Name of the secret for initial authentication
+    adminSecret: ""
+    ## @param sdp.adminSecret Name of the secret for initial authentication
+    adminConfig: ""
+    ## @param sdp.adminSecret Name of the secret for initial authentication
+    DNService: ""
+
   ## @param sdp.injector.logLevel SDP Injector log level.
   ## @param sdp.injector.replica Number of Device ID Service replicas to deploy
   ## @param sdp.injector.certDays How many days will be the SDP Injector certificate be valid.
@@ -112,4 +122,3 @@ sdp:
 service:
   type: ClusterIP
   port: 443
-

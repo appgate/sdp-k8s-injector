@@ -20,7 +20,93 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       serviceAccountName: {{ include "sdp-k8s-client.serviceAccountName" .}}-identity-service
+      {{ if eq .Values.sdp.selfClient.enabled true }}
+      volumes:
+        - name: run-sdp-driver
+        - name: run-sdp-dnsmasq
+        - hostPath:
+            path: /dev/net/tun
+          name: tun-device
+        - name: pod-info
+          downwardAPI:
+            items:
+              - path: "labels"
+                fieldRef:
+                  fieldPath: metadata.labels
+              - path: "annotations"
+                fieldRef:
+                  fieldPath: metadata.annotations
+      {{ end }}
       containers:
+        {{ if eq .Values.sdp.selfClient.enabled true }}
+        - name: {{ .Chart.Name }}-sdp-service
+          image: {{ default .Values.global.image.repository .Values.sdp.headlessService.image.repository }}/sdp-headless-service:{{ default (include "sdp-k8s-client.defaultTag" .) .Values.sdp.headlessService.image.tag }}
+          imagePullPolicy: {{ .Values.sdp.headlessService.image.pullPolicy }}
+          securityContext:
+            runAsGroup: 102
+            runAsUser: 103
+            runAsNonRoot: true
+          volumeMounts:
+            - mountPath: /var/run/sdp-driver
+              name: run-sdp-driver
+            - mountPath: /etc/pod-info
+              name: pod-info
+          env:
+            - name: CLIENT_LOG_LEVEL
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ required ".Values.sdp.selfClient.adminConfig is required" .Values.sdp.selfClient.adminConfig }}
+                  key: client-log-level
+            - name: CLIENT_DEVICE_ID
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ required ".Values.sdp.selfClient.adminConfig is required" .Values.sdp.selfClient.adminConfig }}
+                  key: client-device-id
+            - name: CLIENT_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: {{ required ".Values.sdp.selfClient.adminSecret is required" .Values.sdp.selfClient.adminSecret }}
+                  key: client-username
+            - name: CLIENT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ required ".Values.sdp.selfClient.adminSecret is required" .Values.sdp.selfClient.adminSecret }}
+                  key: client-password
+            - name: CLIENT_CONTROLLER_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ required ".Values.sdp.selfClient.adminSecret is required" .Values.sdp.selfClient.adminSecret }}
+                  key: client-controller-url
+            - name: K8S_DNS_SERVICE
+              value: {{ required ".Values.sdp.selfClient.dnsService is required" .Values.sdp.selfClient.dnsService }}
+        - name: {{ .Chart.Name }}-sdp-driver
+          image: {{ default .Values.global.image.repository .Values.sdp.headlessDriver.image.repository }}/sdp-headless-driver:{{ default (include "sdp-k8s-client.defaultTag" .) .Values.sdp.headlessDriver.image.tag }}
+          imagePullPolicy: {{ .Values.sdp.headlessDriver.image.pullPolicy }}
+          securityContext:
+            runAsGroup: 101
+            runAsUser: 103
+            runAsNonRoot: true
+            capabilities:
+              add: [ "NET_ADMIN", "NET_BIND_SERVICE" ]
+          volumeMounts:
+            - mountPath: /var/run/sdp-driver
+              name: run-sdp-driver
+            - mountPath: /var/run/sdp-dnsmasq
+              name: run-sdp-dnsmasq
+            - mountPath: /dev/net/tun
+              name: tun-device
+        - name: {{ .Chart.Name }}-sdp-dnsmasq
+          image: {{ default .Values.global.image.repository .Values.sdp.dnsmasq.image.repository }}/sdp-dnsmasq:{{ default (include "sdp-k8s-client.defaultTag" .) .Values.sdp.dnsmasq.image.tag }}
+          imagePullPolicy: {{ .Values.sdp.dnsmasq.image.pullPolicy }}
+          securityContext:
+            runAsGroup: 101
+            runAsUser: 100
+            runAsNonRoot: true
+          volumeMounts:
+              - mountPath: /var/run/sdp-dnsmasq
+                name: run-sdp-dnsmasq
+          command: ["/sdp-dnsmasq/sdp-dnsmasq"]
+        {{end}}
         - name: {{ .Chart.Name }}-identity-service
           env:
             - name: RUST_LOG
