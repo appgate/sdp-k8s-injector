@@ -1,12 +1,14 @@
-use crate::constants::{IDENTITY_MANAGER_SECRET_NAME, POD_DEVICE_ID_ANNOTATION};
+use crate::constants::IDENTITY_MANAGER_SECRET_NAME;
 pub use crate::crd::ServiceIdentity;
 use crate::sdp::{auth::SDPUser, system::ClientProfileUrl};
 use json_patch::PatchOperation::Remove;
 use json_patch::{Patch, RemoveOperation};
 use k8s_openapi::api::apps::v1::Deployment;
 use k8s_openapi::api::core::v1::{ConfigMap, Pod};
+use k8s_openapi::Resource;
 use k8s_openapi::{api::core::v1::Secret, ByteString};
 use kube::api::{DeleteParams, Patch as KubePatch, PatchParams, PostParams};
+use kube::core::admission::AdmissionRequest;
 use kube::{Api, ResourceExt};
 use log::{error, info, warn};
 use schemars::JsonSchema;
@@ -345,23 +347,26 @@ impl ServiceUser {
     }
 }
 
-pub fn is_injection_disabled<A: Annotated>(entity: &A) -> bool {
-    entity
-        .annotation(SDP_INJECTOR_ANNOTATION)
-        .map(|v| v.to_lowercase() == "false" || v == "0")
-        .unwrap_or(false)
-}
-
 pub trait Annotated {
-    fn annotations(&self) -> &BTreeMap<String, String>;
+    fn annotations(&self) -> Option<&BTreeMap<String, String>>;
 
     fn annotation(&self, annotation: &str) -> Option<&String> {
-        self.annotations().get(annotation)
+        self.annotations().and_then(|m| m.get(annotation))
     }
 }
 
 pub trait Validated {
-    fn validate(&self) -> Result<(), String>;
+    fn validate<R: ObjectRequest<Pod>>(&self, request: R) -> Result<(), String>;
+}
+
+pub trait ObjectRequest<O: Resource> {
+    fn object(&self) -> Option<&O>;
+}
+
+impl ObjectRequest<Pod> for AdmissionRequest<Pod> {
+    fn object(&self) -> Option<&Pod> {
+        self.object.as_ref()
+    }
 }
 
 pub fn generate_service_id(namespace: &str, name: &str, internal: bool) -> String {
@@ -391,14 +396,20 @@ pub trait ServiceCandidate {
 }
 
 impl Annotated for Pod {
-    fn annotations(&self) -> &BTreeMap<String, String> {
-        ResourceExt::annotations(self)
+    fn annotations(&self) -> Option<&BTreeMap<String, String>> {
+        Some(ResourceExt::annotations(self))
+    }
+}
+
+impl Annotated for AdmissionRequest<Pod> {
+    fn annotations(&self) -> Option<&BTreeMap<String, String>> {
+        self.object.as_ref().and_then(|p| Annotated::annotations(p))
     }
 }
 
 impl Annotated for Deployment {
-    fn annotations(&self) -> &BTreeMap<String, String> {
-        ResourceExt::annotations(self)
+    fn annotations(&self) -> Option<&BTreeMap<String, String>> {
+        Some(ResourceExt::annotations(self))
     }
 }
 
@@ -433,11 +444,9 @@ impl ServiceCandidate for Deployment {
     }
 }
 
-/// Pod are the main source of ServiceCandidate
-/// Final ServiceIdentity are created from Pod
 impl ServiceCandidate for Pod {
     fn name(&self) -> String {
-        let name: Option<String> = self
+        let name = self
             .metadata
             .name
             .as_ref()
@@ -453,15 +462,21 @@ impl ServiceCandidate for Pod {
                     .map(|s| (s.split("-").collect(), 2))
             })
             .map(|(xs, n)| xs[0..(xs.len() - n)].join("-"));
-        if let None = name {
-            error!("Unable to find service name for Pod, ignoring it");
+        if let Some(name) = name {
+            name
+        } else {
+            error!("Unable to find service name for Pod, generating a random one!");
+            uuid::Uuid::new_v4().to_string()
         }
-        // A ServiceCandidate needs always a name
-        name.expect("Found POD without service information")
     }
 
     fn namespace(&self) -> String {
-        ResourceExt::namespace(self).unwrap_or("default".to_string())
+        if let Some(ns) = ResourceExt::namespace(self) {
+            ns.clone()
+        } else {
+            error!("Unable to find service namespace for POD inside admission request, generating a random one!");
+            uuid::Uuid::new_v4().to_string()
+        }
     }
 
     fn labels(&self) -> HashMap<String, String> {
@@ -472,6 +487,74 @@ impl ServiceCandidate for Pod {
         Annotated::annotation(self, "sdp-injection")
             .map(|v| v.eq("enabled"))
             .unwrap_or(false)
+    }
+}
+
+impl ServiceCandidate for AdmissionRequest<Pod> {
+    fn name(&self) -> String {
+        let mut name = None;
+        if let Some(pod) = self.object.as_ref() {
+            name = pod
+                .metadata
+                .name
+                .as_ref()
+                .map(|n| (n.split("-").collect::<Vec<&str>>(), 2))
+                .or_else(|| {
+                    let os = pod.owner_references();
+                    (os.len() > 0).then_some((os[0].name.split("-").collect(), 1))
+                })
+                .or_else(|| {
+                    pod.metadata
+                        .generate_name
+                        .as_ref()
+                        .map(|s| (s.split("-").collect(), 2))
+                })
+                .map(|(xs, n)| xs[0..(xs.len() - n)].join("-"));
+        } else {
+            error!("Unable to find POD inside admission request, ignoring it");
+        }
+        if let Some(name) = name {
+            name
+        } else {
+            error!("Unable to find service name for Pod, generating a random one!");
+            uuid::Uuid::new_v4().to_string()
+        }
+    }
+
+    fn namespace(&self) -> String {
+        let ns = match (
+            self.namespace.as_ref(),
+            self.object
+                .as_ref()
+                .and_then(|r| r.metadata.namespace.as_ref()),
+        ) {
+            (_, Some(ns)) => Some(ns),
+            (Some(ns), None) => Some(ns),
+            _ => None,
+        };
+        if let Some(ns) = ns {
+            ns.clone()
+        } else {
+            error!("Unable to find service namespace for POD inside admission request, generating a random one!");
+            uuid::Uuid::new_v4().to_string()
+        }
+    }
+
+    fn labels(&self) -> HashMap<String, String> {
+        HashMap::default()
+    }
+
+    fn is_candidate(&self) -> bool {
+        let maybe_candidate = self.object.as_ref().map(|pod| {
+            Annotated::annotation(pod, "sdp-injection")
+                .map(|v| v.eq("enabled"))
+                .unwrap_or(false)
+        });
+        if let None = maybe_candidate {
+            false
+        } else {
+            maybe_candidate.unwrap_or(false)
+        }
     }
 }
 
