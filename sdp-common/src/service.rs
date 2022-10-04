@@ -4,7 +4,7 @@ use crate::sdp::{auth::SDPUser, system::ClientProfileUrl};
 use json_patch::PatchOperation::Remove;
 use json_patch::{Patch, RemoveOperation};
 use k8s_openapi::api::apps::v1::Deployment;
-use k8s_openapi::api::core::v1::{ConfigMap, Pod};
+use k8s_openapi::api::core::v1::{ConfigMap, Container, Pod, Volume};
 use k8s_openapi::Resource;
 use k8s_openapi::{api::core::v1::Secret, ByteString};
 use kube::api::{DeleteParams, Patch as KubePatch, PatchParams, PostParams};
@@ -488,6 +488,25 @@ impl ServiceCandidate for Pod {
             .map(|v| v.eq("enabled"))
             .unwrap_or(false)
     }
+}
+
+pub fn is_injection_disabled<A: Annotated>(entity: &A) -> bool {
+    entity
+        .annotation(SDP_INJECTOR_ANNOTATION)
+        .map(|v| v.to_lowercase() == "false" || v == "0")
+        .unwrap_or(false)
+}
+
+pub fn containers(pod: &Pod) -> Option<&Vec<Container>> {
+    pod.spec.as_ref().map(|s| &s.containers)
+}
+
+pub fn volumes(pod: &Pod) -> Option<&Vec<Volume>> {
+    pod.spec.as_ref().and_then(|s| s.volumes.as_ref())
+}
+
+pub fn volume_names(pod: &Pod) -> Option<Vec<String>> {
+    volumes(pod).map(|vs| vs.iter().map(|v| v.name.clone()).collect())
 }
 
 impl ServiceCandidate for AdmissionRequest<Pod> {
