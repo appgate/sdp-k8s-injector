@@ -116,17 +116,17 @@ spec:
                 configMapKeyRef:
                   name: sdp-injector-client-config
                   key: client-controller-url
-            - name: SDP_SYSTEM_USERNAME
+            - name: SDP_K8S_USERNAME
               valueFrom:
                 secretKeyRef:
                   name: {{ required ".Values.sdp.adminSecret is required" .Values.sdp.adminSecret }}
                   key: sdp-k8s-client-username
-            - name: SDP_SYSTEM_PASSWORD
+            - name: SDP_K8S_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: {{ required ".Values.sdp.adminSecret is required" .Values.sdp.adminSecret }}
                   key: sdp-k8s-client-password
-            - name: SDP_SYSTEM_PROVIDER
+            - name: SDP_K8S_PROVIDER
               valueFrom:
                 secretKeyRef:
                   name: {{ required ".Values.sdp.adminSecret is required" .Values.sdp.adminSecret }}
