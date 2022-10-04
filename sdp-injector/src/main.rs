@@ -794,7 +794,7 @@ mod tests {
     use kube::core::admission::{AdmissionRequest, AdmissionReview};
     use kube::core::ObjectMeta;
     use sdp_common::crd::{DeviceId, DeviceIdSpec, ServiceIdentity, ServiceIdentitySpec};
-    use sdp_common::service::{ServiceCandidate, ServiceUser};
+    use sdp_common::service::{ObjectRequest, ServiceCandidate, ServiceUser};
     use sdp_macros::{service_device_ids, service_identity, service_user};
     use serde_json::json;
     use std::collections::{BTreeMap, HashMap, HashSet};
@@ -1164,6 +1164,22 @@ POD is missing needed volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-de
         assert_tests(&results)
     }
 
+    struct TestObjectRequest {
+        pod: Pod,
+    }
+
+    impl TestObjectRequest {
+        fn new(pod: Pod) -> Self {
+            TestObjectRequest { pod: pod }
+        }
+    }
+
+    impl ObjectRequest<Pod> for TestObjectRequest {
+        fn object(&self) -> Option<&Pod> {
+            Some(&self.pod)
+        }
+    }
+
     fn container_names(pod: &Pod) -> Option<Vec<String>> {
         containers(pod).map(|xs| xs.iter().map(|x| x.name.clone()).collect())
     }
@@ -1188,8 +1204,8 @@ POD is missing needed volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-de
             xs.extend_from_slice(vs);
             HashSet::from_iter(xs.iter().cloned())
         };
-        let patch_pod = |sdp_pod: &SDPPod, patch: Patch| -> Result<Pod, String> {
-            let mut unpatched_pod = serde_json::to_value(&sdp_pod.admission_request)
+        let assert_patch = |pod: &Pod, patch: Patch| -> Result<Pod, String> {
+            let mut unpatched_pod = serde_json::to_value(pod)
                 .map_err(|e| format!("Unable to convert POD to value [{}]", e.to_string()))?;
             json_patch::patch(&mut unpatched_pod, &patch)
                 .map_err(|e| format!("Unable to patch POD [{}]", e.to_string()))?;
@@ -1342,9 +1358,9 @@ POD is missing needed volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-de
 
         let assert_patch =
             |pod: &Pod, patch: Patch, test_patch: &TestPatch| -> Result<bool, String> {
-                let patched_pod = patch_pod(pod, patch)?;
+                let patched_pod = assert_patch(pod, patch)?;
                 let unpatched_containers = container_names(pod).unwrap_or(vec![]);
-                let unpatched_volumes = volume_names().unwrap_or(vec![]);
+                let unpatched_volumes = volume_names(pod).unwrap_or(vec![]);
                 assert_volumes(&patched_pod, unpatched_volumes)?;
                 assert_containers(&patched_pod, unpatched_containers)?;
                 assert_envs(&patched_pod, test_patch)?;
@@ -1356,12 +1372,12 @@ POD is missing needed volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-de
 
         let mut results: Vec<TestResult> = vec![];
         for (n, test) in patch_tests(&sdp_sidecars).iter().enumerate() {
-            let pod = Rc::new(test.pod.clone());
+            let pod = test.pod;
             let sdp_pod = SDPPod {
                 sdp_sidecars: Arc::clone(&sdp_sidecars),
                 k8s_dns_service: Some(test.service.clone()),
             };
-            let pod_name = Rc::clone(&pod).name();
+            let pod_name = pod.name();
             identity_storage
                 .lock()
                 .await
@@ -1373,17 +1389,18 @@ POD is missing needed volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-de
                 .register_device_ids(service_device_ids!(n))
                 .await;
 
-            let mut env = ServiceEnvironment::create(&pod, identity_storage.lock().await)
+            let request = TestObjectRequest::new(pod);
+            let mut env = ServiceEnvironment::create(&request, identity_storage.lock().await)
                 .await
                 .expect(
                     format!("Unable to create ServiceEnvironment from POD {}", &pod_name).as_str(),
                 );
             let needs_patching = pod.is_candidate();
-            let patch = sdp_pod.patch(&mut env);
+            let patch = sdp_pod.patch(&mut env, request);
             if test.needs_patching && needs_patching {
                 match patch
                     .map_err(|e| e.to_string())
-                    .and_then(|p| assert_patch(&sdp_pod, p, test))
+                    .and_then(|p| assert_patch(&pod, p, test))
                 {
                     Ok(res) => results.push((res, test_description(), "".to_string())),
                     Err(error) => results.push((
@@ -1433,8 +1450,8 @@ POD is missing needed volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-de
                 sdp_sidecars: Arc::clone(&sdp_sidecars),
                 k8s_dns_service: Some(test.service.clone()),
             };
-            let pod_value = serde_json::to_value(&sdp_pod.admission_request)
-                .expect(&format!("Unable to parse test input {}", sdp_pod));
+            let pod_value =
+                serde_json::to_value(&test.pod).expect(&format!("Unable to parse test input"));
             let admission_review_value = json!({
                 "apiVersion": "admission.k8s.io/v1",
                 "kind": "AdmissionReview",
@@ -1465,9 +1482,8 @@ POD is missing needed volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-de
             let copied_pod: Pod = serde_json::to_value(&test.pod)
                 .and_then(|v| serde_json::from_value(v))
                 .expect("Unable to deserialize POD");
-            if let Some(request) = admission_review.request.as_mut() {
-                request.object = Some(copied_pod);
-            }
+            let mut request = admission_review.request.expect("Error getting request");
+            request.object = Some(copied_pod);
             // test the patch_request function now
             // TODO: Test responses not allowing the patch!
             let sdp_sidecars = Arc::clone(&sdp_sidecars);
@@ -1482,7 +1498,6 @@ POD is missing needed volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-de
                     .await
                     .map_err(|e| format!("Could not generate a response: {}", e.to_string()))
             };
-
             match patch_response.map(|r| r.response) {
                 Ok(Some(response)) if !response.allowed => {
                     results.push((
@@ -1490,7 +1505,7 @@ POD is missing needed volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-de
                         "Injection Containers Test".to_string(),
                         format!(
                             "{} got response not allowed,, expected response allowed",
-                            sdp_pod
+                            copied_pod.name()
                         ),
                     ));
                 }
@@ -1506,13 +1521,15 @@ POD is missing needed volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-de
                             }
                             (true, false) => {
                                 results.push((false, "Injection Containers Test".to_string(),
-                                format!("Pod {} needs patching but not patches were included in the response",
-                                        sdp_pod)));
+                                format!(
+                                    "Pod {} needs patching but not patches were included in the response",
+                                    copied_pod.name()
+                                )));
                             }
                             (false, true) => {
                                 results.push((false, "Injection Containers Test".to_string(),
                                     format!("Pod {} does not need patching but patches were included in the response: {:?}",
-                                    sdp_pod, ps)));
+                                    copied_pod.name(), ps)));
                             }
                         }
                     } else {
@@ -1555,7 +1572,8 @@ POD is missing needed volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-de
                     sdp_sidecars: Arc::clone(&sdp_sidecars),
                     k8s_dns_service: Some(service.clone()),
                 };
-                let pass_validation = sdp_pod.validate();
+                let request = TestObjectRequest::new(t.pod);
+                let pass_validation = sdp_pod.validate(request);
                 match (pass_validation, t.validation_errors.as_ref()) {
                     (Ok(_), Some(expected_error)) => {
                         let error_message =
@@ -1586,14 +1604,15 @@ POD is missing needed volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-de
     async fn test_service_environment_from_identity_store() {
         let pod = test_pod!(1);
         let store = Mutex::new(InMemoryIdentityStore::default());
-        let env = ServiceEnvironment::from_identity_store(&pod, store.lock().await).await;
+        let request = TestObjectRequest::new(pod);
+        let env = ServiceEnvironment::from_identity_store(&request, store.lock().await).await;
         assert!(env.is_none());
         let id = service_identity!(1);
         let ds = service_device_ids!(1);
         store.lock().await.register_service(id).await;
         store.lock().await.register_device_ids(ds).await;
 
-        let env = ServiceEnvironment::from_identity_store(&pod, store.lock().await).await;
+        let env = ServiceEnvironment::from_identity_store(&request, store.lock().await).await;
         assert!(env.is_some());
         if let Some(env) = env {
             assert_eq!(env.service_name, pod.service_id());
@@ -1613,14 +1632,16 @@ POD is missing needed volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-de
     #[test]
     fn test_service_environment_from_pod() {
         let mut pod = test_pod!(0);
-        let mut env = ServiceEnvironment::from_pod(&pod);
+        let request = TestObjectRequest::new(pod);
+        let mut env = ServiceEnvironment::from_pod(&request);
         assert!(env.is_none());
 
         pod = test_pod!(0, annotations => vec![
             (SDP_ANNOTATION_CLIENT_SECRETS, "some-secrets"),
             (SDP_ANNOTATION_CLIENT_CONFIG, "some-config-map")
         ]);
-        env = ServiceEnvironment::from_pod(&pod);
+        let request = TestObjectRequest::new(pod);
+        env = ServiceEnvironment::from_pod(&request);
         assert!(env.is_some());
         if let Some(env) = env {
             assert_eq!(env.service_name, "ns0-srv0".to_string());
@@ -1639,7 +1660,8 @@ POD is missing needed volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-de
         pod = test_pod!(1, annotations => vec![
             (SDP_ANNOTATION_CLIENT_SECRETS, "some-secrets"),
         ]);
-        env = ServiceEnvironment::from_pod(&pod);
+        let request = TestObjectRequest::new(pod);
+        env = ServiceEnvironment::from_pod(&request);
         assert!(env.is_some());
         if let Some(env) = env {
             assert_eq!(env.service_name, "ns1-srv1".to_string());
@@ -1658,7 +1680,8 @@ POD is missing needed volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-de
         pod = test_pod!(1, annotations => vec![
             (SDP_ANNOTATION_CLIENT_CONFIG, "some-config-map")
         ]);
-        env = ServiceEnvironment::from_pod(&pod);
+        let request = TestObjectRequest::new(pod);
+        env = ServiceEnvironment::from_pod(&request);
         assert!(env.is_none());
     }
 
@@ -1687,7 +1710,8 @@ POD is missing needed volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-de
         let pod2 = test_pod!(2);
 
         let t2 = tokio::spawn(async move {
-            let env = ServiceEnvironment::from_identity_store(&pod2, store2.lock().await).await;
+            let request = TestObjectRequest::new(pod2);
+            let env = ServiceEnvironment::from_identity_store(&request, store2.lock().await).await;
             assert!(env.is_none());
             if ch_rx
                 .recv()
@@ -1695,7 +1719,9 @@ POD is missing needed volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-de
                 .expect("Error receiving notification from server thread in test")
             {
                 let pod1 = test_pod!(1);
-                let env = ServiceEnvironment::from_identity_store(&pod1, store3.lock().await).await;
+                let request = TestObjectRequest::new(pod1);
+                let env =
+                    ServiceEnvironment::from_identity_store(&request, store3.lock().await).await;
                 assert!(env.is_some());
                 if let Some(env) = env {
                     assert_eq!(env.service_name, "ns1-srv1".to_string());
