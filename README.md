@@ -71,45 +71,45 @@ sdp-demo      Active   1m     enabled
 
 ### SDP parameters
 
-| Name                                   | Description                                                                              | Value                             |
-|----------------------------------------|------------------------------------------------------------------------------------------|-----------------------------------|
-| `global.image.repository`              | Image registry to use for all SDP images.                                                | `ghcr.io/appgate/sdp-k8s-client`  |
-| `global.image.tag`                     | Image tag to use for all SDP images. If not set, it defaults to `.Chart.appVersion`.     | `""`                              |
-| `global.image.pullPolicy`              | Image pull policy to use for all SDP images.                                             | `IfNotPresent`                    |
-| `global.image.pullSecrets`             | Image pull secret to use for all SDP images.                                             | `[]`                              |
-| `cert-manager.installCRDs`             | Whether to install cert-manager CRDs.                                                    | `true`                            |
-| `sdp.host`                             | Hostname of the SDP controller                                                           | `""`                              |
-| `sdp.adminSecret`                      | Name of the secret for initial authentication                                            | `""`                              |
-| `sdp.selfClient.enabled`               | Whether to set up an SDP client on the Identity Service                                  | `false`                           |
-| `sdp.selfClient.adminSecret`           | Name of the secret for initial authentication                                            | `""`                              |
-| `sdp.selfClient.adminConfig`           | Name of the config for initial authentication                                            | `""`                              |
-| `sdp.selfClient.dnsService`            | IP of the kube-dns service                                                               | `""`                              |
-| `sdp.injector.logLevel`                | SDP Injector log level.                                                                  | `info`                            |
-| `sdp.injector.replica`                 | Number of Device ID Service replicas to deploy                                           | `1`                               |
-| `sdp.injector.certDays`                | How many days will be the SDP Injector certificate be valid.                             | `365`                             |
-| `sdp.injector.image.repository`        | SDP Injector image repository. If set, it overrides `.global.image.repository`.          | `""`                              |
-| `sdp.injector.image.tag`               | SDP Injector image tag.                                                                  | `5.5.1`                           |
-| `sdp.injector.image.pullPolicy`        | SDP Injector pull policy. If set, it overrides `.global.image.pullPolicy`.               | `Always`                          |
-| `sdp.deviceIdService.logLevel`         | SDP Device ID Service log level.                                                         | `info`                            |
-| `sdp.deviceIdService.replica`          | Number of SDP Device ID Service replicas to deploy                                       | `1`                               |
-| `sdp.deviceIdService.image.repository` | SDP Device ID Service image repository. If set, it overrides `.global.image.repository`. | `""`                              |
-| `sdp.deviceIdService.image.tag`        | SDP Device ID Service image tag.                                                         | `0.1.0`                           |
-| `sdp.deviceIdService.image.pullPolicy` | SDP Device ID Service pull policy. If set, it overrides `.global.image.pullPolicy`.      | `Always`                          |
-| `sdp.identityService.logLevel`         | SDP Identity Service log level.                                                          | `info`                            |
-| `sdp.identityService.replica`          | Number of SDP Identity Service replicas to deploy                                        | `1`                               |
-| `sdp.identityService.image.repository` | SDP Identity Service image repository. If set, it overrides `.global.image.repository`.  | `""`                              |
-| `sdp.identityService.image.tag`        | SDP Identity Service image tag.                                                          | `0.1.0`                           |
-| `sdp.identityService.image.pullPolicy` | SDP Identity Service pull policy. If set, it overrides `.global.image.pullPolicy`.       | `Always`                          |
-| `sdp.headlessService.image.tag`        | SDP Headless Service image repository. If set, it overrides `.global.image.repository`.  | `""`                              |
-| `sdp.headlessService.image.repository` | SDP Headless Service image tag. If set, it overrides `.global.image.tag`.                | `""`                              |
-| `sdp.headlessService.image.pullPolicy` | SDP Headless Service image pull policy. If set, it overrides `.global.image.pullPolicy`. | `Always`                          |
-| `sdp.headlessDriver.image.repository`  | SDP Headless Driver image repository. If set, it overrides `.global.image.repository`.   | `""`                              |
-| `sdp.headlessDriver.image.tag`         | SDP Headless Driver image tag. If set, it overrides `.global.image.tag`.                 | `""`                              |
-| `sdp.headlessDriver.image.pullPolicy`  | SDP Headless Service image pull policy. If set, it overrides `.global.image.pullPolicy`. | `Always`                          |
-| `sdp.dnsmasq.image.repository`         | SDP Dnsmasq image repository. If set, it overrides `.global.image.repository`.           | `""`                              |
-| `sdp.dnsmasq.image.tag`                | SDP Dnsmasq image tag. If set, it overrides `.global.image.tag`.                         | `""`                              |
-| `sdp.dnsmasq.image.pullPolicy`         | SDP Dnsmasq image pull policy. If set, it overrides `.global.image.pullPolicy`.          | `Always`                          |
-| `sdp.dnsmasq.dnsConfig.searches`       | Search domains to add to the Pod DNS configuration                                       | `svc.cluster.local cluster.local` |
+| Name                                   | Description                                                                              | Value                                   |
+|----------------------------------------|------------------------------------------------------------------------------------------|-----------------------------------------|
+| `global.image.repository`              | Image registry to use for all SDP images.                                                | `ghcr.io/appgate/sdp-k8s-client`        |
+| `global.image.tag`                     | Image tag to use for all SDP images. If not set, it defaults to `.Chart.appVersion`.     | `""`                                    |
+| `global.image.pullPolicy`              | Image pull policy to use for all SDP images.                                             | `IfNotPresent`                          |
+| `global.image.pullSecrets`             | Image pull secret to use for all SDP images.                                             | `[]`                                    |
+| `cert-manager.installCRDs`             | Whether to install cert-manager CRDs.                                                    | `true`                                  |
+| `sdp.host`                             | Hostname of the SDP controller                                                           | `""`                                    |
+| `sdp.adminSecret`                      | Name of the secret for initial authentication                                            | `""`                                    |
+| `sdp.selfClient.enabled`               | Whether to set up an SDP client on the Identity Service                                  | `false`                                 |
+| `sdp.selfClient.adminSecret`           | Name of the secret for initial authentication                                            | `""`                                    |
+| `sdp.selfClient.adminConfig`           | Name of the config for initial authentication                                            | `""`                                    |
+| `sdp.selfClient.dnsService`            | IP of the kube-dns service                                                               | `""`                                    |
+| `sdp.injector.logLevel`                | SDP Injector log level.                                                                  | `info`                                  |
+| `sdp.injector.replica`                 | Number of Device ID Service replicas to deploy                                           | `1`                                     |
+| `sdp.injector.certDays`                | How many days will be the SDP Injector certificate be valid.                             | `365`                                   |
+| `sdp.injector.image.repository`        | SDP Injector image repository. If set, it overrides `.global.image.repository`.          | `""`                                    |
+| `sdp.injector.image.tag`               | SDP Injector image tag.                                                                  | `5.5.1`                                 |
+| `sdp.injector.image.pullPolicy`        | SDP Injector pull policy. If set, it overrides `.global.image.pullPolicy`.               | `Always`                                |
+| `sdp.deviceIdService.logLevel`         | SDP Device ID Service log level.                                                         | `info`                                  |
+| `sdp.deviceIdService.replica`          | Number of SDP Device ID Service replicas to deploy                                       | `1`                                     |
+| `sdp.deviceIdService.image.repository` | SDP Device ID Service image repository. If set, it overrides `.global.image.repository`. | `""`                                    |
+| `sdp.deviceIdService.image.tag`        | SDP Device ID Service image tag.                                                         | `0.1.0`                                 |
+| `sdp.deviceIdService.image.pullPolicy` | SDP Device ID Service pull policy. If set, it overrides `.global.image.pullPolicy`.      | `Always`                                |
+| `sdp.identityService.logLevel`         | SDP Identity Service log level.                                                          | `info`                                  |
+| `sdp.identityService.replica`          | Number of SDP Identity Service replicas to deploy                                        | `1`                                     |
+| `sdp.identityService.image.repository` | SDP Identity Service image repository. If set, it overrides `.global.image.repository`.  | `""`                                    |
+| `sdp.identityService.image.tag`        | SDP Identity Service image tag.                                                          | `0.1.0`                                 |
+| `sdp.identityService.image.pullPolicy` | SDP Identity Service pull policy. If set, it overrides `.global.image.pullPolicy`.       | `Always`                                |
+| `sdp.headlessService.image.tag`        | SDP Headless Service image repository. If set, it overrides `.global.image.repository`.  | `""`                                    |
+| `sdp.headlessService.image.repository` | SDP Headless Service image tag. If set, it overrides `.global.image.tag`.                | `""`                                    |
+| `sdp.headlessService.image.pullPolicy` | SDP Headless Service image pull policy. If set, it overrides `.global.image.pullPolicy`. | `Always`                                |
+| `sdp.headlessDriver.image.repository`  | SDP Headless Driver image repository. If set, it overrides `.global.image.repository`.   | `""`                                    |
+| `sdp.headlessDriver.image.tag`         | SDP Headless Driver image tag. If set, it overrides `.global.image.tag`.                 | `""`                                    |
+| `sdp.headlessDriver.image.pullPolicy`  | SDP Headless Service image pull policy. If set, it overrides `.global.image.pullPolicy`. | `Always`                                |
+| `sdp.dnsmasq.image.repository`         | SDP Dnsmasq image repository. If set, it overrides `.global.image.repository`.           | `""`                                    |
+| `sdp.dnsmasq.image.tag`                | SDP Dnsmasq image tag. If set, it overrides `.global.image.tag`.                         | `""`                                    |
+| `sdp.dnsmasq.image.pullPolicy`         | SDP Dnsmasq image pull policy. If set, it overrides `.global.image.pullPolicy`.          | `Always`                                |
+| `sdp.dnsmasq.dnsConfig.searches`       | Search domains to add to the Pod DNS configuration                                       | `["svc.cluster.local","cluster.local"]` |
 
 
 ### Kubernetes parameters
