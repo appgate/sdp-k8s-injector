@@ -92,7 +92,7 @@ data:
         }
       ],
       "dnsConfig": {
-        "searches": {{ .Values.sdp.dnsmasq.dnsConfig.searches | quote }}
+        "searches": "{{ join " " .Values.sdp.dnsmasq.dnsConfig.searches}}"
       },
       "volumes": [
         {

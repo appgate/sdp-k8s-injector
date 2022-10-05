@@ -110,7 +110,9 @@ sdp:
       tag: ""
       pullPolicy: Always
     dnsConfig:
-      searches: "svc.cluster.local cluster.local"
+      searches:
+        - svc.cluster.local
+        - cluster.local
 
 ## @section Kubernetes parameters
 
