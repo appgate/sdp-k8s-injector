@@ -431,6 +431,20 @@ impl IdentityCreator {
                         );
                     }
 
+                    if let Err(err) = identity_manager_proto_tx
+                        .send(IdentityManagerProtocol::ActivatedServiceUser(
+                            service_user.clone(),
+                            service_ns.to_string(),
+                            service_name.to_string(),
+                        ))
+                        .await
+                    {
+                        error!(
+                            "Unable to notify IdentityManager about activated ServiceUSer {} [{}/{}]: {}",
+                            service_user.name, service_ns, service_name, err
+                        );
+                    }
+
                     // Create secrets now
                     info!(
                         "Creating secrets for ServiceUser with name {} [{}/{}]",

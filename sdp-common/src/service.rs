@@ -1,19 +1,16 @@
 use crate::constants::IDENTITY_MANAGER_SECRET_NAME;
 pub use crate::crd::ServiceIdentity;
 use crate::sdp::{auth::SDPUser, system::ClientProfileUrl};
+use crate::traits::{Annotated, HasCredentials};
 use json_patch::PatchOperation::Remove;
 use json_patch::{Patch, RemoveOperation};
-use k8s_openapi::api::apps::v1::Deployment;
 use k8s_openapi::api::core::v1::{ConfigMap, Container, Pod, Volume};
-use k8s_openapi::Resource;
 use k8s_openapi::{api::core::v1::Secret, ByteString};
 use kube::api::{DeleteParams, Patch as KubePatch, PatchParams, PostParams};
-use kube::core::admission::AdmissionRequest;
-use kube::{Api, ResourceExt};
+use kube::Api;
 use log::{error, info, warn};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::{collections::BTreeMap, error::Error};
 
 pub const SDP_INJECTOR_ANNOTATION: &str = "sdp-injector";
@@ -347,146 +344,11 @@ impl ServiceUser {
     }
 }
 
-pub trait Annotated {
-    fn annotations(&self) -> Option<&BTreeMap<String, String>>;
-
-    fn annotation(&self, annotation: &str) -> Option<&String> {
-        self.annotations().and_then(|m| m.get(annotation))
-    }
-}
-
-pub trait Validated {
-    fn validate<R: ObjectRequest<Pod>>(&self, request: R) -> Result<(), String>;
-}
-
-pub trait ObjectRequest<O: Resource> {
-    fn object(&self) -> Option<&O>;
-}
-
-impl ObjectRequest<Pod> for AdmissionRequest<Pod> {
-    fn object(&self) -> Option<&Pod> {
-        self.object.as_ref()
-    }
-}
-
 pub fn generate_service_id(namespace: &str, name: &str, internal: bool) -> String {
     if internal {
         format!("{}_{}", namespace, name)
     } else {
         format!("{}-{}", namespace, name)
-    }
-}
-
-/// Trait that defines entities that are candidates to be services
-/// Basically a service candidate needs to be able to define :
-///  - namespace
-///  - name
-/// and the combination of both needs to be unique
-pub trait ServiceCandidate {
-    fn name(&self) -> String;
-    fn namespace(&self) -> String;
-    fn labels(&self) -> HashMap<String, String>;
-    fn is_candidate(&self) -> bool;
-    fn service_id(&self) -> String {
-        generate_service_id(&self.namespace(), &self.name(), false)
-    }
-    fn service_id_key(&self) -> String {
-        generate_service_id(&self.namespace(), &self.name(), true)
-    }
-}
-
-impl Annotated for Pod {
-    fn annotations(&self) -> Option<&BTreeMap<String, String>> {
-        Some(ResourceExt::annotations(self))
-    }
-}
-
-impl Annotated for AdmissionRequest<Pod> {
-    fn annotations(&self) -> Option<&BTreeMap<String, String>> {
-        self.object.as_ref().and_then(|p| Annotated::annotations(p))
-    }
-}
-
-impl Annotated for Deployment {
-    fn annotations(&self) -> Option<&BTreeMap<String, String>> {
-        Some(ResourceExt::annotations(self))
-    }
-}
-
-/// Deployment are the main source of ServiceCandidate
-/// Final ServiceIdentity are created from Deployments
-impl ServiceCandidate for Deployment {
-    fn name(&self) -> String {
-        ResourceExt::name_any(self)
-    }
-
-    fn namespace(&self) -> String {
-        ResourceExt::namespace(self).unwrap_or("default".to_string())
-    }
-
-    fn labels(&self) -> HashMap<String, String> {
-        let mut labels = HashMap::from_iter(
-            ResourceExt::labels(self)
-                .iter()
-                .map(|(k, v)| (k.to_string(), v.to_string())),
-        );
-        labels.extend([
-            ("namespace".to_string(), ServiceCandidate::namespace(self)),
-            ("name".to_string(), ServiceCandidate::name(self)),
-        ]);
-        labels
-    }
-
-    fn is_candidate(&self) -> bool {
-        Annotated::annotation(self, "sdp-injection")
-            .map(|v| v.eq("enabled"))
-            .unwrap_or(false)
-    }
-}
-
-impl ServiceCandidate for Pod {
-    fn name(&self) -> String {
-        let name = self
-            .metadata
-            .name
-            .as_ref()
-            .map(|n| (n.split("-").collect::<Vec<&str>>(), 2))
-            .or_else(|| {
-                let os = self.owner_references();
-                (os.len() > 0).then_some((os[0].name.split("-").collect(), 1))
-            })
-            .or_else(|| {
-                self.metadata
-                    .generate_name
-                    .as_ref()
-                    .map(|s| (s.split("-").collect(), 2))
-            })
-            .map(|(xs, n)| xs[0..(xs.len() - n)].join("-"));
-        if let Some(name) = name {
-            name
-        } else {
-            error!("Unable to find service name for Pod, generating a random one!");
-            uuid::Uuid::new_v4().to_string()
-        }
-    }
-
-    fn namespace(&self) -> String {
-        if let Some(ns) = ResourceExt::namespace(self) {
-            ns.clone()
-        } else {
-            error!("Unable to find service namespace for POD inside admission request, generating a random one!");
-            uuid::Uuid::new_v4().to_string()
-        }
-    }
-
-    fn labels(&self) -> HashMap<String, String> {
-        HashMap::default()
-    }
-
-    fn is_candidate(&self) -> bool {
-        Annotated::annotation(self, "sdp-injection")
-            .map(|v| v.eq("enabled"))
-            .unwrap_or(false)
     }
 }
 
@@ -507,78 +369,6 @@ pub fn volumes(pod: &Pod) -> Option<&Vec<Volume>> {
 
 pub fn volume_names(pod: &Pod) -> Option<Vec<String>> {
     volumes(pod).map(|vs| vs.iter().map(|v| v.name.clone()).collect())
-}
-
-impl ServiceCandidate for AdmissionRequest<Pod> {
-    fn name(&self) -> String {
-        let mut name = None;
-        if let Some(pod) = self.object.as_ref() {
-            name = pod
-                .metadata
-                .name
-                .as_ref()
-                .map(|n| (n.split("-").collect::<Vec<&str>>(), 2))
-                .or_else(|| {
-                    let os = pod.owner_references();
-                    (os.len() > 0).then_some((os[0].name.split("-").collect(), 1))
-                })
-                .or_else(|| {
-                    pod.metadata
-                        .generate_name
-                        .as_ref()
-                        .map(|s| (s.split("-").collect(), 2))
-                })
-                .map(|(xs, n)| xs[0..(xs.len() - n)].join("-"));
-        } else {
-            error!("Unable to find POD inside admission request, ignoring it");
-        }
-        if let Some(name) = name {
-            name
-        } else {
-            error!("Unable to find service name for Pod, generating a random one!");
-            uuid::Uuid::new_v4().to_string()
-        }
-    }
-
-    fn namespace(&self) -> String {
-        let ns = match (
-            self.namespace.as_ref(),
-            self.object
-                .as_ref()
-                .and_then(|r| r.metadata.namespace.as_ref()),
-        ) {
-            (_, Some(ns)) => Some(ns),
-            (Some(ns), None) => Some(ns),
-            _ => None,
-        };
-        if let Some(ns) = ns {
-            ns.clone()
-        } else {
-            error!("Unable to find service namespace for POD inside admission request, generating a random one!");
-            uuid::Uuid::new_v4().to_string()
-        }
-    }
-
-    fn labels(&self) -> HashMap<String, String> {
-        HashMap::default()
-    }
-
-    fn is_candidate(&self) -> bool {
-        let maybe_candidate = self.object.as_ref().map(|pod| {
-            Annotated::annotation(pod, "sdp-injection")
-                .map(|v| v.eq("enabled"))
-                .unwrap_or(false)
-        });
-        if let None = maybe_candidate {
-            false
-        } else {
-            maybe_candidate.unwrap_or(false)
-        }
-    }
-}
-
-pub trait HasCredentials {
-    fn credentials<'a>(&'a self) -> &'a ServiceUser;
 }
 
 impl HasCredentials for ServiceIdentity {

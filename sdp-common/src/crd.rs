@@ -1,9 +1,12 @@
-use kube::CustomResource;
+use kube::{core::object::HasSpec, CustomResource};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-use crate::service::ServiceUser;
+use crate::{
+    service::ServiceUser,
+    traits::{Named, Namespaced, Service},
+};
 
 /// ServiceIdentity CRD
 /// This is the CRD where we store the credentials for the services
@@ -28,6 +31,20 @@ pub struct ServiceIdentitySpec {
     pub disabled: bool,
 }
 
+impl Named for ServiceIdentity {
+    fn name(&self) -> String {
+        self.spec().service_name.clone()
+    }
+}
+
+impl Namespaced for ServiceIdentity {
+    fn namespace(&self) -> Option<String> {
+        Some(self.spec().service_namespace.clone())
+    }
+}
+
+impl Service for ServiceIdentity {}
+
 /// DeviceId
 /// DeviceId represents the UUIDs assigned to a ServiceIdentity. There are N uuids stored
 /// in the DeviceId where N equals to the number of replicas in a replicaset. The
@@ -47,3 +64,17 @@ pub struct DeviceIdSpec {
     /// Namespace of the deployment that this is assigned to
     pub service_namespace: String,
 }
+
+impl Named for DeviceId {
+    fn name(&self) -> String {
+        self.spec().service_name.clone()
+    }
+}
+
+impl Namespaced for DeviceId {
+    fn namespace(&self) -> Option<String> {
+        Some(self.spec().service_namespace.clone())
+    }
+}
+
+impl Service for DeviceId {}

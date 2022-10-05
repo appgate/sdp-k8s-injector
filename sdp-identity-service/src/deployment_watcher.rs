@@ -8,8 +8,10 @@ use kube::{
     Api, Client,
 };
 use log::{debug, error, info, warn};
-use sdp_common::crd::ServiceIdentity;
-use sdp_common::service::ServiceCandidate;
+use sdp_common::{
+    crd::ServiceIdentity,
+    traits::{Candidate, Service},
+};
 use tokio::sync::mpsc::{Receiver, Sender};
 
 use crate::identity_manager::IdentityManagerProtocol;
@@ -19,7 +21,7 @@ pub enum DeploymentWatcherProtocol {
     IdentityManagerReady,
 }
 
-pub struct DeploymentWatcher<D: ServiceCandidate> {
+pub struct DeploymentWatcher<D: Candidate + Service> {
     deployment_api: Api<D>,
 }
 
@@ -87,7 +89,7 @@ impl<'a> DeploymentWatcher<Deployment> {
         loop {
             match xs.try_next().await.expect("Error getting event!") {
                 Some(Event::Applied(deployment)) if deployment.is_candidate() => {
-                    let service_id = deployment.service_id_key().clone();
+                    let service_id = deployment.service_id();
                     if !applied.contains(&service_id) {
                         info!("New service candidate: {}", &service_id);
                         if let Err(err) = tx
@@ -110,7 +112,7 @@ impl<'a> DeploymentWatcher<Deployment> {
                     );
                 }
                 Some(Event::Deleted(deployment)) if deployment.is_candidate() => {
-                    let service_id = deployment.service_id_key().clone();
+                    let service_id = deployment.service_id();
                     info!("Deleted service candidate {}", &service_id);
                     if let Err(err) = tx
                         .send(IdentityManagerProtocol::DeletedServiceCandidate(

@@ -1,10 +1,12 @@
 use futures::Future;
 use k8s_openapi::api::apps::v1::Deployment;
+use k8s_openapi::api::core::v1::Namespace;
 use kube::api::{DeleteParams, ListParams, PostParams};
 use kube::{Api, Client, Error as KError};
 use log::{error, info, warn};
 pub use sdp_common::crd::{ServiceIdentity, ServiceIdentitySpec};
-use sdp_common::service::{HasCredentials, ServiceCandidate, ServiceUser};
+use sdp_common::service::ServiceUser;
+use sdp_common::traits::{HasCredentials, Labelled, Named, Namespaced, Service};
 use sdp_macros::{queue_debug, sdp_error, sdp_info, sdp_log, sdp_warn};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fmt;
@@ -26,8 +28,8 @@ trait ServiceUsersPool {
 /// Trait for ServiceIdentity provider
 /// This traits provides instances of To from instances of From
 trait ServiceIdentityProvider {
-    type From: ServiceCandidate + Send;
-    type To: ServiceCandidate + HasCredentials + Send;
+    type From: Service + Send;
+    type To: Service + HasCredentials + Send;
     fn register_identity(&mut self, to: Self::To) -> ();
     fn unregister_identity(&mut self, to: &Self::To) -> Option<Self::To>;
     fn next_identity(&mut self, from: &Self::From) -> Option<Self::To>;
@@ -41,7 +43,7 @@ trait ServiceIdentityProvider {
     ) -> Vec<&Self::To> {
         self.identities()
             .iter()
-            .filter(|id| !current_service_candidates.contains(&id.service_id_key()))
+            .filter(|id| !current_service_candidates.contains(&id.service_id()))
             .map(|id| *id)
             .collect()
     }
@@ -82,6 +84,10 @@ trait ServiceIdentityAPI {
         &'a self,
         identity: &'a ServiceIdentity,
     ) -> Pin<Box<dyn Future<Output = Result<ServiceIdentity, KError>> + Send + '_>>;
+    fn update<'a>(
+        &'a self,
+        identity: &'a ServiceIdentity,
+    ) -> Pin<Box<dyn Future<Output = Result<ServiceIdentity, KError>> + Send + '_>>;
     fn delete<'a>(
         &'a self,
         identity_name: &'a str,
@@ -93,7 +99,7 @@ trait ServiceIdentityAPI {
 
 /// Messages exchanged between the the IdentityCreator and IdentityManager
 #[derive(Debug)]
-pub enum IdentityManagerProtocol<From: ServiceCandidate, To: ServiceCandidate + HasCredentials> {
+pub enum IdentityManagerProtocol<From: Service, To: Service + HasCredentials> {
     /// Message used to request a new ServiceIdentity for ServiceCandidate
     RequestServiceIdentity {
         service_candidate: From,
@@ -110,6 +116,8 @@ pub enum IdentityManagerProtocol<From: ServiceCandidate, To: ServiceCandidate + 
     IdentityManagerStarted,
     IdentityManagerReady,
     IdentityManagerDebug(String),
+    // service_user, service_ns, service_name
+    ActivatedServiceUser(ServiceUser, String, String),
 }
 
 pub enum IdentityMessageResponse {
@@ -143,24 +151,24 @@ impl ServiceIdentityProvider for IdentityManagerPool {
     type To = ServiceIdentity;
 
     fn register_identity(&mut self, to: Self::To) -> () {
-        self.services.insert(to.service_id_key(), to);
+        self.services.insert(to.service_id(), to);
     }
 
     fn unregister_identity(&mut self, to: &Self::To) -> Option<Self::To> {
-        self.services.remove(&to.service_id_key())
+        self.services.remove(&to.service_id())
     }
 
     fn next_identity(&mut self, from: &Self::From) -> Option<Self::To> {
         let service_id = from.service_id();
-        self.services.get(&from.service_id_key())
+        self.services.get(&from.service_id())
             .map(|i| i.clone())
             .or_else(|| {
                 if let Some(id) = self.pop().map(|service_user| {
                     let service_identity_spec = ServiceIdentitySpec {
-                        service_name: ServiceCandidate::name(from),
-                        service_namespace: ServiceCandidate::namespace(from),
+                        service_name: Named::name(from),
+                        service_namespace: Namespaced::namespace(from),
                         service_user,
-                        labels: ServiceCandidate::labels(from),
+                        labels: Labelled::labels(from),
                         disabled: false,
                     };
                     ServiceIdentity::new(&service_id, service_identity_spec)
@@ -179,7 +187,7 @@ impl ServiceIdentityProvider for IdentityManagerPool {
     }
 
     fn identity(&self, from: &Self::From) -> Option<&Self::To> {
-        self.services.get(&from.service_id_key())
+        self.services.get(&from.service_id())
     }
 
     fn identities(&self) -> Vec<&Self::To> {
@@ -256,17 +264,12 @@ impl ServiceIdentityAPI for KubeIdentityManager {
     }
 }
 
-trait IdentityManager<
-    From: ServiceCandidate + Send + Sync,
-    To: ServiceCandidate + HasCredentials + Send + Sync,
->: ServiceIdentityAPI + ServiceIdentityProvider<From = From, To = To> + ServiceUsersPool
+trait IdentityManager<From: Service + Send + Sync, To: Service + HasCredentials + Send + Sync>:
+    ServiceIdentityAPI + ServiceIdentityProvider<From = From, To = To> + ServiceUsersPool
 {
 }
 
-pub struct IdentityManagerRunner<
-    From: ServiceCandidate + Send,
-    To: ServiceCandidate + HasCredentials + Send,
-> {
+pub struct IdentityManagerRunner<From: Service + Send, To: Service + HasCredentials + Send> {
     im: Box<dyn IdentityManager<From, To> + Send + Sync>,
 }
 
@@ -296,7 +299,7 @@ impl IdentityManagerRunner<Deployment, ServiceIdentity> {
         }
     }
 
-    async fn run_identity_manager<F: ServiceCandidate + Clone + fmt::Debug + Send>(
+    async fn run_identity_manager<F: Service + Clone + fmt::Debug + Send>(
         im: &mut Box<dyn IdentityManager<F, ServiceIdentity> + Send + Sync>,
         mut identity_manager_rx: Receiver<IdentityManagerProtocol<F, ServiceIdentity>>,
         identity_manager_tx: Sender<IdentityManagerProtocol<F, ServiceIdentity>>,
@@ -440,7 +443,7 @@ impl IdentityManagerRunner<Deployment, ServiceIdentity> {
                             .await
                             .expect("Error requesting new ServiceIdentity");
                     }
-                    existing_service_candidates.insert(service_candidate.service_id_key());
+                    existing_service_candidates.insert(service_candidate.service_id());
                 }
                 // Identity Creator notifies about fresh, unactivated User Credentials
                 IdentityManagerProtocol::FoundServiceUser(service_user, activated)
@@ -460,6 +463,18 @@ impl IdentityManagerRunner<Deployment, ServiceIdentity> {
                         "Found activated ServiceUser with name {}",
                         service_user.name
                     ) => external_queue_tx);
+                }
+                // Identity Creator notifies about already activated User Credentials
+                IdentityManagerProtocol::ActivatedServiceUser(
+                    service_user,
+                    service_ns,
+                    service_name,
+                ) => {
+                    info!(
+                        "ServiceUser {} has been activated [{}/{}]",
+                        &service_user.name, service_ns, service_name
+                    );
+                    let id = im.identity(from);
                 }
                 IdentityManagerProtocol::IdentityCreatorReady => {
                     info!("IdentityCreator is ready");
@@ -534,7 +549,7 @@ impl IdentityManagerRunner<Deployment, ServiceIdentity> {
                         } else {
                             // Make sure we dont try to delete it twice!
                             removed_service_identities
-                                .insert(service_identity.service_id_key().clone());
+                                .insert(service_identity.service_id().clone());
                         }
                     }
 
@@ -554,8 +569,7 @@ impl IdentityManagerRunner<Deployment, ServiceIdentity> {
                     for service_identity in
                         im.orphan_service_identities(&existing_activated_credentials)
                     {
-                        if !removed_service_identities.contains(&service_identity.service_id_key())
-                        {
+                        if !removed_service_identities.contains(&service_identity.service_id()) {
                             info!(
                                 "ServiceIdentity {} has deactivated ServiceUser. Deleting it.",
                                 service_identity.service_id()
@@ -574,7 +588,7 @@ impl IdentityManagerRunner<Deployment, ServiceIdentity> {
                             } else {
                                 // Make sure we dont try to delete it twice!
                                 removed_service_identities
-                                    .insert(service_identity.service_id_key().clone());
+                                    .insert(service_identity.service_id().clone());
                             }
                         }
                     }
@@ -614,7 +628,7 @@ impl IdentityManagerRunner<Deployment, ServiceIdentity> {
         }
     }
 
-    async fn initialize<F: ServiceCandidate + Send>(
+    async fn initialize<F: Service + Send>(
         im: &mut Box<dyn IdentityManager<F, ServiceIdentity> + Send + Sync>,
     ) -> () {
         info!("Initializing Identity Manager service");
@@ -685,7 +699,6 @@ mod tests {
     use futures::Future;
     use k8s_openapi::api::apps::v1::Deployment;
     use kube::{core::object::HasSpec, error::Error as KError, ResourceExt};
-    use sdp_common::service::HasCredentials;
     use sdp_macros::{deployment, service_identity, service_user};
     use sdp_test_macros::{assert_message, assert_no_message};
     use tokio::sync::mpsc::channel;
@@ -698,9 +711,8 @@ mod tests {
     };
 
     use super::{
-        IdentityManager, IdentityManagerPool, IdentityManagerRunner, ServiceCandidate,
-        ServiceIdentity, ServiceIdentityAPI, ServiceIdentityProvider, ServiceIdentitySpec,
-        ServiceUsersPool,
+        IdentityManager, IdentityManagerPool, IdentityManagerRunner, ServiceIdentity,
+        ServiceIdentityAPI, ServiceIdentityProvider, ServiceIdentitySpec, ServiceUsersPool,
     };
 
     macro_rules! test_identity_manager {
@@ -973,7 +985,7 @@ mod tests {
                 // 4 service identities registered and only 1 on start
                 let xs = service_identities_to_tuple(
                     im.extra_service_identities(&HashSet::from(
-                    [identities[0].service_id_key()]
+                    [identities[0].service_id()]
                 )));
                 assert_eq!(xs.len(), 3);
                 assert_eq!(xs, vec![
@@ -986,10 +998,10 @@ mod tests {
                 let xs: Vec<(&str, &str, &str)> = service_identities_to_tuple(
                     im.extra_service_identities(&HashSet::from(
                         [
-                            identities[0].service_id_key(),
-                            identities[1].service_id_key(),
-                            identities[2].service_id_key(),
-                            identities[3].service_id_key(),
+                            identities[0].service_id(),
+                            identities[1].service_id(),
+                            identities[2].service_id(),
+                            identities[3].service_id(),
                         ])));
                 assert_eq!(xs.len(), 0);
                 assert_eq!(xs, vec![]);
@@ -998,11 +1010,11 @@ mod tests {
                 let xs: Vec<(&str, &str, &str)> = service_identities_to_tuple(
                     im.extra_service_identities(&HashSet::from(
                         [
-                            identities[0].service_id_key(),
-                            identities[1].service_id_key(),
-                            identities[2].service_id_key(),
-                            identities[3].service_id_key(),
-                            service_identity!(5).service_id_key(),
+                            identities[0].service_id(),
+                            identities[1].service_id(),
+                            identities[2].service_id(),
+                            identities[3].service_id(),
+                            service_identity!(5).service_id(),
                         ])));
                 assert_eq!(xs.len(), 0);
                 assert_eq!(xs, vec![]);

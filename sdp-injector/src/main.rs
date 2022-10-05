@@ -23,6 +23,7 @@ use rustls::{Certificate, PrivateKey, ServerConfig};
 use rustls_pemfile::{read_one, Item};
 use sdp_common::constants::POD_DEVICE_ID_ANNOTATION;
 use sdp_common::crd::DeviceId;
+use sdp_common::traits::{Candidate, ObjectRequest, Validated};
 use serde::Deserialize;
 use std::collections::hash_map::RandomState;
 use std::collections::{HashMap, HashSet};
@@ -46,8 +47,7 @@ use uuid::Uuid;
 use crate::deviceid::{DeviceIdProvider, DeviceIdProviderRequestProtocol};
 use crate::watchers::{watch, Watcher};
 use sdp_common::service::{
-    containers, is_injection_disabled, volume_names, volumes, Annotated, HasCredentials,
-    ObjectRequest, ServiceCandidate, ServiceIdentity, Validated,
+    containers, is_injection_disabled, volume_names, volumes, ServiceIdentity,
 };
 
 const SDP_K8S_HOST_ENV: &str = "SDP_K8S_HOST";
@@ -254,14 +254,11 @@ struct ServiceEnvironment {
 }
 
 impl ServiceEnvironment {
-    async fn create<
-        'a,
+    async fn create<'a, E, R>(request: &R, store: MutexGuard<'a, E>) -> Option<Self>
+    where
         E: IdentityStore<ServiceIdentity>,
-        R: ObjectRequest<Pod> + ServiceCandidate,
-    >(
-        request: &R,
-        store: MutexGuard<'a, E>,
-    ) -> Option<Self> {
+        R: ObjectRequest<Pod> + Candidate,
+    {
         if let Some(env) = ServiceEnvironment::from_pod(request) {
             Some(env)
         } else {
@@ -272,7 +269,7 @@ impl ServiceEnvironment {
     async fn from_identity_store<
         'a,
         E: IdentityStore<ServiceIdentity>,
-        R: ObjectRequest<Pod> + ServiceCandidate,
+        R: ObjectRequest<Pod> + Candidate,
     >(
         request: &R,
         mut store: MutexGuard<'a, E>,
@@ -304,7 +301,7 @@ impl ServiceEnvironment {
             })
     }
 
-    fn from_pod<R: ObjectRequest<Pod> + ServiceCandidate>(request: &R) -> Option<Self> {
+    fn from_pod<R: ObjectRequest<Pod> + Candidate>(request: &R) -> Option<Self> {
         request.object().and_then(|pod| {
             let service_id = request.service_id();
             let config = pod.annotation(SDP_ANNOTATION_CLIENT_CONFIG);
@@ -797,7 +794,8 @@ mod tests {
     use kube::core::admission::AdmissionReview;
     use kube::core::ObjectMeta;
     use sdp_common::crd::{DeviceId, DeviceIdSpec, ServiceIdentity, ServiceIdentitySpec};
-    use sdp_common::service::{ObjectRequest, ServiceCandidate, ServiceUser};
+    use sdp_common::service::ServiceUser;
+    use sdp_common::traits::{Candidate, ObjectRequest};
     use sdp_macros::{service_device_ids, service_identity, service_user};
     use serde_json::json;
     use std::collections::{BTreeMap, HashMap, HashSet};
@@ -1183,19 +1181,7 @@ POD is missing needed volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-de
         }
     }
 
-    impl ServiceCandidate for TestObjectRequest {
-        fn name(&self) -> String {
-            self.pod.name()
-        }
-
-        fn namespace(&self) -> String {
-            self.pod.namespace()
-        }
-
-        fn labels(&self) -> HashMap<String, String> {
-            self.pod.labels()
-        }
-
+    impl Candidate for TestObjectRequest {
         fn is_candidate(&self) -> bool {
             self.pod.is_candidate()
         }
