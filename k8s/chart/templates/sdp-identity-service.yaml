@@ -23,9 +23,7 @@ spec:
       {{ if eq .Values.sdp.selfClient.enabled true }}
       volumes:
         - name: run-sdp-driver
-          mountPath: /var/run/sdp-driver
         - name: run-sdp-dnsmasq
-          mountPath: /var/run/sdp-dnsmasq
         - name: tun-device
           hostPath:
             path: /dev/net/tun
