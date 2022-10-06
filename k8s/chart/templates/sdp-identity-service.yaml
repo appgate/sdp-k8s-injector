@@ -23,10 +23,12 @@ spec:
       {{ if eq .Values.sdp.selfClient.enabled true }}
       volumes:
         - name: run-sdp-driver
+          mountPath: /var/run/sdp-driver
         - name: run-sdp-dnsmasq
-        - hostPath:
+          mountPath: /var/run/sdp-dnsmasq
+        - name: tun-device
+          hostPath:
             path: /dev/net/tun
-          name: tun-device
         - name: pod-info
           downwardAPI:
             items:
@@ -40,7 +42,7 @@ spec:
       containers:
         {{ if eq .Values.sdp.selfClient.enabled true }}
         - name: {{ .Chart.Name }}-sdp-service
-          image: {{ default .Values.global.image.repository .Values.sdp.headlessService.image.repository }}/sdp-headless-service:{{ default (include "sdp-k8s-client.defaultTag" .) .Values.sdp.headlessService.image.tag }}
+          image: {{ default .Values.global.image.repository .Values.sdp.headlessService.image.repository }}/sdp-headless-service:{{ default .Values.sdp.clientVersion  .Values.sdp.headlessService.image.tag }}
           imagePullPolicy: {{ .Values.sdp.headlessService.image.pullPolicy }}
           securityContext:
             runAsGroup: 102
@@ -80,12 +82,13 @@ spec:
             - name: K8S_DNS_SERVICE
               value: {{ required ".Values.sdp.selfClient.dnsService is required" .Values.sdp.selfClient.dnsService }}
         - name: {{ .Chart.Name }}-sdp-driver
-          image: {{ default .Values.global.image.repository .Values.sdp.headlessDriver.image.repository }}/sdp-headless-driver:{{ default (include "sdp-k8s-client.defaultTag" .) .Values.sdp.headlessDriver.image.tag }}
+          image: {{ default .Values.global.image.repository .Values.sdp.headlessDriver.image.repository }}/sdp-headless-driver:{{ default .Values.sdp.clientVersion  .Values.sdp.headlessService.image.tag }}
           imagePullPolicy: {{ .Values.sdp.headlessDriver.image.pullPolicy }}
           securityContext:
             runAsGroup: 101
             runAsUser: 103
             runAsNonRoot: true
+            fsGroup: 101
             capabilities:
               add: [ "NET_ADMIN", "NET_BIND_SERVICE" ]
           volumeMounts:
@@ -96,7 +99,7 @@ spec:
             - mountPath: /dev/net/tun
               name: tun-device
         - name: {{ .Chart.Name }}-sdp-dnsmasq
-          image: {{ default .Values.global.image.repository .Values.sdp.dnsmasq.image.repository }}/sdp-dnsmasq:{{ default (include "sdp-k8s-client.defaultTag" .) .Values.sdp.dnsmasq.image.tag }}
+          image: {{ default .Values.global.image.repository .Values.sdp.dnsmasq.image.repository }}/sdp-dnsmasq:{{ default .Values.sdp.clientVersion  .Values.sdp.headlessService.image.tag }}
           imagePullPolicy: {{ .Values.sdp.dnsmasq.image.pullPolicy }}
           securityContext:
             runAsGroup: 101
@@ -106,7 +109,7 @@ spec:
               - mountPath: /var/run/sdp-dnsmasq
                 name: run-sdp-dnsmasq
           command: ["/sdp-dnsmasq/sdp-dnsmasq"]
-        {{end}}
+        {{ end }}
         - name: {{ .Chart.Name }}-identity-service
           env:
             - name: RUST_LOG
