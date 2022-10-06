@@ -57,22 +57,22 @@ spec:
                 configMapKeyRef:
                   name: {{ required ".Values.sdp.selfClient.adminConfig is required" .Values.sdp.selfClient.adminConfig }}
                   key: client-log-level
-            - name: CLIENT_DEVICE_ID
+            - name: APPGATE_DEVICE_ID
               valueFrom:
                 configMapKeyRef:
                   name: {{ required ".Values.sdp.selfClient.adminConfig is required" .Values.sdp.selfClient.adminConfig }}
                   key: client-device-id
-            - name: CLIENT_USERNAME
+            - name: APPGATE_USERNAME
               valueFrom:
                 secretKeyRef:
                   name: {{ required ".Values.sdp.selfClient.adminSecret is required" .Values.sdp.selfClient.adminSecret }}
                   key: client-username
-            - name: CLIENT_PASSWORD
+            - name: APPGATE_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: {{ required ".Values.sdp.selfClient.adminSecret is required" .Values.sdp.selfClient.adminSecret }}
                   key: client-password
-            - name: CLIENT_CONTROLLER_URL
+            - name: APPGATE_PROFILE_URL
               valueFrom:
                 secretKeyRef:
                   name: {{ required ".Values.sdp.selfClient.adminSecret is required" .Values.sdp.selfClient.adminSecret }}
