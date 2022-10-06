@@ -68,13 +68,26 @@ macro_rules! sdp_error {
 
 #[macro_export]
 macro_rules! when_ok {
+    (($v:ident : $ty:ty = $when:expr) $then:expr) => {
+        match $when {
+            Err(e) => {
+                error!("Error: {}", e);
+                None::<$ty>
+            }
+            Ok($v) => $then,
+        }
+    };
+
     (($v:ident = $when:expr) $then:expr) => {
         match $when {
             Err(e) => {
                 error!("Error: {}", e);
                 None
             }
-            Ok($v) => $then,
+            Ok($v) => {
+                $then;
+                Some(())
+            }
         }
     };
 }

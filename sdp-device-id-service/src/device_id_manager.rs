@@ -51,13 +51,13 @@ impl DeviceIdProvider for DeviceIdManagerPool {
     }
 
     fn unregister(&mut self, to: &Self::To) -> Option<Self::To> {
-        when_ok!((device_id = to.service_id()) {
+        when_ok!((device_id : Self::To = to.service_id()) {
             self.device_id_map.remove(&device_id)
         })
     }
 
     fn device_id(&self, from: &Self::From) -> Option<&Self::To> {
-        when_ok!((device_id = from.service_id()) {
+        when_ok!((device_id : &Self::To = from.service_id()) {
             self.device_id_map.get(&device_id)
         })
     }
@@ -67,7 +67,7 @@ impl DeviceIdProvider for DeviceIdManagerPool {
     }
 
     fn next_device_id(&self, from: &Self::From) -> Option<Self::To> {
-        when_ok!((device_id = from.service_id()) {
+        when_ok!((device_id : Self::To = from.service_id()) {
             Some(DeviceId::new(
                 &device_id,
                 DeviceIdSpec {
@@ -298,7 +298,6 @@ impl DeviceIdManagerRunner<ServiceIdentity, DeviceId> {
                             },
                             _ => {}
                         }
-                        None
                     });
                 }
 
@@ -319,7 +318,6 @@ impl DeviceIdManagerRunner<ServiceIdentity, DeviceId> {
                             })
                             .await
                             .expect("Unable to send CreateDeviceId message");
-                        None
                     });
                 }
                 _ => {

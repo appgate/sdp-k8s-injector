@@ -62,13 +62,11 @@ impl<'a> ServiceIdentityWatcher<ServiceIdentity> {
                             }
                             applied.insert(service_id);
                         }
-                        None
                     });
                 }
                 Some(Event::Deleted(service_identity)) => {
                     when_ok!((service_id = service_identity.service_id()) {
                         applied.remove(&service_id);
-                        None
                     });
                 }
                 // TODO: Use this event

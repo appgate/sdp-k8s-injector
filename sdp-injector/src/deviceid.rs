@@ -283,7 +283,6 @@ impl DeviceIdProvider<ServiceIdentity> {
                             when_ok!((service_id = s.service_id()) {
                                 info!("Registering new service {}", &service_id);
                                 self.store.register_service(s).await;
-                                None
                             });
                         },
                         Some(DeviceIdProviderRequestProtocol::DeletedServiceIdentity(s)) => {
@@ -292,14 +291,12 @@ impl DeviceIdProvider<ServiceIdentity> {
                                 if self.store.unregister_service(&service_id).await.is_none() {
                                     error!("Unable to unregister service {}", service_id);
                                 };
-                                None
                             });
                         },
                         Some(DeviceIdProviderRequestProtocol::FoundDevideId(id)) => {
                             when_ok!((service_id = id.service_id()) {
                                 info!("Registering new device ids for service {}", service_id);
                                 self.store.register_device_ids(id).await;
-                                None
                             });
                         },
                         Some(DeviceIdProviderRequestProtocol::DeletedDevideId(id)) => {
@@ -308,7 +305,6 @@ impl DeviceIdProvider<ServiceIdentity> {
                                 if self.store.unregister_device_ids(&service_id).await.is_none() {
                                     error!("Unable to unregister device ids for service {}", service_id);
                                 };
-                                None
                             });
                         },
                         Some(DeviceIdProviderRequestProtocol::ReleasedDeviceId(service_id, uuid)) => {

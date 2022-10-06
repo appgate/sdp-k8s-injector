@@ -60,7 +60,7 @@ where
 
 impl SimpleWatchingProtocol<DeviceIdProviderRequestProtocol<ServiceIdentity>> for ServiceIdentity {
     fn applied(&self) -> Option<DeviceIdProviderRequestProtocol<ServiceIdentity>> {
-        when_ok!((service_id = self.service_id()) {
+        when_ok!((service_id:DeviceIdProviderRequestProtocol<ServiceIdentity> = self.service_id()) {
             info!("Applied ServiceIdentity {}", service_id);
             Some(DeviceIdProviderRequestProtocol::FoundServiceIdentity(
                 self.clone(),
@@ -69,7 +69,7 @@ impl SimpleWatchingProtocol<DeviceIdProviderRequestProtocol<ServiceIdentity>> fo
     }
 
     fn deleted(&self) -> Option<DeviceIdProviderRequestProtocol<ServiceIdentity>> {
-        when_ok!((service_id= self.service_id()) {
+        when_ok!((service_id:DeviceIdProviderRequestProtocol<ServiceIdentity> = self.service_id()) {
             info!("Deleted ServiceIdentity {}", service_id);
             Some(DeviceIdProviderRequestProtocol::DeletedServiceIdentity(
                 self.clone(),
@@ -80,14 +80,14 @@ impl SimpleWatchingProtocol<DeviceIdProviderRequestProtocol<ServiceIdentity>> fo
 
 impl SimpleWatchingProtocol<DeviceIdProviderRequestProtocol<ServiceIdentity>> for DeviceId {
     fn applied(&self) -> Option<DeviceIdProviderRequestProtocol<ServiceIdentity>> {
-        when_ok!((service_id = self.service_id()) {
+        when_ok!((service_id:DeviceIdProviderRequestProtocol<ServiceIdentity> = self.service_id()) {
             info!("Applied DeviceId {}", service_id);
             Some(DeviceIdProviderRequestProtocol::FoundDevideId(self.clone()))
         })
     }
 
     fn deleted(&self) -> Option<DeviceIdProviderRequestProtocol<ServiceIdentity>> {
-        when_ok!((service_id = self.service_id()) {
+        when_ok!((service_id:DeviceIdProviderRequestProtocol<ServiceIdentity> = self.service_id()) {
             info!("Deleted DeviceId {}", service_id);
             Some(DeviceIdProviderRequestProtocol::DeletedDevideId(
                 self.clone(),
@@ -102,7 +102,7 @@ impl SimpleWatchingProtocol<DeviceIdProviderRequestProtocol<ServiceIdentity>> fo
     }
 
     fn deleted(&self) -> Option<DeviceIdProviderRequestProtocol<ServiceIdentity>> {
-        when_ok!((service_id = self.service_id()) {
+        when_ok!((service_id:DeviceIdProviderRequestProtocol<ServiceIdentity> = self.service_id()) {
             let msg = self
                 .is_candidate()
                 .then_some(true)

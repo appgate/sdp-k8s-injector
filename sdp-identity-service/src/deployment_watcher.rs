@@ -58,7 +58,6 @@ impl<'a> DeploymentWatcher<Deployment> {
                 if let Err(err) = q_tx.send(msg).await {
                     error!("Error reporting found ServiceIdentity: {}", err);
                 }
-                None
             });
         }
 
@@ -108,7 +107,6 @@ impl<'a> DeploymentWatcher<Deployment> {
                         } else {
                             info!("Modified service candidate: {}", &deployment_service_id);
                         }
-                        None
                     });
                 }
                 Some(Event::Applied(deployment)) => {
@@ -117,7 +115,6 @@ impl<'a> DeploymentWatcher<Deployment> {
                             "Ignoring service {}, not a candidate",
                             deployment_service_id
                         );
-                        None
                     });
                 }
                 Some(Event::Deleted(deployment)) if deployment.is_candidate() => {
@@ -133,7 +130,6 @@ impl<'a> DeploymentWatcher<Deployment> {
                             error!("Error requesting new ServiceIdentity: {}", err);
                         }
                         applied.remove(&deployment_service_id);
-                        None
                     });
                 }
                 Some(Event::Deleted(deployment)) => {
@@ -142,7 +138,6 @@ impl<'a> DeploymentWatcher<Deployment> {
                             "Ignoring service not being candidate {}",
                             deployment_service_id
                         );
-                        None
                     });
                 }
                 // TODO: User this event, also we can replace the for list during initalization with this

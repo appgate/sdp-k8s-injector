@@ -1,7 +1,7 @@
 use crate::constants::IDENTITY_MANAGER_SECRET_NAME;
 pub use crate::crd::ServiceIdentity;
 use crate::sdp::{auth::SDPUser, system::ClientProfileUrl};
-use crate::traits::{Annotated, HasCredentials};
+use crate::traits::Annotated;
 use json_patch::PatchOperation::Remove;
 use json_patch::{Patch, RemoveOperation};
 use k8s_openapi::api::core::v1::{ConfigMap, Container, Pod, Volume};

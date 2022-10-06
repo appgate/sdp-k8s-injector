@@ -275,14 +275,14 @@ impl ServiceEnvironment {
         request: &R,
         mut store: MutexGuard<'a, E>,
     ) -> Option<Self> {
-        when_ok!((service_id = request.service_id()) {
+        when_ok!((service_id: Self = request.service_id()) {
         store
             .pop_device_id(&service_id)
             .await
             .and_then(|(s, d)| {
                 let (user_field, password_field, profile_field) =
                     s.spec.service_user.secrets_field_names(true);
-                when_ok!((service_id = s.service_id()) {
+                when_ok!((service_id: Self = s.service_id()) {
                     let secrets_name = s
                         .credentials()
                         .secrets_name(&s.spec.service_namespace, &s.spec.service_name);
@@ -308,7 +308,7 @@ impl ServiceEnvironment {
     fn from_pod<R: ObjectRequest<Pod> + Service + Annotated>(request: &R) -> Option<Self> {
         request.object().and_then(|pod| {
             let service_id = request.service_id();
-            when_ok!((service_id = request.service_id()) {
+            when_ok!((service_id : Self = request.service_id()) {
                 let config = pod.annotation(SDP_ANNOTATION_CLIENT_CONFIG);
                 let secret = pod.annotation(SDP_ANNOTATION_CLIENT_SECRETS);
                 let device_id = pod.annotation(SDP_ANNOTATION_CLIENT_DEVICE_ID);
@@ -702,7 +702,6 @@ async fn patch_pod<'a, E: IdentityStore<ServiceIdentity>>(
                 admission_response.result = status;
             }
         }
-        None
     });
     Ok(admission_response.into_review())
 }

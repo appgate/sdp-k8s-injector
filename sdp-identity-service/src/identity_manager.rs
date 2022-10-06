@@ -159,13 +159,13 @@ impl ServiceIdentityProvider for IdentityManagerPool {
     }
 
     fn unregister_identity(&mut self, to: &Self::To) -> Option<Self::To> {
-        when_ok!((service_id = to.service_id()) {
+        when_ok!((service_id: Self::To = to.service_id()) {
             self.services.remove(&service_id)
         })
     }
 
     fn next_identity(&mut self, from: &Self::From) -> Option<Self::To> {
-        when_ok!((service_id = from.service_id()) {
+        when_ok!((service_id: Self::To = from.service_id()) {
             self.services.get(&service_id)
                 .map(|i| i.clone())
                 .or_else(|| {
@@ -194,7 +194,7 @@ impl ServiceIdentityProvider for IdentityManagerPool {
     }
 
     fn identity(&self, from: &Self::From) -> Option<&Self::To> {
-        when_ok!((service_id = from.service_id()) {
+        when_ok!((service_id: &Self::To = from.service_id()) {
             self.services.get(&service_id)
         })
     }
@@ -217,7 +217,7 @@ impl ServiceIdentityAPI for KubeIdentityManager {
         identity: &'a ServiceIdentity,
     ) -> Pin<Box<dyn Future<Output = Result<ServiceIdentity, KError>> + Send + '_>> {
         let fut = async move {
-            when_ok!((service_id = identity.service_id()) {
+            when_ok!((service_id: Result<ServiceIdentity, KError> = identity.service_id()) {
                 match self
                     .service_identity_api
                     .get_opt(&service_id)
