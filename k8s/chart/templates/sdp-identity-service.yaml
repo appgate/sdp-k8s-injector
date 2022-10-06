@@ -52,7 +52,7 @@ spec:
             - mountPath: /etc/pod-info
               name: pod-info
           env:
-            - name: CLIENT_LOG_LEVEL
+            - name: APPGATE_LOG_LEVEL
               valueFrom:
                 configMapKeyRef:
                   name: {{ required ".Values.sdp.selfClient.adminConfig is required" .Values.sdp.selfClient.adminConfig }}
