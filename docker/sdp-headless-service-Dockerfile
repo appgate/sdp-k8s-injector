@@ -47,4 +47,4 @@ RUN touch /etc/machine-id && \
     chmod +x /opt/appgate/pod_info
 WORKDIR /sdp-service
 USER appgate
-CMD ["/opt/appgate/service/appgateservice", "-t", "/var/run/appgate/.driver.sock", "--service"]
+CMD ["/opt/appgate/service/appgateservice"]

@@ -46,6 +46,11 @@ spec:
             runAsGroup: 102
             runAsUser: 103
             runAsNonRoot: true
+          command:
+            - "/opt/appgate/service/appgateservice"
+            - "-t"
+            - "/var/run/sdp-driver/.driver.sock"
+            - "--service"
           volumeMounts:
             - mountPath: /var/run/sdp-driver
               name: run-sdp-driver
