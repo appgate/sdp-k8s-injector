@@ -12,13 +12,14 @@ The following tools are required to install the SDP Kubernetes Client:
 
 ### SDP Requirements
 SDP Kubernetes Client requires several configuration on the SDP Controller:
-* Service User License 
+* Service User License
   * 1 Service User license is consumed per Kubernetes workload (e.g. Deployment)
-  * 10 inactive Service User is created at the initialization of the Identity Service
+  * 10 inactive Service Users are created at the initialization of the Identity Service
 * Device ID
   * 1 IP is assigned from the IP Pool for every pod in the Kubernetes workload.
   * Each pod is assigned a UUID by the Device ID Service. UUIDs are reused if the pod is restarted.
-* User 
+  * Device IDs are only freed when they are unused for some amount of time defined in the IP Pool.
+* User
   * `Service User Management Preset` for its Admin Role, which includes the following privileges:
     * View all Service Users tagged with `k8s`
     * Create all Service Users with default tag `k8s`
@@ -29,8 +30,11 @@ SDP Kubernetes Client requires several configuration on the SDP Controller:
     * Edit all Client Profiles tagged with `k8s`
     * Delete all Client Profiles tagged with `k8s`
   * If the Admin API is protected behind SDP, the user additionally needs
-    * Policy/Entitlement to access the DNS `ALLOW TCP up  to <INTERNAL CONTROLLER IP> - port 53`
-    * Policy/Entitlement to access the Admin API `ALLOW TCP up to <HOSTNAME> - port 8443`
+    * Policy/Entitlement to access the DNS
+      * `ALLOW TCP up to <INTERNAL CONTROLLER IP> - port 53`
+      * `ALLOW UDP up to <INTERNAL CONTROLLER IP> - port 53`
+    * Policy/Entitlement to access the Admin API:
+      * `ALLOW TCP up to <HOSTNAME> - port 8443`
 
 ## Getting Started
 > Browse the available versions on [Appgate GitHub Container Registry](https://github.com/appgate/sdp-k8s-client/pkgs/container/charts%2Fsdp-k8s-client)
