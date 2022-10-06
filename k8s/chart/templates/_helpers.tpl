@@ -76,6 +76,13 @@ Sidecar Config
 {{- end }}
 
 {{/*
+Default app version
+*/}}
+{{- define "sdp-k8s-client.defaultTag" -}}
+  {{- default .Chart.AppVersion .Values.global.image.tag }}
+{{- end -}}
+
+{{/*
 Namespace
 */}}
 {{- define "sdp-k8s-client.namespace" -}}
