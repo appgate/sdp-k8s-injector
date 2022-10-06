@@ -6,8 +6,8 @@ use kube::{Api, Client, Error as KError, Resource};
 use log::{error, info, warn};
 use sdp_common::crd::{DeviceId, DeviceIdSpec, ServiceIdentity};
 use sdp_common::kubernetes::SDP_K8S_NAMESPACE;
-use sdp_common::traits::{Candidate, HasCredentials, Service};
-use sdp_macros::{queue_debug, sdp_error, sdp_info, sdp_log};
+use sdp_common::traits::{HasCredentials, Named, Namespaced, Service};
+use sdp_macros::{queue_debug, sdp_error, sdp_info, sdp_log, when_ok};
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::future::Future;
@@ -31,8 +31,8 @@ struct DeviceIdManagerPool {
 }
 
 trait DeviceIdProvider {
-    type From: Candidate + HasCredentials + Send;
-    type To: Candidate + Send;
+    type From: Service + HasCredentials + Send;
+    type To: Service + Send;
     fn register(&mut self, to: Self::To) -> ();
     fn unregister(&mut self, to: &Self::To) -> Option<Self::To>;
     fn device_id(&self, from: &Self::From) -> Option<&Self::To>;
@@ -45,15 +45,21 @@ impl DeviceIdProvider for DeviceIdManagerPool {
     type To = DeviceId;
 
     fn register(&mut self, to: Self::To) -> () {
-        self.device_id_map.insert(to.service_id_key(), to);
+        when_ok!((device_id = to.service_id()) {
+            self.device_id_map.insert(device_id, to)
+        });
     }
 
     fn unregister(&mut self, to: &Self::To) -> Option<Self::To> {
-        self.device_id_map.remove(&to.service_id_key())
+        when_ok!((device_id = to.service_id()) {
+            self.device_id_map.remove(&device_id)
+        })
     }
 
     fn device_id(&self, from: &Self::From) -> Option<&Self::To> {
-        self.device_id_map.get(&from.service_id_key())
+        when_ok!((device_id = from.service_id()) {
+            self.device_id_map.get(&device_id)
+        })
     }
 
     fn device_ids(&self) -> Vec<&Self::To> {
@@ -61,15 +67,16 @@ impl DeviceIdProvider for DeviceIdManagerPool {
     }
 
     fn next_device_id(&self, from: &Self::From) -> Option<Self::To> {
-        let id = from.service_id();
-        Some(DeviceId::new(
-            &id,
-            DeviceIdSpec {
-                uuids: vec![],
-                service_name: Candidate::name(from),
-                service_namespace: Candidate::namespace(from),
-            },
-        ))
+        when_ok!((device_id = from.service_id()) {
+            Some(DeviceId::new(
+                &device_id,
+                DeviceIdSpec {
+                    uuids: vec![],
+                    service_name: from.name(),
+                    service_namespace: from.namespace().unwrap(), // Safe since if it has service_id it has namespace
+                },
+            ))
+        })
     }
 }
 
@@ -102,85 +109,88 @@ impl DeviceIdAPI for KubeDeviceIdManager {
         let fut = async move {
             let device_id_api: Api<DeviceId> =
                 Api::namespaced(self.client.clone(), SDP_K8S_NAMESPACE);
-            match device_id_api.get_opt(&device_id.service_id()).await {
-                Ok(None) => {
-                    info!(
-                        "DeviceIds {} does not exist, creating it.",
-                        device_id.service_id()
-                    );
-                    let service_name = &device_id.spec.service_name;
-                    let service_namespace = &device_id.spec.service_namespace;
+            when_ok!((service_id = device_id.service_id()) {
+                match device_id_api.get_opt(&service_id).await {
+                    Ok(None) => {
+                        info!(
+                            "DeviceIds {} does not exist, creating it.",
+                            service_id
+                        );
+                        let service_name = &device_id.spec.service_name;
+                        let service_namespace = &device_id.spec.service_namespace;
 
-                    let mut uuids: Vec<String> = vec![];
-                    let mut owner_ref = OwnerReference::default();
-                    let device_id_name = &format!("{}-{}", service_namespace, service_name);
+                        let mut uuids: Vec<String> = vec![];
+                        let mut owner_ref = OwnerReference::default();
+                        let device_id_name = &format!("{}-{}", service_namespace, service_name);
 
-                    let replicaset_api: Api<ReplicaSet> =
-                        Api::namespaced(self.client.clone(), service_namespace);
-                    let replicasets = replicaset_api
-                        .list(&ListParams::default())
-                        .await
-                        .expect("Unable to list replicaset");
-                    for replicaset in replicasets {
-                        if let Some(replicaset_owners) =
-                            &replicaset.meta().owner_references.as_ref()
-                        {
-                            let owner = &replicaset_owners[0];
-                            if owner.name == *service_name {
-                                let service_identity_api: Api<ServiceIdentity> =
-                                    Api::namespaced(self.client.clone(), SDP_K8S_NAMESPACE);
-                                let service_identity = service_identity_api
-                                    .get(device_id_name)
-                                    .await
-                                    .expect("Unable to get service identity");
-                                owner_ref.controller = Default::default();
-                                owner_ref.block_owner_deletion = Some(true);
-                                owner_ref.name = service_identity.metadata.name.unwrap();
-                                owner_ref.api_version = "injector.sdp.com/v1".to_string();
-                                owner_ref.kind = "ServiceIdentity".to_string();
-                                owner_ref.uid =
-                                    service_identity.metadata.uid.clone().unwrap_or_default();
+                        let replicaset_api: Api<ReplicaSet> =
+                            Api::namespaced(self.client.clone(), service_namespace);
+                        let replicasets = replicaset_api
+                            .list(&ListParams::default())
+                            .await
+                            .expect("Unable to list replicaset");
+                        for replicaset in replicasets {
+                            if let Some(replicaset_owners) =
+                                &replicaset.meta().owner_references.as_ref()
+                            {
+                                let owner = &replicaset_owners[0];
+                                if owner.name == *service_name {
+                                    let service_identity_api: Api<ServiceIdentity> =
+                                        Api::namespaced(self.client.clone(), SDP_K8S_NAMESPACE);
+                                    let service_identity = service_identity_api
+                                        .get(device_id_name)
+                                        .await
+                                        .expect("Unable to get service identity");
+                                    owner_ref.controller = Default::default();
+                                    owner_ref.block_owner_deletion = Some(true);
+                                    owner_ref.name = service_identity.metadata.name.unwrap();
+                                    owner_ref.api_version = "injector.sdp.com/v1".to_string();
+                                    owner_ref.kind = "ServiceIdentity".to_string();
+                                    owner_ref.uid =
+                                        service_identity.metadata.uid.clone().unwrap_or_default();
 
-                                if let Some(num_replicas) = replicaset.spec.unwrap().replicas {
-                                    for _ in 0..(2 * num_replicas) {
-                                        let uuid = Uuid::new_v4().to_string();
-                                        info!(
-                                            "Assigning uuid {} to DeviceID {}",
-                                            uuid, device_id_name
-                                        );
-                                        uuids.push(uuid);
+                                    if let Some(num_replicas) = replicaset.spec.unwrap().replicas {
+                                        for _ in 0..(2 * num_replicas) {
+                                            let uuid = Uuid::new_v4().to_string();
+                                            info!(
+                                                "Assigning uuid {} to DeviceID {}",
+                                                uuid, device_id_name
+                                            );
+                                            uuids.push(uuid);
+                                        }
                                     }
                                 }
                             }
                         }
+                        let mut device_id = DeviceId::new(
+                            device_id_name,
+                            DeviceIdSpec {
+                                uuids,
+                                service_name: service_name.to_string(),
+                                service_namespace: service_namespace.to_string(),
+                            },
+                        );
+                        device_id.metadata.owner_references = Some(vec![owner_ref]);
+                        let device_id_api: Api<DeviceId> =
+                            Api::namespaced(self.client.clone(), SDP_K8S_NAMESPACE);
+                        Some(device_id_api
+                            .create(&PostParams::default(), &device_id)
+                            .await)
                     }
-                    let mut device_id = DeviceId::new(
-                        device_id_name,
-                        DeviceIdSpec {
-                            uuids,
-                            service_name: service_name.to_string(),
-                            service_namespace: service_namespace.to_string(),
-                        },
-                    );
-                    device_id.metadata.owner_references = Some(vec![owner_ref]);
-                    let device_id_api: Api<DeviceId> =
-                        Api::namespaced(self.client.clone(), SDP_K8S_NAMESPACE);
-                    device_id_api
-                        .create(&PostParams::default(), &device_id)
-                        .await
+                    Ok(_) => {
+                        info!("DeviceIds {} already exists.", service_id);
+                        Some(Ok(device_id.clone()))
+                    }
+                    Err(e) => {
+                        error!(
+                            "Error checking if device ids {} exists.",
+                            service_id
+                        );
+                        Some(Err(e))
+                    }
                 }
-                Ok(_) => {
-                    info!("DeviceIds {} already exists.", device_id.service_id());
-                    Ok(device_id.clone())
-                }
-                Err(e) => {
-                    error!(
-                        "Error checking if device ids {} exists.",
-                        device_id.service_id()
-                    );
-                    Err(e)
-                }
-            }
+            })
+            .unwrap_or(Err("Unknown namespace for DeviceId"))
         };
         Box::pin(fut)
     }
@@ -213,7 +223,7 @@ impl DeviceIdAPI for KubeDeviceIdManager {
     }
 }
 
-trait DeviceIdManager<From: Candidate + HasCredentials + Send + Sync, To: Candidate + Send + Sync>:
+trait DeviceIdManager<From: Service + HasCredentials + Send + Sync, To: Service + Send + Sync>:
     DeviceIdAPI + DeviceIdProvider<From = From, To = To>
 {
 }
@@ -268,25 +278,28 @@ impl DeviceIdManagerRunner<ServiceIdentity, DeviceId> {
                 DeviceIdManagerProtocol::CreateDeviceId {
                     service_identity_ref,
                 } => {
-                    sdp_info!(DeviceIdManagerProtocol::<F, DeviceId>::DeviceIdManagerDebug | (
-                        "Received request for new DeviceId for ServiceIdentity {}", service_identity_ref.service_id()
-                    ) => queue_tx);
+                    when_ok!((service_id = service_identity_ref.service_id()) {
+                        sdp_info!(DeviceIdManagerProtocol::<F, DeviceId>::DeviceIdManagerDebug | (
+                            "Received request for new DeviceId for ServiceIdentity {}", service_id
+                        ) => queue_tx);
 
-                    match dm.next_device_id(&service_identity_ref) {
-                        Some(d) => match dm.create(&d).await {
-                            Ok(device_id) => {
-                                sdp_info!(DeviceIdManagerProtocol::<F, DeviceId>::DeviceIdManagerDebug | (
-                                    "Created DeviceID {} for ServiceIdentity {}", device_id.service_id(), service_identity_ref.service_id()
-                                ) => queue_tx);
-                            }
-                            Err(error) => {
-                                sdp_error!(DeviceIdManagerProtocol::<F, DeviceId>::DeviceIdManagerDebug | (
-                                    "Error creating DeviceId for ServiceIdentity {}: {}", service_identity_ref.service_id(), error
-                                ) => queue_tx);
-                            }
-                        },
-                        _ => {}
-                    }
+                        match dm.next_device_id(&service_identity_ref) {
+                            Some(d) => match dm.create(&d).await {
+                                Ok(device_id) => {
+                                    sdp_info!(DeviceIdManagerProtocol::<F, DeviceId>::DeviceIdManagerDebug | (
+                                        "Created DeviceID {} for ServiceIdentity {}", device_id.service_id().unwrap(), service_id
+                                    ) => queue_tx);
+                                }
+                                Err(error) => {
+                                    sdp_error!(DeviceIdManagerProtocol::<F, DeviceId>::DeviceIdManagerDebug | (
+                                        "Error creating DeviceId for ServiceIdentity {}: {}", service_id, error
+                                    ) => queue_tx);
+                                }
+                            },
+                            _ => {}
+                        }
+                        None
+                    });
                 }
 
                 DeviceIdManagerProtocol::DeleteDeviceId { device_id: _ } => {}
@@ -294,17 +307,20 @@ impl DeviceIdManagerRunner<ServiceIdentity, DeviceId> {
                 DeviceIdManagerProtocol::FoundServiceIdentity {
                     service_identity_ref,
                 } => {
-                    sdp_info!(DeviceIdManagerProtocol::<F, DeviceId>::DeviceIdManagerDebug | (
-                        "Found ServiceIdentity {}",
-                        service_identity_ref.service_id()
-                    ) => queue_tx);
+                    when_ok!((service_id = service_identity_ref.service_id()) {
+                        sdp_info!(DeviceIdManagerProtocol::<F, DeviceId>::DeviceIdManagerDebug | (
+                            "Found ServiceIdentity {}",
+                            service_id
+                        ) => queue_tx);
 
-                    manager_proto_tx
-                        .send(DeviceIdManagerProtocol::CreateDeviceId {
-                            service_identity_ref,
-                        })
-                        .await
-                        .expect("Unable to send CreateDeviceId message");
+                        manager_proto_tx
+                            .send(DeviceIdManagerProtocol::CreateDeviceId {
+                                service_identity_ref,
+                            })
+                            .await
+                            .expect("Unable to send CreateDeviceId message");
+                        None
+                    });
                 }
                 _ => {
                     warn!("Ignored message");

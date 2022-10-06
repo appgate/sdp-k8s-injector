@@ -370,9 +370,3 @@ pub fn volumes(pod: &Pod) -> Option<&Vec<Volume>> {
 pub fn volume_names(pod: &Pod) -> Option<Vec<String>> {
     volumes(pod).map(|vs| vs.iter().map(|v| v.name.clone()).collect())
 }
-
-impl HasCredentials for ServiceIdentity {
-    fn credentials<'a>(&'a self) -> &'a ServiceUser {
-        &self.spec.service_user
-    }
-}

@@ -6,6 +6,7 @@ use log::{error, info, warn};
 use sdp_common::crd::DeviceId;
 use sdp_common::service::ServiceIdentity;
 use sdp_common::traits::{HasCredentials, Service};
+use sdp_macros::when_ok;
 use tokio::sync::mpsc::{Receiver, Sender};
 use uuid::Uuid;
 
@@ -82,7 +83,9 @@ impl IdentityStore<ServiceIdentity> for InMemoryIdentityStore {
         service: ServiceIdentity,
     ) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
         let fut = async move {
-            self.identities.insert(service.service_id(), service);
+            when_ok!((service_id = service.service_id()) {
+                self.identities.insert(service_id, service)
+            });
         };
         Box::pin(fut)
     }
@@ -108,10 +111,12 @@ impl IdentityStore<ServiceIdentity> for InMemoryIdentityStore {
                 .map(Option::unwrap);
             let uuids: Vec<Uuid> = uuids.collect();
             let n = uuids.len();
-            self.device_ids.insert(
-                device_id.service_id(),
-                RegisteredDeviceId(n, HashSet::from_iter(uuids.clone()), n, uuids),
-            );
+            when_ok!((service_id = device_id.service_id()) {
+                self.device_ids.insert(
+                    service_id,
+                    RegisteredDeviceId(n, HashSet::from_iter(uuids.clone()), n, uuids),
+                )
+            });
         };
         Box::pin(fut)
     }
@@ -275,25 +280,36 @@ impl DeviceIdProvider<ServiceIdentity> {
                 val = watcher_rx.recv() => {
                     match val {
                         Some(DeviceIdProviderRequestProtocol::FoundServiceIdentity(s)) => {
-                            let a = s.service_id();
-                            info!("Registering new service {}", &a);
-                            self.store.register_service(s).await;
+                            when_ok!((service_id = s.service_id()) {
+                                info!("Registering new service {}", &service_id);
+                                self.store.register_service(s).await;
+                                None
+                            });
                         },
                         Some(DeviceIdProviderRequestProtocol::DeletedServiceIdentity(s)) => {
-                            info!("Unregistering service {}", s.service_id());
-                            if self.store.unregister_service(&s.service_id()).await.is_none() {
-                                error!("Unable to unregister service {}", s.service_id());
-                            };
+                            when_ok!((service_id = s.service_id()) {
+                                info!("Unregistering service {}", service_id);
+                                if self.store.unregister_service(&service_id).await.is_none() {
+                                    error!("Unable to unregister service {}", service_id);
+                                };
+                                None
+                            });
                         },
                         Some(DeviceIdProviderRequestProtocol::FoundDevideId(id)) => {
-                            info!("Registering new device ids for service {}", id.service_id());
-                            self.store.register_device_ids(id).await;
+                            when_ok!((service_id = id.service_id()) {
+                                info!("Registering new device ids for service {}", service_id);
+                                self.store.register_device_ids(id).await;
+                                None
+                            });
                         },
                         Some(DeviceIdProviderRequestProtocol::DeletedDevideId(id)) => {
-                            info!("Unregistering device ids for service {}", id.service_id());
-                            if self.store.unregister_device_ids(&id.service_id()).await.is_none() {
-                                error!("Unable to unregister device ids for service {}", id.service_id());
-                            };
+                            when_ok!((service_id = id.service_id()) {
+                                info!("Unregistering device ids for service {}", service_id);
+                                if self.store.unregister_device_ids(&service_id).await.is_none() {
+                                    error!("Unable to unregister device ids for service {}", service_id);
+                                };
+                                None
+                            });
                         },
                         Some(DeviceIdProviderRequestProtocol::ReleasedDeviceId(service_id, uuid)) => {
                             info!("Released device id {} for service {}", uuid.to_string(), service_id);

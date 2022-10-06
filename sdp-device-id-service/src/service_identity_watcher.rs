@@ -9,6 +9,7 @@ use log::{error, info, warn};
 use sdp_common::crd::{DeviceId, ServiceIdentity};
 use sdp_common::kubernetes::SDP_K8S_NAMESPACE;
 use sdp_common::traits::{HasCredentials, Service};
+use sdp_macros::when_ok;
 use tokio::sync::mpsc::{Receiver, Sender};
 
 #[derive(Debug)]
@@ -49,22 +50,26 @@ impl<'a> ServiceIdentityWatcher<ServiceIdentity> {
                 .expect("Error watching for service identity events")
             {
                 Some(Event::Applied(service_identity)) => {
-                    let service_id = service_identity.service_id_key().clone();
-                    if !applied.contains(&service_id) {
-                        if let Err(err) = tx
-                            .send(DeviceIdManagerProtocol::FoundServiceIdentity {
-                                service_identity_ref: service_identity,
-                            })
-                            .await
-                        {
-                            error!("Error requesting new DeviceId: {}", err);
+                    when_ok!((service_id = service_identity.service_id()) {
+                        if !applied.contains(&service_id) {
+                            if let Err(err) = tx
+                                .send(DeviceIdManagerProtocol::FoundServiceIdentity {
+                                    service_identity_ref: service_identity,
+                                })
+                                .await
+                            {
+                                error!("Error requesting new DeviceId: {}", err);
+                            }
+                            applied.insert(service_id);
                         }
-                        applied.insert(service_id);
-                    }
+                        None
+                    });
                 }
                 Some(Event::Deleted(service_identity)) => {
-                    let service_id = service_identity.service_id_key().clone();
-                    applied.remove(&service_id);
+                    when_ok!((service_id = service_identity.service_id()) {
+                        applied.remove(&service_id);
+                        None
+                    });
                 }
                 // TODO: Use this event
                 Some(Event::Restarted(_)) => {

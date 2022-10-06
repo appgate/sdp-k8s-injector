@@ -12,6 +12,7 @@ use sdp_common::{
     crd::ServiceIdentity,
     traits::{Candidate, Service},
 };
+use sdp_macros::when_ok;
 use tokio::sync::mpsc::{Receiver, Sender};
 
 use crate::identity_manager::IdentityManagerProtocol;
@@ -51,11 +52,14 @@ impl<'a> DeploymentWatcher<Deployment> {
 
         // First of all notify the known service candidates to the IdentityManager so we can clean up the system if needed
         for candidate in xs.unwrap().items.iter().filter(|c| c.is_candidate()) {
-            info!("Found service candidate: {}", candidate.service_id());
-            let msg = IdentityManagerProtocol::FoundServiceCandidate(candidate.clone());
-            if let Err(err) = q_tx.send(msg).await {
-                error!("Error reporting found ServiceIdentity: {}", err);
-            }
+            when_ok!((candidate_service_id = candidate.service_id()) {
+                info!("Found service candidate: {}", candidate_service_id);
+                let msg = IdentityManagerProtocol::FoundServiceCandidate(candidate.clone());
+                if let Err(err) = q_tx.send(msg).await {
+                    error!("Error reporting found ServiceIdentity: {}", err);
+                }
+                None
+            });
         }
 
         // Notify IdentityManager that we are ready to proceed
@@ -89,46 +93,57 @@ impl<'a> DeploymentWatcher<Deployment> {
         loop {
             match xs.try_next().await.expect("Error getting event!") {
                 Some(Event::Applied(deployment)) if deployment.is_candidate() => {
+                    when_ok!((deployment_service_id = deployment.service_id()) {
+                        if !applied.contains(&deployment_service_id) {
+                            info!("New service candidate: {}", &deployment_service_id);
+                            if let Err(err) = tx
+                                .send(IdentityManagerProtocol::RequestServiceIdentity {
+                                    service_candidate: deployment.clone(),
+                                })
+                                .await
+                            {
+                                error!("Error requesting new ServiceIdentity: {}", err);
+                            }
+                            applied.insert(deployment_service_id);
+                        } else {
+                            info!("Modified service candidate: {}", &deployment_service_id);
+                        }
+                        None
+                    });
+                }
+                Some(Event::Applied(deployment)) => {
+                    when_ok!((deployment_service_id = deployment.service_id()) {
+                        info!(
+                            "Ignoring service {}, not a candidate",
+                            deployment_service_id
+                        );
+                        None
+                    });
+                }
+                Some(Event::Deleted(deployment)) if deployment.is_candidate() => {
                     let service_id = deployment.service_id();
-                    if !applied.contains(&service_id) {
-                        info!("New service candidate: {}", &service_id);
+                    when_ok!((deployment_service_id = deployment.service_id()) {
+                        info!("Deleted service candidate {}", &deployment_service_id);
                         if let Err(err) = tx
-                            .send(IdentityManagerProtocol::RequestServiceIdentity {
-                                service_candidate: deployment.clone(),
-                            })
+                            .send(IdentityManagerProtocol::DeletedServiceCandidate(
+                                deployment.clone(),
+                            ))
                             .await
                         {
                             error!("Error requesting new ServiceIdentity: {}", err);
                         }
-                        applied.insert(service_id);
-                    } else {
-                        info!("Modified service candidate: {}", &service_id);
-                    }
-                }
-                Some(Event::Applied(deployment)) => {
-                    info!(
-                        "Ignoring service {}, not a candidate",
-                        deployment.service_id()
-                    );
-                }
-                Some(Event::Deleted(deployment)) if deployment.is_candidate() => {
-                    let service_id = deployment.service_id();
-                    info!("Deleted service candidate {}", &service_id);
-                    if let Err(err) = tx
-                        .send(IdentityManagerProtocol::DeletedServiceCandidate(
-                            deployment.clone(),
-                        ))
-                        .await
-                    {
-                        error!("Error requesting new ServiceIdentity: {}", err);
-                    }
-                    applied.remove(&service_id);
+                        applied.remove(&deployment_service_id);
+                        None
+                    });
                 }
                 Some(Event::Deleted(deployment)) => {
-                    debug!(
-                        "Ignoring service not being candidate {}",
-                        deployment.service_id()
-                    );
+                    when_ok!((deployment_service_id = deployment.service_id()) {
+                        debug!(
+                            "Ignoring service not being candidate {}",
+                            deployment_service_id
+                        );
+                        None
+                    });
                 }
                 // TODO: User this event, also we can replace the for list during initalization with this
                 Some(Event::Restarted(_xs)) => {

@@ -5,7 +5,7 @@ use std::collections::HashMap;
 
 use crate::{
     service::ServiceUser,
-    traits::{Named, Namespaced, Service},
+    traits::{HasCredentials, Named, Namespaced, Service},
 };
 
 /// ServiceIdentity CRD
@@ -40,6 +40,12 @@ impl Named for ServiceIdentity {
 impl Namespaced for ServiceIdentity {
     fn namespace(&self) -> Option<String> {
         Some(self.spec().service_namespace.clone())
+    }
+}
+
+impl HasCredentials for ServiceIdentity {
+    fn credentials<'a>(&'a self) -> &'a ServiceUser {
+        &self.spec.service_user
     }
 }
 

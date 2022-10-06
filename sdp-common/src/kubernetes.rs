@@ -204,3 +204,5 @@ impl Namespaced for AdmissionRequest<Pod> {
         }
     }
 }
+
+impl Service for AdmissionRequest<Pod> {}

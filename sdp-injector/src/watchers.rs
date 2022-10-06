@@ -10,6 +10,7 @@ use log::{error, info};
 use sdp_common::constants::POD_DEVICE_ID_ANNOTATION;
 use sdp_common::crd::{DeviceId, ServiceIdentity};
 use sdp_common::traits::{Annotated, Candidate, Service};
+use sdp_macros::when_ok;
 use serde::de::DeserializeOwned;
 use std::fmt::Debug;
 use tokio::sync::mpsc::Sender;
@@ -59,31 +60,39 @@ where
 
 impl SimpleWatchingProtocol<DeviceIdProviderRequestProtocol<ServiceIdentity>> for ServiceIdentity {
     fn applied(&self) -> Option<DeviceIdProviderRequestProtocol<ServiceIdentity>> {
-        info!("Applied ServiceIdentity {}", self.service_id());
-        Some(DeviceIdProviderRequestProtocol::FoundServiceIdentity(
-            self.clone(),
-        ))
+        when_ok!((service_id = self.service_id()) {
+            info!("Applied ServiceIdentity {}", service_id);
+            Some(DeviceIdProviderRequestProtocol::FoundServiceIdentity(
+                self.clone(),
+            ))
+        })
     }
 
     fn deleted(&self) -> Option<DeviceIdProviderRequestProtocol<ServiceIdentity>> {
-        info!("Deleted ServiceIdentity {}", self.service_id());
-        Some(DeviceIdProviderRequestProtocol::DeletedServiceIdentity(
-            self.clone(),
-        ))
+        when_ok!((service_id= self.service_id()) {
+            info!("Deleted ServiceIdentity {}", service_id);
+            Some(DeviceIdProviderRequestProtocol::DeletedServiceIdentity(
+                self.clone(),
+            ))
+        })
     }
 }
 
 impl SimpleWatchingProtocol<DeviceIdProviderRequestProtocol<ServiceIdentity>> for DeviceId {
     fn applied(&self) -> Option<DeviceIdProviderRequestProtocol<ServiceIdentity>> {
-        info!("Applied DeviceId {}", self.service_id());
-        Some(DeviceIdProviderRequestProtocol::FoundDevideId(self.clone()))
+        when_ok!((service_id = self.service_id()) {
+            info!("Applied DeviceId {}", service_id);
+            Some(DeviceIdProviderRequestProtocol::FoundDevideId(self.clone()))
+        })
     }
 
     fn deleted(&self) -> Option<DeviceIdProviderRequestProtocol<ServiceIdentity>> {
-        info!("Deleted DeviceId {}", self.service_id());
-        Some(DeviceIdProviderRequestProtocol::DeletedDevideId(
-            self.clone(),
-        ))
+        when_ok!((service_id = self.service_id()) {
+            info!("Deleted DeviceId {}", service_id);
+            Some(DeviceIdProviderRequestProtocol::DeletedDevideId(
+                self.clone(),
+            ))
+        })
     }
 }
 
@@ -93,33 +102,35 @@ impl SimpleWatchingProtocol<DeviceIdProviderRequestProtocol<ServiceIdentity>> fo
     }
 
     fn deleted(&self) -> Option<DeviceIdProviderRequestProtocol<ServiceIdentity>> {
-        let msg = self
-            .is_candidate()
-            .then_some(true)
-            .and_then(|_| self.annotation(POD_DEVICE_ID_ANNOTATION))
-            .and_then(|device_id| {
-                let uuid = uuid::Uuid::parse_str(device_id);
-                match uuid {
-                    Err(e) => {
-                        error!(
-                            "Error parsing device id from {}: {}",
-                            device_id,
-                            e.to_string()
-                        );
-                        None
+        when_ok!((service_id = self.service_id()) {
+            let msg = self
+                .is_candidate()
+                .then_some(true)
+                .and_then(|_| self.annotation(POD_DEVICE_ID_ANNOTATION))
+                .and_then(|uuid_str| {
+                    let uuid = uuid::Uuid::parse_str(uuid_str);
+                    match uuid {
+                        Err(e) => {
+                            error!(
+                                "Error parsing device id from {}: {}",
+                                uuid_str,
+                                e.to_string()
+                            );
+                            None
+                        }
+                        Ok(uuid) => {
+                            info!("Deleted POD with device id assigned {}", service_id);
+                            Some(DeviceIdProviderRequestProtocol::ReleasedDeviceId(
+                                service_id,
+                                uuid,
+                            ))
+                        }
                     }
-                    Ok(uuid) => {
-                        info!("Deleted POD with device id assigned {}", self.service_id());
-                        Some(DeviceIdProviderRequestProtocol::ReleasedDeviceId(
-                            self.service_id(),
-                            uuid,
-                        ))
-                    }
-                }
-            });
-        if msg.is_none() {
-            info!("Ignoring POD {}", self.service_id());
-        }
-        msg
+                });
+            if msg.is_none() {
+                info!("Ignoring POD {}", service_id);
+            }
+            msg
+        })
     }
 }

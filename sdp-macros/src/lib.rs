@@ -67,6 +67,19 @@ macro_rules! sdp_error {
 }
 
 #[macro_export]
+macro_rules! when_ok {
+    (($v:ident = $when:expr) $then:expr) => {
+        match $when {
+            Err(e) => {
+                error!("Error: {}", e);
+                None
+            }
+            Ok($v) => $then,
+        }
+    };
+}
+
+#[macro_export]
 macro_rules! deployment {
     ($namespace:literal, $name:literal) => {{
         let mut d = Deployment::default();

@@ -12,18 +12,19 @@ use json_patch::{AddOperation, Patch};
 use k8s_openapi::api::apps::v1::Deployment;
 use k8s_openapi::api::core::v1::{
     ConfigMapKeySelector, Container, EnvVar, EnvVarSource, ObjectFieldSelector, Pod, PodDNSConfig,
-    SecretKeySelector, Service, Volume,
+    SecretKeySelector, Service as KubeService, Volume,
 };
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::Status;
 use kube::api::{DynamicObject, ListParams};
-use kube::core::admission::{AdmissionRequest, AdmissionResponse, AdmissionReview};
+use kube::core::admission::{self, AdmissionRequest, AdmissionResponse, AdmissionReview};
 use kube::{Api, Client, Config};
 use log::{debug, error, info, warn};
 use rustls::{Certificate, PrivateKey, ServerConfig};
 use rustls_pemfile::{read_one, Item};
 use sdp_common::constants::POD_DEVICE_ID_ANNOTATION;
 use sdp_common::crd::DeviceId;
-use sdp_common::traits::{Candidate, ObjectRequest, Validated};
+use sdp_common::traits::{Annotated, Candidate, HasCredentials, ObjectRequest, Service, Validated};
+use sdp_macros::when_ok;
 use serde::Deserialize;
 use std::collections::hash_map::RandomState;
 use std::collections::{HashMap, HashSet};
@@ -199,9 +200,9 @@ fn reader_from_cwd(file_name: &str) -> Result<BufReader<File>, Box<dyn Error>> {
     Ok(BufReader::new(file))
 }
 
-async fn dns_service_discover<'a>(k8s_client: &'a Client) -> Option<Service> {
+async fn dns_service_discover<'a>(k8s_client: &'a Client) -> Option<KubeService> {
     let names: HashSet<&str, RandomState> = HashSet::from_iter(SDP_DNS_SERVICE_NAMES);
-    let services_api: Api<Service> = Api::namespaced(k8s_client.clone(), "kube-system");
+    let services_api: Api<KubeService> = Api::namespaced(k8s_client.clone(), "kube-system");
     debug!("Discovering K8S DNS service");
     let services = services_api.list(&ListParams::default()).await;
     services
@@ -225,7 +226,7 @@ trait K8SDNSService {
     fn maybe_ip(&self) -> Option<&String>;
 }
 
-impl K8SDNSService for Option<Service> {
+impl K8SDNSService for Option<KubeService> {
     fn maybe_ip(&self) -> Option<&String> {
         self.as_ref()
             .and_then(|s| s.spec.as_ref())
@@ -257,7 +258,7 @@ impl ServiceEnvironment {
     async fn create<'a, E, R>(request: &R, store: MutexGuard<'a, E>) -> Option<Self>
     where
         E: IdentityStore<ServiceIdentity>,
-        R: ObjectRequest<Pod> + Candidate,
+        R: ObjectRequest<Pod> + Service + Annotated,
     {
         if let Some(env) = ServiceEnvironment::from_pod(request) {
             Some(env)
@@ -269,60 +270,65 @@ impl ServiceEnvironment {
     async fn from_identity_store<
         'a,
         E: IdentityStore<ServiceIdentity>,
-        R: ObjectRequest<Pod> + Candidate,
+        R: ObjectRequest<Pod> + Service + Annotated,
     >(
         request: &R,
         mut store: MutexGuard<'a, E>,
     ) -> Option<Self> {
+        when_ok!((service_id = request.service_id()) {
         store
-            .pop_device_id(&request.service_id_key())
+            .pop_device_id(&service_id)
             .await
-            .map(|(s, d)| {
+            .and_then(|(s, d)| {
                 let (user_field, password_field, profile_field) =
                     s.spec.service_user.secrets_field_names(true);
-                let service_id = s.service_id();
-                let secrets_name = s
-                    .credentials()
-                    .secrets_name(&s.spec.service_namespace, &s.spec.service_name);
-                let config_name = s
-                    .credentials()
-                    .config_name(&s.spec.service_namespace, &s.spec.service_name);
-                ServiceEnvironment {
-                    service_name: service_id.to_string(),
-                    client_config: config_name,
-                    client_secret_name: secrets_name,
-                    client_secret_controller_url_key: profile_field,
-                    client_secret_pwd_key: password_field,
-                    client_secret_user_key: user_field,
-                    client_device_id: d.to_string(),
-                    n_containers: "0".to_string(),
-                    k8s_dns_service_ip: None,
-                }
+                when_ok!((service_id = s.service_id()) {
+                    let secrets_name = s
+                        .credentials()
+                        .secrets_name(&s.spec.service_namespace, &s.spec.service_name);
+                    let config_name = s
+                        .credentials()
+                        .config_name(&s.spec.service_namespace, &s.spec.service_name);
+                    Some(ServiceEnvironment {
+                        service_name: service_id,
+                        client_config: config_name,
+                        client_secret_name: secrets_name,
+                        client_secret_controller_url_key: profile_field,
+                        client_secret_pwd_key: password_field,
+                        client_secret_user_key: user_field,
+                        client_device_id: d.to_string(),
+                        n_containers: "0".to_string(),
+                        k8s_dns_service_ip: None,
+                    })
+                })
             })
+        })
     }
 
-    fn from_pod<R: ObjectRequest<Pod> + Candidate>(request: &R) -> Option<Self> {
+    fn from_pod<R: ObjectRequest<Pod> + Service + Annotated>(request: &R) -> Option<Self> {
         request.object().and_then(|pod| {
             let service_id = request.service_id();
-            let config = pod.annotation(SDP_ANNOTATION_CLIENT_CONFIG);
-            let secret = pod.annotation(SDP_ANNOTATION_CLIENT_SECRETS);
-            let device_id = pod.annotation(SDP_ANNOTATION_CLIENT_DEVICE_ID);
-            let user_field = format!("{}-user", &service_id);
-            let pwd_field = format!("{}-password", &service_id);
-            secret.map(|s| ServiceEnvironment {
-                service_name: service_id.clone(),
-                client_config: config
-                    .map(|s| s.clone())
-                    .unwrap_or(format!("{}-service-config", &service_id)),
-                client_secret_name: s.to_string(),
-                client_secret_controller_url_key: pwd_field.to_string(),
-                client_secret_pwd_key: pwd_field,
-                client_secret_user_key: user_field,
-                client_device_id: device_id
-                    .map(|s| s.clone())
-                    .unwrap_or(uuid::Uuid::new_v4().to_string()),
-                n_containers: "0".to_string(),
-                k8s_dns_service_ip: None,
+            when_ok!((service_id = request.service_id()) {
+                let config = pod.annotation(SDP_ANNOTATION_CLIENT_CONFIG);
+                let secret = pod.annotation(SDP_ANNOTATION_CLIENT_SECRETS);
+                let device_id = pod.annotation(SDP_ANNOTATION_CLIENT_DEVICE_ID);
+                let user_field = format!("{}-user", &service_id);
+                let pwd_field = format!("{}-password", &service_id);
+                secret.map(|s| ServiceEnvironment {
+                    service_name: service_id.clone(),
+                    client_config: config
+                        .map(|s| s.clone())
+                        .unwrap_or(format!("{}-service-config", &service_id)),
+                    client_secret_name: s.to_string(),
+                    client_secret_controller_url_key: pwd_field.to_string(),
+                    client_secret_pwd_key: pwd_field,
+                    client_secret_user_key: user_field,
+                    client_device_id: device_id
+                        .map(|s| s.clone())
+                        .unwrap_or(uuid::Uuid::new_v4().to_string()),
+                    n_containers: "0".to_string(),
+                    k8s_dns_service_ip: None,
+                })
             })
         })
     }
@@ -370,7 +376,7 @@ impl ServiceEnvironment {
 #[derive(Clone)]
 struct SDPPod {
     sdp_sidecars: Arc<SDPSidecars>,
-    k8s_dns_service: Option<Service>,
+    k8s_dns_service: Option<KubeService>,
 }
 
 impl SDPPod {
@@ -565,7 +571,7 @@ struct SDPInjectorContext<E: IdentityStore<ServiceIdentity>> {
 struct SDPPatchContext<'a, E: IdentityStore<ServiceIdentity>> {
     sdp_sidecars: Arc<SDPSidecars>,
     identity_store: MutexGuard<'a, E>,
-    k8s_dns_service: Option<Service>,
+    k8s_dns_service: Option<KubeService>,
 }
 
 impl SDPSidecars {
@@ -655,47 +661,49 @@ async fn patch_pod<'a, E: IdentityStore<ServiceIdentity>>(
     };
     let mut admission_response = AdmissionResponse::from(&admission_request);
 
-    let service_id = admission_request.service_id();
-    // Try to get the service environment and use it to patch the POD
-    let mut environment =
-        ServiceEnvironment::create(&admission_request, sdp_patch_context.identity_store).await;
-    match environment
-        .as_mut()
-        .map(|mut env| sdp_pod.patch(&mut env, admission_request))
-    {
-        Some(Ok(patch)) => {
-            info!(
-                "POD for service {} has {} patches",
-                service_id,
-                patch.0.len()
-            );
-            admission_response = admission_response.with_patch(patch)?
+    when_ok!((service_id = admission_request.service_id()) {
+        // Try to get the service environment and use it to patch the POD
+        let mut environment =
+            ServiceEnvironment::create(&admission_request, sdp_patch_context.identity_store).await;
+        match environment
+            .as_mut()
+            .map(|mut env| sdp_pod.patch(&mut env, admission_request))
+        {
+            Some(Ok(patch)) => {
+                info!(
+                    "POD for service {} has {} patches",
+                    service_id,
+                    patch.0.len()
+                );
+                admission_response = admission_response.with_patch(patch)?
+            }
+            Some(Err(error)) => {
+                warn!(
+                    "Unable to patch POD for service {}: {}",
+                    service_id,
+                    error.to_string()
+                );
+                let mut status: Status = Default::default();
+                status.code = Some(400);
+                status.message = Some(format!("This POD can not be patched {}", error.to_string()));
+                admission_response.allowed = false;
+                admission_response.result = status;
+            }
+            None => {
+                warn!(
+                    "Unable to patch POD for service {}. Service is not registered, trying later.",
+                    service_id
+                );
+                let mut status: Status = Default::default();
+                status.code = Some(503);
+                status.message =
+                    Some("Unable to find ServiceIdentity for this pod, retry later".to_string());
+                admission_response.allowed = false;
+                admission_response.result = status;
+            }
         }
-        Some(Err(error)) => {
-            warn!(
-                "Unable to patch POD for service {}: {}",
-                service_id,
-                error.to_string()
-            );
-            let mut status: Status = Default::default();
-            status.code = Some(400);
-            status.message = Some(format!("This POD can not be patched {}", error.to_string()));
-            admission_response.allowed = false;
-            admission_response.result = status;
-        }
-        None => {
-            warn!(
-                "Unable to patch POD for service {}. Service is not registered, trying later.",
-                service_id
-            );
-            let mut status: Status = Default::default();
-            status.code = Some(503);
-            status.message =
-                Some("Unable to find ServiceIdentity for this pod, retry later".to_string());
-            admission_response.allowed = false;
-            admission_response.result = status;
-        }
-    }
+        None
+    });
     Ok(admission_response.into_review())
 }
 
@@ -717,26 +725,29 @@ async fn mutate<E: IdentityStore<ServiceIdentity>>(
         .map(|r| r.resource.resource.as_str())
     {
         Some("pods") => {
+            let admission_response;
             let admission_review: AdmissionReview<Pod> = serde_json::from_str(&body)?;
             let admission_request: AdmissionRequest<Pod> = admission_review.try_into()?;
-            info!(
-                "Patching POD for service {}",
-                admission_request.service_id()
-            );
-            let admission_response = patch_pod(admission_request, sdp_patch_context).await?;
-            Ok(Body::from(serde_json::to_string(&admission_response)?))
+            if let Ok(service_id) = admission_request.service_id() {
+                info!("Patching POD for service {}", service_id);
+                admission_response = patch_pod(admission_request, sdp_patch_context).await?;
+                Ok(Body::from(serde_json::to_string(&admission_response)?))
+            } else {
+                Err(Box::<dyn Error>::from("Unable to find service id for Pod"))
+            }
         }
         Some("deployments") => {
             let admission_review: AdmissionReview<Deployment> = serde_json::from_str(&body)?;
             let admission_request: AdmissionRequest<Deployment> = admission_review.try_into()?;
-            let service_id = admission_request
-                .object
-                .as_ref()
-                .map(|d| d.service_id())
-                .unwrap_or("unknown".to_string());
-            info!("Patching Deployment: {}", service_id);
-            let admission_response = patch_deployment(admission_request).await?;
-            Ok(Body::from(serde_json::to_string(&admission_response)?))
+            if let Ok(service_id) = admission_request.service_id() {
+                info!("Patching Deployment: {}", service_id);
+                let admission_response = patch_deployment(admission_request).await?;
+                Ok(Body::from(serde_json::to_string(&admission_response)?))
+            } else {
+                Err(Box::<dyn Error>::from(
+                    "Unable to find service id for Deploument",
+                ))
+            }
         }
         _ => {
             let err_str = "Unknown resource to patch";
@@ -790,12 +801,14 @@ mod tests {
         SDP_SIDECARS_FILE_ENV,
     };
     use json_patch::Patch;
-    use k8s_openapi::api::core::v1::{Container, Pod, Service, ServiceSpec, ServiceStatus, Volume};
+    use k8s_openapi::api::core::v1::{
+        Container, Pod, Service as KubeService, ServiceSpec, ServiceStatus, Volume,
+    };
     use kube::core::admission::AdmissionReview;
     use kube::core::ObjectMeta;
     use sdp_common::crd::{DeviceId, DeviceIdSpec, ServiceIdentity, ServiceIdentitySpec};
     use sdp_common::service::ServiceUser;
-    use sdp_common::traits::{Candidate, ObjectRequest};
+    use sdp_common::traits::{Annotated, Candidate, Named, Namespaced, ObjectRequest, Service};
     use sdp_macros::{service_device_ids, service_identity, service_user};
     use serde_json::json;
     use std::collections::{BTreeMap, HashMap, HashSet};
@@ -908,7 +921,7 @@ mod tests {
         client_config_map: &'a str,
         client_secrets: &'a str,
         envs: Vec<(String, Option<String>)>,
-        service: Service,
+        service: KubeService,
         dns_searches: Option<Vec<String>>,
     }
 
@@ -920,7 +933,7 @@ mod tests {
                 client_config_map: "ns0-srv0-service-config",
                 client_secrets: "ns0-srv0-service-user",
                 envs: vec![],
-                service: Service::default(),
+                service: KubeService::default(),
                 dns_searches: Some(vec![
                     "svc.cluster.local".to_string(),
                     "cluster.local".to_string(),
@@ -945,7 +958,7 @@ mod tests {
                     ("POD_N_CONTAINERS".to_string(), Some("0".to_string())),
                     ("SERVICE_NAME".to_string(), Some("ns0-srv0".to_string())),
                 ],
-                service: Service::default(),
+                service: KubeService::default(),
                 ..Default::default()
             },
             TestPatch {
@@ -1029,7 +1042,7 @@ mod tests {
                         Some("00000000-0000-0000-0000-000000000005".to_string()),
                     ),
                 ],
-                service: Service {
+                service: KubeService {
                     metadata: ObjectMeta::default(),
                     spec: Some(ServiceSpec {
                         cluster_ip: Some(String::from("10.0.0.10")),
@@ -1184,6 +1197,26 @@ POD is missing needed volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-de
     impl Candidate for TestObjectRequest {
         fn is_candidate(&self) -> bool {
             self.pod.is_candidate()
+        }
+    }
+
+    impl Named for TestObjectRequest {
+        fn name(&self) -> String {
+            self.pod.name()
+        }
+    }
+
+    impl Namespaced for TestObjectRequest {
+        fn namespace(&self) -> Option<String> {
+            self.pod.namespace()
+        }
+    }
+
+    impl Service for TestObjectRequest {}
+
+    impl Annotated for TestObjectRequest {
+        fn annotations(&self) -> Option<&BTreeMap<String, String>> {
+            self.pod.annotations()
         }
     }
 
@@ -1567,7 +1600,7 @@ POD is missing needed volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-de
         let sdp_sidecars =
             Arc::new(load_sidecar_containers_env().expect("Unable to load sidecars context"));
         let test_description = || "Test POD validation".to_string();
-        let service = Service::default();
+        let service = KubeService::default();
         let results: Vec<TestResult> = validation_tests()
             .iter()
             .map(|t| {
@@ -1618,7 +1651,10 @@ POD is missing needed volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-de
         let env = ServiceEnvironment::from_identity_store(&request, store.lock().await).await;
         assert!(env.is_some());
         if let Some(env) = env {
-            assert_eq!(env.service_name, pod.service_id());
+            assert_eq!(
+                env.service_name,
+                pod.service_id().expect("Unable to get service id from Pod")
+            );
             assert_eq!(env.client_config, "ns1-srv1-service-config");
             assert_eq!(env.client_secret_name, "ns1-srv1-service-user");
             assert_eq!(
