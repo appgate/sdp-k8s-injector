@@ -86,7 +86,6 @@ spec:
             runAsGroup: 101
             runAsUser: 103
             runAsNonRoot: true
-            fsGroup: 101
             capabilities:
               add: [ "NET_ADMIN", "NET_BIND_SERVICE" ]
           volumeMounts:
