@@ -1,7 +1,4 @@
-use std::{
-    collections::{BTreeMap, HashMap},
-    error::Error,
-};
+use std::collections::{BTreeMap, HashMap};
 
 use http::Uri;
 use k8s_openapi::{
@@ -11,7 +8,10 @@ use k8s_openapi::{
 use kube::{core::admission::AdmissionRequest, Client, Config, Resource, ResourceExt};
 use log::error;
 
-use crate::traits::{Annotated, Candidate, Labelled, Named, Namespaced, ObjectRequest, Service};
+use crate::{
+    errors::SDPServiceError,
+    traits::{Annotated, Candidate, Labelled, Named, Namespaced, ObjectRequest, Service},
+};
 
 pub const SDP_K8S_HOST_ENV: &str = "SDP_K8S_HOST";
 pub const SDP_K8S_HOST_DEFAULT: &str = "kubernetes.default.svc";
@@ -75,7 +75,7 @@ impl Namespaced for Pod {
 }
 
 impl Labelled for Pod {
-    fn labels(&self) -> Result<HashMap<String, String>, Box<dyn Error>> {
+    fn labels(&self) -> Result<HashMap<String, String>, SDPServiceError> {
         Ok(HashMap::default())
     }
 }
@@ -121,7 +121,7 @@ impl Candidate for Deployment {
 }
 
 impl Labelled for Deployment {
-    fn labels(&self) -> Result<HashMap<String, String>, Box<dyn Error>> {
+    fn labels(&self) -> Result<HashMap<String, String>, SDPServiceError> {
         let mut labels = HashMap::from_iter(
             ResourceExt::labels(self)
                 .iter()

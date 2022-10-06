@@ -7,9 +7,7 @@ use k8s_openapi::api::core::v1::{ConfigMap, Secret};
 use kube::api::{Patch as KubePatch, PatchParams};
 use kube::{Api, Client};
 use log::{error, info, warn};
-use sdp_common::constants::{
-    CLIENT_PROFILE_TAG, IDENTITY_MANAGER_SECRET_NAME, SDP_IDP_NAME, SERVICE_NAME,
-};
+use sdp_common::constants::{CLIENT_PROFILE_TAG, IDENTITY_MANAGER_SECRET_NAME, SDP_IDP_NAME};
 use sdp_common::kubernetes::SDP_K8S_NAMESPACE;
 use sdp_common::sdp::auth::SDPUser;
 use sdp_common::sdp::system::{ClientProfile, ClientProfileUrl, System};
@@ -44,12 +42,7 @@ async fn get_or_create_client_profile_url(
     let ps = system
         .get_client_profiles(Some(CLIENT_PROFILE_TAG))
         .await
-        .map_err(|e| {
-            IdentityServiceError::from_service(
-                format!("Unable to get client profiles: {}", e.to_string()),
-                "IdentityCreator".to_string(),
-            )
-        })?;
+        .map_err(|e| format!("Unable to get client profiles: {}", e.to_string()))?;
     let psn = ps.len();
     let mut p: ClientProfile;
     if psn > 0 {
@@ -71,22 +64,17 @@ async fn get_or_create_client_profile_url(
             identity_provider_name: SDP_IDP_NAME.to_string(),
             tags: vec![CLIENT_PROFILE_TAG.to_string()],
         };
-        p = system.create_client_profile(&p).await.map_err(|e| {
-            IdentityServiceError::from_service(
-                format!("Unable to create a new client profile: {}", e),
-                "IdentityCreator".to_string(),
-            )
-        })?;
+        p = system
+            .create_client_profile(&p)
+            .await
+            .map_err(|e| format!("Unable to create a new client profile: {}", e))?;
     }
     system.get_profile_client_url(&p.id).await.map_err(|e| {
-        IdentityServiceError::from_service(
-            format!(
-                "Unable to get the client profile url for client profile {}: {}",
-                p.name,
-                e.to_string()
-            ),
-            "IdentityCreator".to_string(),
-        )
+        IdentityServiceError::from(format!(
+            "Unable to get the client profile url for client profile {}: {}",
+            p.name,
+            e.to_string()
+        ))
     })
 }
 
@@ -117,9 +105,6 @@ impl IdentityCreator {
             .system
             .create_user(&service_user)
             .await
-            .map_err(|e| {
-                IdentityServiceError::from_service(e.to_string(), SERVICE_NAME.to_string())
-            })
             .map(|u| ServiceUser::from_sdp_user(&u, &profile_url, None))?
         {
             service_user
@@ -128,14 +113,11 @@ impl IdentityCreator {
                     IDENTITY_MANAGER_SECRET_NAME,
                 )
                 .await
-                .map_err(|e| {
-                    IdentityServiceError::from_service(e.to_string(), SERVICE_NAME.to_string())
-                })
+                .map_err(|e| IdentityServiceError::from(e.to_string()))
                 .map(|_| service_user)
         } else {
-            Err(IdentityServiceError::from_service(
+            Err(IdentityServiceError::from(
                 "Unable to create ServiceUser from SDPUser (missing password?)".to_string(),
-                SERVICE_NAME.to_string(),
             ))
         }
     }
@@ -154,13 +136,12 @@ impl IdentityCreator {
                     IDENTITY_MANAGER_SECRET_NAME,
                 )
                 .await
-                .map_err(|e| {
-                    IdentityServiceError::from_service(e.to_string(), SERVICE_NAME.to_string())
-                })?;
+                .map_err(|e| IdentityServiceError::from(e.to_string()))?;
         }
-        self.system.delete_user(&sdp_user_name).await.map_err(|e| {
-            IdentityServiceError::from_service(e.to_string(), SERVICE_NAME.to_string())
-        })
+        self.system
+            .delete_user(&sdp_user_name)
+            .await
+            .map_err(|e| IdentityServiceError::from(e.to_string()))
     }
 
     async fn recover_sdp_user(
@@ -186,9 +167,7 @@ impl IdentityCreator {
         known_fields: HashSet<String>,
     ) -> Result<(), IdentityServiceError> {
         let api = self.secrets_api(SDP_K8S_NAMESPACE);
-        let secret = api.get(IDENTITY_MANAGER_SECRET_NAME).await.map_err(|e| {
-            IdentityServiceError::from_service(e.to_string(), SERVICE_NAME.to_string())
-        })?;
+        let secret = api.get(IDENTITY_MANAGER_SECRET_NAME).await?;
         let mut n: u32 = 0;
         let mut patches = vec![];
         if let Some(data) = secret.data {
@@ -212,10 +191,7 @@ impl IdentityCreator {
                     &PatchParams::default(),
                     &patch,
                 )
-                .await
-                .map_err(|e| {
-                    IdentityServiceError::from_service(e.to_string(), SERVICE_NAME.to_string())
-                })?;
+                .await?;
             }
         };
         Ok(())
@@ -232,31 +208,25 @@ impl IdentityCreator {
             .delete_secrets(self.secrets_api(service_ns), service_ns, service_name)
             .await
             .map_err(|e| {
-                IdentityServiceError::from_service(
-                    format!(
-                        "Unable to delete secrets for ServiceUser witn name {} [{}/{}]: {}",
-                        service_user.name,
-                        service_ns,
-                        service_name,
-                        e.to_string()
-                    ),
-                    "IdentityCreator".to_string(),
-                )
+                IdentityServiceError::from(format!(
+                    "Unable to delete secrets for ServiceUser witn name {} [{}/{}]: {}",
+                    service_user.name,
+                    service_ns,
+                    service_name,
+                    e.to_string()
+                ))
             })?;
         service_user
             .delete_config(self.configmap_api(service_ns), service_ns, service_name)
             .await
             .map_err(|e| {
-                IdentityServiceError::from_service(
-                    format!(
-                        "Unable to delete secrets for ServiceUser witn name {} [{}/{}]: {}",
-                        service_user.name,
-                        service_ns,
-                        service_name,
-                        e.to_string()
-                    ),
-                    "IdentityCreator".to_string(),
-                )
+                IdentityServiceError::from(format!(
+                    "Unable to delete secrets for ServiceUser witn name {} [{}/{}]: {}",
+                    service_user.name,
+                    service_ns,
+                    service_name,
+                    e.to_string()
+                ))
             })?;
         Ok(())
     }
@@ -266,9 +236,7 @@ impl IdentityCreator {
         system: &mut System,
         identity_manager_proto_tx: Sender<IdentityManagerProtocol<Deployment, ServiceIdentity>>,
     ) -> Result<ClientProfileUrl, IdentityServiceError> {
-        let users = system.get_users().await.map_err(|e| {
-            IdentityServiceError::new(e.to_string(), Some("IdentityCreator".to_string()))
-        })?;
+        let users = system.get_users().await?;
         let client_profile_url = get_or_create_client_profile_url(system).await?;
         // Notify ServiceIdentityManager about the actual credentials created in appgate
         let mut n_missing_users = self.service_users_pool_size;
@@ -322,10 +290,7 @@ impl IdentityCreator {
                     service_user,
                     false,
                 ))
-                .await
-                .map_err(|e| {
-                    IdentityServiceError::new(e.to_string(), Some("IdentityCreator".to_string()))
-                })?;
+                .await?;
         }
         Ok(client_profile_url)
     }

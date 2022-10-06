@@ -1,14 +1,13 @@
 use futures::Future;
 use k8s_openapi::api::apps::v1::Deployment;
 use kube::api::{DeleteParams, ListParams, PostParams};
-use kube::{Api, Client, Error as KError};
+use kube::{Api, Client};
 use log::{error, info, warn};
 pub use sdp_common::crd::{ServiceIdentity, ServiceIdentitySpec};
 use sdp_common::service::ServiceUser;
 use sdp_common::traits::{HasCredentials, Labelled, Named, Namespaced, Service};
 use sdp_macros::{queue_debug, sdp_error, sdp_info, sdp_log, sdp_warn, when_ok};
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::error::Error;
 use std::fmt;
 use std::iter::FromIterator;
 use std::pin::Pin;
@@ -225,7 +224,7 @@ impl ServiceIdentityAPI for KubeIdentityManager {
                     .service_identity_api
                     .get_opt(&service_id)
                     .await
-                    .map_err(|e| IdentityServiceError::from_string(e.to_string()))
+                    .map_err(IdentityServiceError::from)
                 {
                     Ok(None) => {
                         info!(
@@ -234,7 +233,7 @@ impl ServiceIdentityAPI for KubeIdentityManager {
                         );
                         Some(self.service_identity_api
                             .create(&PostParams::default(), identity)
-                            .await.map_err(|e| IdentityServiceError::from_string(e.to_string())))
+                            .await.map_err(IdentityServiceError::from))
                     }
                     Ok(_) => {
                         info!("ServiceIdentity {} already exists.", service_id);
@@ -245,11 +244,11 @@ impl ServiceIdentityAPI for KubeIdentityManager {
                             "Error checking if service identity {} exists.",
                             service_id
                         );
-                        Some(Err(IdentityServiceError::from_string(e.to_string())))
+                        Some(Err(e))
                     }
                 }
             })
-            .unwrap_or(Err(IdentityServiceError::from_string("ServiceIdentity is not a service!".to_string())))
+            .unwrap_or(Err(IdentityServiceError::from("ServiceIdentity is not a service!".to_string())))
         };
         Box::pin(fut)
     }
@@ -263,7 +262,7 @@ impl ServiceIdentityAPI for KubeIdentityManager {
                 .delete(identity_name, &DeleteParams::default())
                 .await
                 .map(|_| ())
-                .map_err(|e| IdentityServiceError::from_string(e.to_string()))
+                .map_err(IdentityServiceError::from)
         };
         Box::pin(fut)
     }
@@ -277,7 +276,7 @@ impl ServiceIdentityAPI for KubeIdentityManager {
                 .list(&ListParams::default())
                 .await
                 .map(|xs| xs.items)
-                .map_err(|e| IdentityServiceError::from_string(e.to_string()))
+                .map_err(IdentityServiceError::from)
         };
         Box::pin(fut)
     }
@@ -730,7 +729,6 @@ impl IdentityManagerRunner<Deployment, ServiceIdentity> {
 mod tests {
     use std::{
         collections::{HashMap, HashSet},
-        error::Error,
         future,
         pin::Pin,
         sync::{Arc, Mutex},

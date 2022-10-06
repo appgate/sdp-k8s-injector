@@ -1,23 +1,14 @@
-use std::fmt::Display;
+use sdp_common::errors::SDPServiceError;
 
-pub struct DeviceIdServiceError {
-    who: Option<String>,
-    error: String,
-}
+const DEVICE_ID_SERVICE: &str = "DeviceIdManager";
 
-impl DeviceIdServiceError {}
+pub struct DeviceIdServiceError(SDPServiceError);
 
-impl Display for DeviceIdServiceError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if self.who.is_some() {
-            write!(
-                f,
-                "DeviceIdService [{}] error: {}",
-                self.who.as_ref().unwrap(),
-                self.error
-            )
-        } else {
-            write!(f, "DeviceIdService error: {}", self.error)
-        }
+impl From<&str> for DeviceIdServiceError {
+    fn from(error: &str) -> Self {
+        DeviceIdServiceError(
+            SDPServiceError::from_string(error.to_string())
+                .with_service(DEVICE_ID_SERVICE.to_string()),
+        )
     }
 }

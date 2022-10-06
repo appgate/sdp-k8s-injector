@@ -16,14 +16,14 @@ use k8s_openapi::api::core::v1::{
 };
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::Status;
 use kube::api::{DynamicObject, ListParams};
-use kube::core::admission::{self, AdmissionRequest, AdmissionResponse, AdmissionReview};
+use kube::core::admission::{AdmissionRequest, AdmissionResponse, AdmissionReview};
 use kube::{Api, Client, Config};
 use log::{debug, error, info, warn};
 use rustls::{Certificate, PrivateKey, ServerConfig};
 use rustls_pemfile::{read_one, Item};
 use sdp_common::constants::POD_DEVICE_ID_ANNOTATION;
 use sdp_common::crd::DeviceId;
-use sdp_common::traits::{Annotated, Candidate, HasCredentials, ObjectRequest, Service, Validated};
+use sdp_common::traits::{Annotated, HasCredentials, ObjectRequest, Service, Validated};
 use sdp_macros::when_ok;
 use serde::Deserialize;
 use std::collections::hash_map::RandomState;
@@ -307,7 +307,6 @@ impl ServiceEnvironment {
 
     fn from_pod<R: ObjectRequest<Pod> + Service + Annotated>(request: &R) -> Option<Self> {
         request.object().and_then(|pod| {
-            let service_id = request.service_id();
             when_ok!((service_id : Self = request.service_id()) {
                 let config = pod.annotation(SDP_ANNOTATION_CLIENT_CONFIG);
                 let secret = pod.annotation(SDP_ANNOTATION_CLIENT_SECRETS);

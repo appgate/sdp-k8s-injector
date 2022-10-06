@@ -1,12 +1,9 @@
-use std::{
-    collections::{BTreeMap, HashMap},
-    error::Error,
-};
+use std::collections::{BTreeMap, HashMap};
 
 use k8s_openapi::api::core::v1::Pod;
-use kube::{Resource, ResourceExt};
+use kube::Resource;
 
-use crate::service::ServiceUser;
+use crate::{errors::SDPServiceError, service::ServiceUser};
 
 pub trait Named {
     fn name(&self) -> String;
@@ -34,12 +31,12 @@ pub trait Annotated {
 }
 
 pub trait Service: Named + Namespaced + Sized {
-    fn service_name(&self) -> Result<String, Box<dyn Error>> {
+    fn service_name(&self) -> Result<String, SDPServiceError> {
         let namespace =
             Namespaced::namespace(self).ok_or_else(|| "Namespace not found in resource")?;
         Ok(format!("{}-{}", namespace, Named::name(self)))
     }
-    fn service_id(&self) -> Result<String, Box<dyn Error>> {
+    fn service_id(&self) -> Result<String, SDPServiceError> {
         let namespace =
             Namespaced::namespace(self).ok_or_else(|| "Namespace not found in resource")?;
         Ok(format!("{}_{}", namespace, Named::name(self)))
@@ -47,7 +44,7 @@ pub trait Service: Named + Namespaced + Sized {
 }
 
 pub trait Labelled: Service {
-    fn labels(&self) -> Result<HashMap<String, String>, Box<dyn Error>>;
+    fn labels(&self) -> Result<HashMap<String, String>, SDPServiceError>;
 }
 
 pub trait Validated {

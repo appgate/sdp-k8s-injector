@@ -119,9 +119,9 @@ impl SimpleWatchingProtocol<DeviceIdProviderRequestProtocol<ServiceIdentity>> fo
                             None
                         }
                         Ok(uuid) => {
-                            info!("Deleted POD with device id assigned {}", service_id);
+                            info!("Deleted POD with device id assigned {}", &service_id);
                             Some(DeviceIdProviderRequestProtocol::ReleasedDeviceId(
-                                service_id,
+                                service_id.clone(),
                                 uuid,
                             ))
                         }

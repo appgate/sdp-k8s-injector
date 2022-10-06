@@ -2,7 +2,7 @@ use crate::service_identity_watcher::ServiceIdentityWatcherProtocol;
 use k8s_openapi::api::apps::v1::ReplicaSet;
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::OwnerReference;
 use kube::api::{DeleteParams, ListParams, PostParams};
-use kube::{Api, Client, Error as KError, Resource};
+use kube::{Api, Client, Resource};
 use log::{error, info, warn};
 use sdp_common::crd::{DeviceId, DeviceIdSpec, ServiceIdentity};
 use sdp_common::kubernetes::SDP_K8S_NAMESPACE;
@@ -129,7 +129,7 @@ impl DeviceIdAPI for KubeDeviceIdManager {
                         let replicasets = replicaset_api
                             .list(&ListParams::default())
                             .await
-                            .expect("Unable to list replicaset");
+                            .map_err(|e| format!("Unable to get replica sets: {}", e.to_string()))?;
                         for replicaset in replicasets {
                             if let Some(replicaset_owners) =
                                 &replicaset.meta().owner_references.as_ref()
@@ -141,7 +141,7 @@ impl DeviceIdAPI for KubeDeviceIdManager {
                                     let service_identity = service_identity_api
                                         .get(device_id_name)
                                         .await
-                                        .expect("Unable to get service identity");
+                                        .map_err(|e| format!("Unable to get service identity: {}", e.to_string()))?;
                                     owner_ref.controller = Default::default();
                                     owner_ref.block_owner_deletion = Some(true);
                                     owner_ref.name = service_identity.metadata.name.unwrap();
@@ -176,7 +176,7 @@ impl DeviceIdAPI for KubeDeviceIdManager {
                             Api::namespaced(self.client.clone(), SDP_K8S_NAMESPACE);
                         Some(device_id_api
                             .create(&PostParams::default(), &device_id)
-                            .await.map_err(|e| e.to_string())
+                            .await.map_err(|e| format!("Error creatring DeviceIds entity: {}", e.to_string()))
                         )
                     }
                     Ok(_) => {
@@ -188,7 +188,7 @@ impl DeviceIdAPI for KubeDeviceIdManager {
                             "Error checking if device ids {} exists.",
                             service_id
                         );
-                        Some(Err(e))
+                        Some(Err(format!("Error checking if device ids {} exists: {}", service_id, e.to_string())))
                     }
                 }
             })

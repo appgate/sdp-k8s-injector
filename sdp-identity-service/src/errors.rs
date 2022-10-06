@@ -1,61 +1,66 @@
-use k8s_openapi::api::apps::v1::Deployment;
-use sdp_common::crd::ServiceIdentity;
 use std::fmt::Display;
+
+use k8s_openapi::api::apps::v1::Deployment;
+use kube::Error;
+use sdp_common::{crd::ServiceIdentity, errors::SDPServiceError, sdp::errors::SDPClientError};
 use tokio::sync::mpsc::error::SendError;
 
 use crate::identity_manager::IdentityManagerProtocol;
 
-#[derive(Debug)]
-pub struct IdentityServiceError {
-    who: Option<String>,
-    error: String,
-}
+const IDENTITY_SERVICE_MANAGER: &str = "IdentityServiceManager";
+const IDENTITY_CREATOR: &str = "IdentityCreator";
 
-impl IdentityServiceError {
-    pub fn new(error: String, who: Option<String>) -> Self {
-        IdentityServiceError {
-            error: error,
-            who: who,
-        }
-    }
-
-    pub fn from_string(error: String) -> Self {
-        IdentityServiceError {
-            error: error,
-            who: None,
-        }
-    }
-
-    pub fn from_service(error: String, who: String) -> Self {
-        IdentityServiceError {
-            error: error,
-            who: Some(who),
-        }
-    }
-}
-
-impl Display for IdentityServiceError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if self.who.is_some() {
-            write!(
-                f,
-                "IdentityService [{}] error: {}",
-                self.who.as_ref().unwrap(),
-                self.error
-            )
-        } else {
-            write!(f, "IdentityService error: {}", self.error)
-        }
-    }
-}
+pub struct IdentityServiceError(SDPServiceError);
 
 impl From<SendError<IdentityManagerProtocol<Deployment, ServiceIdentity>>>
     for IdentityServiceError
 {
     fn from(error: SendError<IdentityManagerProtocol<Deployment, ServiceIdentity>>) -> Self {
-        IdentityServiceError {
-            who: None,
-            error: error.to_string(),
-        }
+        IdentityServiceError(
+            SDPServiceError::from_string(error.to_string())
+                .with_service(IDENTITY_SERVICE_MANAGER.to_string()),
+        )
+    }
+}
+
+impl From<&str> for IdentityServiceError {
+    fn from(error: &str) -> Self {
+        IdentityServiceError(
+            SDPServiceError::from_string(error.to_string())
+                .with_service(IDENTITY_SERVICE_MANAGER.to_string()),
+        )
+    }
+}
+
+impl From<String> for IdentityServiceError {
+    fn from(error: String) -> Self {
+        IdentityServiceError(
+            SDPServiceError::from_string(error.clone())
+                .with_service(IDENTITY_SERVICE_MANAGER.to_string()),
+        )
+    }
+}
+
+impl From<SDPServiceError> for IdentityServiceError {
+    fn from(error: SDPServiceError) -> Self {
+        IdentityServiceError(error.with_service(IDENTITY_SERVICE_MANAGER.to_string()))
+    }
+}
+
+impl From<SDPClientError> for IdentityServiceError {
+    fn from(error: SDPClientError) -> Self {
+        IdentityServiceError::from(error.to_string())
+    }
+}
+
+impl From<Error> for IdentityServiceError {
+    fn from(error: Error) -> Self {
+        IdentityServiceError::from(error.to_string())
+    }
+}
+
+impl Display for IdentityServiceError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
     }
 }
