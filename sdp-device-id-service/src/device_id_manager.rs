@@ -84,14 +84,14 @@ trait DeviceIdAPI {
     fn create<'a>(
         &'a self,
         device_id: &'a DeviceId,
-    ) -> Pin<Box<dyn Future<Output = Result<DeviceId, KError>> + Send + '_>>;
+    ) -> Pin<Box<dyn Future<Output = Result<DeviceId, String>> + Send + '_>>;
 
     fn delete<'a>(
         &'a self,
         device_id_name: &'a str,
-    ) -> Pin<Box<dyn Future<Output = Result<(), KError>> + Send + '_>>;
+    ) -> Pin<Box<dyn Future<Output = Result<(), String>> + Send + '_>>;
 
-    fn list(&self) -> Pin<Box<dyn Future<Output = Result<Vec<DeviceId>, KError>> + Send + '_>>;
+    fn list(&self) -> Pin<Box<dyn Future<Output = Result<Vec<DeviceId>, String>> + Send + '_>>;
 }
 
 #[sdp_proc_macros::device_id_provider()]
@@ -105,12 +105,13 @@ impl DeviceIdAPI for KubeDeviceIdManager {
     fn create<'a>(
         &'a self,
         device_id: &'a DeviceId,
-    ) -> Pin<Box<dyn Future<Output = Result<DeviceId, KError>> + Send + '_>> {
+    ) -> Pin<Box<dyn Future<Output = Result<DeviceId, String>> + Send + '_>> {
         let fut = async move {
             let device_id_api: Api<DeviceId> =
                 Api::namespaced(self.client.clone(), SDP_K8S_NAMESPACE);
-            when_ok!((service_id = device_id.service_id()) {
-                match device_id_api.get_opt(&service_id).await {
+            when_ok!((service_id: Result<DeviceId, String> = device_id.service_id()) {
+                match device_id_api.get_opt(&service_id).await.map_err(|e| e.to_string())
+                {
                     Ok(None) => {
                         info!(
                             "DeviceIds {} does not exist, creating it.",
@@ -175,7 +176,8 @@ impl DeviceIdAPI for KubeDeviceIdManager {
                             Api::namespaced(self.client.clone(), SDP_K8S_NAMESPACE);
                         Some(device_id_api
                             .create(&PostParams::default(), &device_id)
-                            .await)
+                            .await.map_err(|e| e.to_string())
+                        )
                     }
                     Ok(_) => {
                         info!("DeviceIds {} already exists.", service_id);
@@ -190,7 +192,7 @@ impl DeviceIdAPI for KubeDeviceIdManager {
                     }
                 }
             })
-            .unwrap_or(Err("Unknown namespace for DeviceId"))
+            .unwrap_or(Err("Unknown namespace for DeviceId".to_string()))
         };
         Box::pin(fut)
     }
@@ -198,7 +200,7 @@ impl DeviceIdAPI for KubeDeviceIdManager {
     fn delete<'a>(
         &'a self,
         device_id_name: &'a str,
-    ) -> Pin<Box<dyn Future<Output = Result<(), KError>> + Send + '_>> {
+    ) -> Pin<Box<dyn Future<Output = Result<(), String>> + Send + '_>> {
         let fut = async move {
             let device_id_api: Api<DeviceId> =
                 Api::namespaced(self.client.clone(), "purple-devops");
@@ -206,11 +208,12 @@ impl DeviceIdAPI for KubeDeviceIdManager {
                 .delete(device_id_name, &DeleteParams::default())
                 .await
                 .map(|_| ())
+                .map_err(|e| e.to_string())
         };
         Box::pin(fut)
     }
 
-    fn list(&self) -> Pin<Box<dyn Future<Output = Result<Vec<DeviceId>, KError>> + Send + '_>> {
+    fn list(&self) -> Pin<Box<dyn Future<Output = Result<Vec<DeviceId>, String>> + Send + '_>> {
         let fut = async move {
             let device_id_api: Api<DeviceId> =
                 Api::namespaced(self.client.clone(), SDP_K8S_NAMESPACE);
@@ -218,6 +221,7 @@ impl DeviceIdAPI for KubeDeviceIdManager {
                 .list(&ListParams::default())
                 .await
                 .map(|d| d.items)
+                .map_err(|e| e.to_string())
         };
         Box::pin(fut)
     }
@@ -395,7 +399,7 @@ mod tests {
         fn create<'a>(
             &'a self,
             device_id: &'a DeviceId,
-        ) -> Pin<Box<dyn Future<Output = Result<DeviceId, Error>> + Send + '_>> {
+        ) -> Pin<Box<dyn Future<Output = Result<DeviceId, String>> + Send + '_>> {
             self.api_counters.lock().unwrap().create_calls += 1;
             Box::pin(future::ready(Ok(device_id.clone())))
         }
@@ -403,12 +407,12 @@ mod tests {
         fn delete<'a>(
             &'a self,
             _: &'a str,
-        ) -> Pin<Box<dyn Future<Output = Result<(), Error>> + Send + '_>> {
+        ) -> Pin<Box<dyn Future<Output = Result<(), String>> + Send + '_>> {
             self.api_counters.lock().unwrap().delete_calls += 1;
             Box::pin(future::ready(Ok(())))
         }
 
-        fn list(&self) -> Pin<Box<dyn Future<Output = Result<Vec<DeviceId>, Error>> + Send + '_>> {
+        fn list(&self) -> Pin<Box<dyn Future<Output = Result<Vec<DeviceId>, String>> + Send + '_>> {
             self.api_counters.lock().unwrap().list_calls += 1;
             Box::pin(future::ready(Ok(vec![])))
         }
