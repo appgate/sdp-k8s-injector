@@ -27,7 +27,7 @@ trait ServiceUsersPool {
 /// Trait for ServiceIdentity provider
 /// This traits provides instances of To from instances of From
 trait ServiceIdentityProvider {
-    type From: Service + Send;
+    type From: Service + Labelled + Send;
     type To: Service + HasCredentials + Send;
     fn register_identity(&mut self, to: Self::To) -> ();
     fn unregister_identity(&mut self, to: &Self::To) -> Option<Self::To>;
@@ -311,7 +311,7 @@ impl IdentityManagerRunner<Deployment, ServiceIdentity> {
         }
     }
 
-    async fn run_identity_manager<F: Service + Clone + fmt::Debug + Send>(
+    async fn run_identity_manager<F: Service + Labelled + Clone + fmt::Debug + Send>(
         im: &mut Box<dyn IdentityManager<F, ServiceIdentity> + Send + Sync>,
         mut identity_manager_rx: Receiver<IdentityManagerProtocol<F, ServiceIdentity>>,
         identity_manager_tx: Sender<IdentityManagerProtocol<F, ServiceIdentity>>,
@@ -660,7 +660,7 @@ impl IdentityManagerRunner<Deployment, ServiceIdentity> {
         }
     }
 
-    async fn initialize<F: Service + Send>(
+    async fn initialize<F: Service + Labelled + Send>(
         im: &mut Box<dyn IdentityManager<F, ServiceIdentity> + Send + Sync>,
     ) -> () {
         info!("Initializing Identity Manager service");
