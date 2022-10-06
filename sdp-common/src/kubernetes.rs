@@ -4,8 +4,11 @@ use std::{
 };
 
 use http::Uri;
-use k8s_openapi::api::{apps::v1::Deployment, core::v1::Pod};
-use kube::{core::admission::AdmissionRequest, Client, Config, ResourceExt};
+use k8s_openapi::{
+    api::{apps::v1::Deployment, core::v1::Pod},
+    Metadata,
+};
+use kube::{core::admission::AdmissionRequest, Client, Config, Resource, ResourceExt};
 use log::error;
 
 use crate::traits::{Annotated, Candidate, Labelled, Named, Namespaced, ObjectRequest, Service};
@@ -152,57 +155,86 @@ impl Annotated for AdmissionRequest<Pod> {
     }
 }
 
+fn admission_request_name<E: Resource + Metadata>(
+    admisison_request: &AdmissionRequest<E>,
+) -> String {
+    let mut name = None;
+    if let Some(obj) = admisison_request.object.as_ref() {
+        name = obj
+            .meta()
+            .name
+            .as_ref()
+            .map(|n| (n.split("-").collect::<Vec<&str>>(), 2))
+            .or_else(|| {
+                let os = obj.owner_references();
+                (os.len() > 0).then_some((os[0].name.split("-").collect(), 1))
+            })
+            .or_else(|| {
+                obj.meta()
+                    .generate_name
+                    .as_ref()
+                    .map(|s| (s.split("-").collect(), 2))
+            })
+            .map(|(xs, n)| xs[0..(xs.len() - n)].join("-"));
+    } else {
+        error!("Unable to find object inside admission request, ignoring it");
+    }
+    if let Some(name) = name {
+        name
+    } else {
+        error!("Unable to find service name for object, generating a random one!");
+        uuid::Uuid::new_v4().to_string()
+    }
+}
+
+fn admission_request_namespace<E: Resource + Metadata>(
+    admission_request: &AdmissionRequest<E>,
+) -> Option<String> {
+    let ns = match (
+        admission_request.namespace.as_ref(),
+        admission_request
+            .object
+            .as_ref()
+            .and_then(|r| r.meta().namespace.as_ref()),
+    ) {
+        (_, Some(ns)) => Some(ns),
+        (Some(ns), None) => Some(ns),
+        _ => None,
+    };
+    if let Some(ns) = ns {
+        Some(ns.clone())
+    } else {
+        error!("Unable to find service namespace for object inside admission request, generating a random one!");
+        Some(uuid::Uuid::new_v4().to_string())
+    }
+}
+
 impl Named for AdmissionRequest<Pod> {
     fn name(&self) -> String {
-        let mut name = None;
-        if let Some(pod) = self.object.as_ref() {
-            name = pod
-                .metadata
-                .name
-                .as_ref()
-                .map(|n| (n.split("-").collect::<Vec<&str>>(), 2))
-                .or_else(|| {
-                    let os = pod.owner_references();
-                    (os.len() > 0).then_some((os[0].name.split("-").collect(), 1))
-                })
-                .or_else(|| {
-                    pod.metadata
-                        .generate_name
-                        .as_ref()
-                        .map(|s| (s.split("-").collect(), 2))
-                })
-                .map(|(xs, n)| xs[0..(xs.len() - n)].join("-"));
-        } else {
-            error!("Unable to find POD inside admission request, ignoring it");
-        }
-        if let Some(name) = name {
-            name
-        } else {
-            error!("Unable to find service name for Pod, generating a random one!");
-            uuid::Uuid::new_v4().to_string()
-        }
+        admission_request_name(self)
     }
 }
 
 impl Namespaced for AdmissionRequest<Pod> {
     fn namespace(&self) -> Option<String> {
-        let ns = match (
-            self.namespace.as_ref(),
-            self.object
-                .as_ref()
-                .and_then(|r| r.metadata.namespace.as_ref()),
-        ) {
-            (_, Some(ns)) => Some(ns),
-            (Some(ns), None) => Some(ns),
-            _ => None,
-        };
-        if let Some(ns) = ns {
-            Some(ns.clone())
-        } else {
-            error!("Unable to find service namespace for POD inside admission request, generating a random one!");
-            Some(uuid::Uuid::new_v4().to_string())
-        }
+        admission_request_namespace(self)
     }
 }
 
 impl Service for AdmissionRequest<Pod> {}
+
+// Implement required traits for AdmissionRequest<Deployment>
+
+impl Named for AdmissionRequest<Deployment> {
+    fn name(&self) -> String {
+        admission_request_name(self)
+    }
+}
+
+impl Namespaced for AdmissionRequest<Deployment> {
+    fn namespace(&self) -> Option<String> {
+        admission_request_namespace(self)
+    }
+}
+
+impl Service for AdmissionRequest<Deployment> {}
