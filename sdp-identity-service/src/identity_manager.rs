@@ -526,10 +526,22 @@ impl IdentityManagerRunner<ServiceLookup, ServiceIdentity> {
                     service_name,
                 ) => {
                     info!(
-                        "ServiceUser {} has been activated [{}/{}]",
+                        "ServiceUser {} has been activated [{}/{}], updating ServiceIdentity",
                         &service_user.name, service_ns, service_name
                     );
-                    let _id = im.identity(&ServiceLookup::new(&service_ns, &service_name, None));
+                    if let Some(service_identity) =
+                        im.identity(&ServiceLookup::new(&service_ns, &service_name, None))
+                    {
+                        let mut new_service_identity = service_identity.clone();
+                        let new_user_name = service_user.name.clone();
+                        let user_id = service_user.id.clone();
+                        new_service_identity.spec.service_user = service_user;
+                        if let Err(e) = im.update(&new_service_identity).await {
+                            error!("Error updating ServiceIdentity [{}/{}] after user activation for user with id {} and name {}: {}",
+                                    &service_ns, &service_name, &user_id, &new_user_name, e);
+                        }
+                        im.register_identity(new_service_identity);
+                    }
                 }
                 IdentityManagerProtocol::IdentityCreatorReady => {
                     info!("IdentityCreator is ready");
