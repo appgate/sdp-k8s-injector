@@ -10,7 +10,7 @@ use log::error;
 
 use crate::{
     errors::SDPServiceError,
-    traits::{Annotated, Candidate, Labelled, Named, Namespaced, ObjectRequest, Service},
+    traits::{Annotated, Candidate, Labeled, Named, Namespaced, ObjectRequest, Service},
 };
 
 pub const SDP_K8S_HOST_ENV: &str = "SDP_K8S_HOST";
@@ -74,7 +74,7 @@ impl Namespaced for Pod {
     }
 }
 
-impl Labelled for Pod {
+impl Labeled for Pod {
     fn labels(&self) -> Result<HashMap<String, String>, SDPServiceError> {
         Ok(HashMap::default())
     }
@@ -120,7 +120,7 @@ impl Candidate for Deployment {
     }
 }
 
-impl Labelled for Deployment {
+impl Labeled for Deployment {
     fn labels(&self) -> Result<HashMap<String, String>, SDPServiceError> {
         let mut labels = HashMap::from_iter(
             ResourceExt::labels(self)

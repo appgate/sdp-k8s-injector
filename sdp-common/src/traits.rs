@@ -43,7 +43,7 @@ pub trait Service: Named + Namespaced + Sized {
     }
 }
 
-pub trait Labelled: Service {
+pub trait Labeled: Service {
     fn labels(&self) -> Result<HashMap<String, String>, SDPServiceError>;
 }
 

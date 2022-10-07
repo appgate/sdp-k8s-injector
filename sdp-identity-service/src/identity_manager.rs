@@ -5,7 +5,7 @@ use kube::{Api, Client};
 use log::{error, info, warn};
 pub use sdp_common::crd::{ServiceIdentity, ServiceIdentitySpec};
 use sdp_common::service::{self, ServiceLookup, ServiceUser};
-use sdp_common::traits::{HasCredentials, Labelled, Named, Namespaced, Service};
+use sdp_common::traits::{HasCredentials, Labeled, Named, Namespaced, Service};
 use sdp_macros::{queue_debug, sdp_error, sdp_info, sdp_log, sdp_warn, when_ok};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fmt;
@@ -28,7 +28,7 @@ trait ServiceUsersPool {
 /// Trait for ServiceIdentity provider
 /// This traits provides instances of To from instances of From
 trait ServiceIdentityProvider {
-    type From: Service + Labelled + Send;
+    type From: Service + Labeled + Send;
     type To: Service + HasCredentials + Send;
     fn register_identity(&mut self, to: Self::To) -> ();
     fn unregister_identity(&mut self, to: &Self::To) -> Option<Self::To>;
@@ -176,7 +176,7 @@ impl ServiceIdentityProvider for IdentityManagerPool {
                             service_name: Named::name(from),
                             service_namespace: Namespaced::namespace(from).unwrap(), // Safe since if it has service_name it has namespace
                             service_user,
-                            labels: Labelled::labels(from).unwrap(), // Safe since if it has service_name it has labels
+                            labels: Labeled::labels(from).unwrap(), // Safe since if it has service_name it has labels
                             disabled: false,
                         };
                         ServiceIdentity::new(&service_name, service_identity_spec)
@@ -345,7 +345,7 @@ impl IdentityManagerRunner<ServiceLookup, ServiceIdentity> {
         }
     }
 
-    async fn run_identity_manager<F: Service + Labelled + Clone + fmt::Debug + Send>(
+    async fn run_identity_manager<F: Service + Labeled + Clone + fmt::Debug + Send>(
         im: &mut Box<dyn IdentityManager<ServiceLookup, ServiceIdentity> + Send + Sync>,
         mut identity_manager_rx: Receiver<IdentityManagerProtocol<F, ServiceIdentity>>,
         identity_manager_tx: Sender<IdentityManagerProtocol<F, ServiceIdentity>>,
@@ -703,7 +703,7 @@ impl IdentityManagerRunner<ServiceLookup, ServiceIdentity> {
         }
     }
 
-    async fn initialize<F: Service + Labelled + Send>(
+    async fn initialize<F: Service + Labeled + Send>(
         im: &mut Box<dyn IdentityManager<F, ServiceIdentity> + Send + Sync>,
     ) -> () {
         info!("Initializing Identity Manager service");

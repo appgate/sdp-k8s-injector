@@ -2,7 +2,7 @@ use crate::constants::IDENTITY_MANAGER_SECRET_NAME;
 pub use crate::crd::ServiceIdentity;
 use crate::errors::SDPServiceError;
 use crate::sdp::{auth::SDPUser, system::ClientProfileUrl};
-use crate::traits::{Annotated, Labelled, Named, Namespaced, Service};
+use crate::traits::{Annotated, Labeled, Named, Namespaced, Service};
 use json_patch::PatchOperation::Remove;
 use json_patch::{Patch, RemoveOperation};
 use k8s_openapi::api::core::v1::{ConfigMap, Container, Pod, Volume};
@@ -33,7 +33,7 @@ impl ServiceLookup {
     }
 
     pub fn try_from_service(
-        f: &(impl Named + Namespaced + Labelled),
+        f: &(impl Named + Namespaced + Labeled),
     ) -> Result<Self, SDPServiceError> {
         match (f.namespace(), f.labels()) {
             (Some(ns), labels) => Ok(Self::new(
@@ -63,7 +63,7 @@ impl Namespaced for ServiceLookup {
 
 impl Service for ServiceLookup {}
 
-impl Labelled for ServiceLookup {
+impl Labeled for ServiceLookup {
     fn labels(
         &self,
     ) -> Result<std::collections::HashMap<String, String>, crate::errors::SDPServiceError> {
