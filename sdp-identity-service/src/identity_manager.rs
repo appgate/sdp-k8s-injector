@@ -4,7 +4,7 @@ use kube::api::{DeleteParams, ListParams, PostParams};
 use kube::{Api, Client};
 use log::{error, info, warn};
 pub use sdp_common::crd::{ServiceIdentity, ServiceIdentitySpec};
-use sdp_common::service::ServiceUser;
+use sdp_common::service::{ServiceLookup, ServiceUser};
 use sdp_common::traits::{HasCredentials, Labelled, Named, Namespaced, Service};
 use sdp_macros::{queue_debug, sdp_error, sdp_info, sdp_log, sdp_warn, when_ok};
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -150,7 +150,7 @@ impl ServiceUsersPool for IdentityManagerPool {
 }
 
 impl ServiceIdentityProvider for IdentityManagerPool {
-    type From = Deployment;
+    type From = ServiceLookup;
     type To = ServiceIdentity;
 
     fn register_identity(&mut self, to: Self::To) -> () {
@@ -253,6 +253,15 @@ impl ServiceIdentityAPI for KubeIdentityManager {
         Box::pin(fut)
     }
 
+    fn update<'a>(
+        &'a self,
+        _identity: &'a ServiceIdentity,
+    ) -> Pin<Box<dyn Future<Output = Result<ServiceIdentity, IdentityServiceError>> + Send + '_>>
+    {
+        let fut = async move { Err(IdentityServiceError::from("Not implemented")) };
+        Box::pin(fut)
+    }
+
     fn delete<'a>(
         &'a self,
         identity_name: &'a str,
@@ -283,7 +292,7 @@ impl ServiceIdentityAPI for KubeIdentityManager {
 }
 
 trait IdentityManager<From: Service + Send + Sync, To: Service + HasCredentials + Send + Sync>:
-    ServiceIdentityAPI + ServiceIdentityProvider<From = From, To = To> + ServiceUsersPool
+    ServiceIdentityAPI + ServiceIdentityProvider<From = ServiceLookup, To = To> + ServiceUsersPool
 {
 }
 
@@ -303,8 +312,8 @@ pub struct IdentityManagerRunner<From: Service + Send, To: Service + HasCredenti
 /// - IM asks DW to start
 /// - DW sends the list of all CandidateServices (Deployments)
 /// - IM creates ServiceIDentity for those CandidateServices that need it and dont have one.
-impl IdentityManagerRunner<Deployment, ServiceIdentity> {
-    pub fn kube_runner(client: Client) -> IdentityManagerRunner<Deployment, ServiceIdentity> {
+impl IdentityManagerRunner<ServiceLookup, ServiceIdentity> {
+    pub fn kube_runner(client: Client) -> IdentityManagerRunner<ServiceLookup, ServiceIdentity> {
         let service_identity_api: Api<ServiceIdentity> = Api::namespaced(client, "sdp-system");
         IdentityManagerRunner {
             im: Box::new(KubeIdentityManager {
@@ -318,7 +327,7 @@ impl IdentityManagerRunner<Deployment, ServiceIdentity> {
     }
 
     async fn run_identity_manager<F: Service + Labelled + Clone + fmt::Debug + Send>(
-        im: &mut Box<dyn IdentityManager<F, ServiceIdentity> + Send + Sync>,
+        im: &mut Box<dyn IdentityManager<ServiceLookup, ServiceIdentity> + Send + Sync>,
         mut identity_manager_rx: Receiver<IdentityManagerProtocol<F, ServiceIdentity>>,
         identity_manager_tx: Sender<IdentityManagerProtocol<F, ServiceIdentity>>,
         identity_creator_tx: Sender<IdentityCreatorProtocol>,
@@ -354,7 +363,7 @@ impl IdentityManagerRunner<Deployment, ServiceIdentity> {
                                 // Unregister the identity
                                 if let Some(s) = im.unregister_identity(&service_identity) {
                                     sdp_info!(IdentityManagerProtocol::<F, ServiceIdentity>::IdentityManagerDebug |
-                                        ("ServiceIdentity with id {} unregistered", s.service_id().unwrap_or(service_id)
+                                        ("ServiceIdentity with id {} unregistered", s.service_id().unwrap_or(service_id.clone())
                                     ) => external_queue_tx);
                                 } else {
                                     sdp_warn!(IdentityManagerProtocol::<F, ServiceIdentity>::IdentityManagerDebug | (
@@ -388,7 +397,6 @@ impl IdentityManagerRunner<Deployment, ServiceIdentity> {
                                 ) => external_queue_tx);
                             }
                         }
-                        None
                     });
                 }
                 IdentityManagerProtocol::RequestServiceIdentity { service_candidate } => {
@@ -397,7 +405,8 @@ impl IdentityManagerRunner<Deployment, ServiceIdentity> {
                             "New ServiceIdentity requested for ServiceCandidate {}",
                             service_id
                         ) => external_queue_tx);
-                        match im.next_identity(&service_candidate) {
+                        let a = ServiceLookup::try_from_service(&service_candidate).expect("Unable to conver service");
+                        match im.next_identity(&a) {
                             Some(service_identity) => match im.create(&service_identity).await {
                                 Ok(service_identity) => {
                                     sdp_info!(IdentityManagerProtocol::<F, ServiceIdentity>::IdentityManagerDebug |(
@@ -444,18 +453,17 @@ impl IdentityManagerRunner<Deployment, ServiceIdentity> {
                                     ) => external_queue_tx);
                             }
                         }
-                        None
                     });
                 }
                 IdentityManagerProtocol::FoundServiceCandidate(service_candidate) => {
                     when_ok!((candidate_service_id = service_candidate.service_id()) {
-                        if let Some(service_identity) = im.identity(&service_candidate) {
+                        let service_lookup = ServiceLookup::try_from_service(&service_candidate).unwrap();
+                        if let Some(service_identity) = im.identity(&service_lookup) {
                             when_ok!((service_id = service_identity.service_id()) {
                                 sdp_info!(IdentityManagerProtocol::<F, ServiceIdentity>::IdentityManagerDebug |(
                                     "Found registered ServiceCandidate {}",
                                     service_id
                                 ) => external_queue_tx);
-                                None
                             });
                         } else {
                                 sdp_info!(IdentityManagerProtocol::<F, ServiceIdentity>::IdentityManagerDebug |(
@@ -471,7 +479,6 @@ impl IdentityManagerRunner<Deployment, ServiceIdentity> {
                                     .expect("Error requesting new ServiceIdentity");
                         }
                         existing_service_candidates.insert(candidate_service_id);
-                        None
                     });
                 }
                 // Identity Creator notifies about fresh, unactivated User Credentials
@@ -503,7 +510,7 @@ impl IdentityManagerRunner<Deployment, ServiceIdentity> {
                         "ServiceUser {} has been activated [{}/{}]",
                         &service_user.name, service_ns, service_name
                     );
-                    let id = im.identity(from);
+                    let _id = im.identity(&ServiceLookup::new(&service_ns, &service_name, None));
                 }
                 IdentityManagerProtocol::IdentityCreatorReady => {
                     info!("IdentityCreator is ready");
@@ -581,7 +588,6 @@ impl IdentityManagerRunner<Deployment, ServiceIdentity> {
                                 removed_service_identities
                                     .insert(service_id.clone());
                             }
-                            None
                         });
                     }
 
@@ -624,7 +630,6 @@ impl IdentityManagerRunner<Deployment, ServiceIdentity> {
                                         .insert(service_id.clone());
                                 }
                             }
-                            None
                         });
                     }
 
@@ -635,7 +640,8 @@ impl IdentityManagerRunner<Deployment, ServiceIdentity> {
                 }
                 IdentityManagerProtocol::DeletedServiceCandidate(service_candidate) => {
                     when_ok!((candidate_service_id = service_candidate.service_id()) {
-                        match im.identity(&service_candidate) {
+                        let service_lookup = ServiceLookup::try_from_service(&service_candidate).unwrap();
+                        match im.identity(&service_lookup) {
                             Some(identity_service) => {
                                 if let Err(e) = identity_manager_tx
                                     .send(IdentityManagerProtocol::DeleteServiceIdentity(
@@ -656,7 +662,6 @@ impl IdentityManagerRunner<Deployment, ServiceIdentity> {
                                 candidate_service_id);
                             }
                         }
-                        None
                     });
                 }
                 _ => {
@@ -736,8 +741,11 @@ mod tests {
 
     use futures::Future;
     use k8s_openapi::api::apps::v1::Deployment;
-    use kube::{core::object::HasSpec, error::Error as KError, ResourceExt};
-    use sdp_common::traits::{HasCredentials, Service};
+    use kube::{core::object::HasSpec, ResourceExt};
+    use sdp_common::{
+        service::ServiceLookup,
+        traits::{HasCredentials, Service},
+    };
     use sdp_macros::{deployment, service_identity, service_user};
     use sdp_test_macros::{assert_message, assert_no_message};
     use tokio::sync::mpsc::channel;
@@ -828,11 +836,12 @@ mod tests {
         delete_calls: usize,
         create_calls: usize,
         list_calls: usize,
+        update_calls: usize,
     }
 
     #[sdp_proc_macros::identity_provider()]
     #[derive(sdp_proc_macros::IdentityProvider, Default)]
-    #[IdentityProvider(From = "Deployment", To = "ServiceIdentity")]
+    #[IdentityProvider(From = "ServiceLookup", To = "ServiceIdentity")]
     struct TestIdentityManager {
         api_counters: Arc<Mutex<APICounters>>,
     }
@@ -843,6 +852,7 @@ mod tests {
             api_counters.delete_calls = 0;
             api_counters.create_calls = 0;
             api_counters.list_calls = 0;
+            api_counters.update_calls = 0;
         }
     }
 
@@ -874,13 +884,22 @@ mod tests {
             self.api_counters.lock().unwrap().list_calls += 1;
             Box::pin(future::ready(Ok(vec![])))
         }
+
+        fn update<'a>(
+            &'a self,
+            identity: &'a ServiceIdentity,
+        ) -> Pin<Box<dyn Future<Output = Result<ServiceIdentity, IdentityServiceError>> + Send + '_>>
+        {
+            self.api_counters.lock().unwrap().list_calls += 1;
+            Box::pin(future::ready(Ok(identity.clone())))
+        }
     }
 
     fn new_test_identity_runner(
         im: Box<TestIdentityManager>,
-    ) -> IdentityManagerRunner<Deployment, ServiceIdentity> {
+    ) -> IdentityManagerRunner<ServiceLookup, ServiceIdentity> {
         IdentityManagerRunner {
-            im: im as Box<dyn IdentityManager<Deployment, ServiceIdentity> + Send + Sync>,
+            im: im as Box<dyn IdentityManager<ServiceLookup, ServiceIdentity> + Send + Sync>,
         }
     }
 
@@ -902,8 +921,8 @@ mod tests {
                 let mut is1: Vec<ServiceIdentity> = identities.iter().map(|i| i.clone()).collect();
                 let sorted_is1 = is1.sort_by(|a, b| a.spec().service_name.partial_cmp(&b.spec().service_name).unwrap());
                 assert_eq!(sorted_is0, sorted_is1);
-                assert!(im.identity(&d1).is_none());
-                assert!(im.identity(&d2).is_some());
+                assert!(im.identity(&ServiceLookup::try_from_service(&d1).unwrap()).is_none());
+                assert!(im.identity(&ServiceLookup::try_from_service(&d2).unwrap()).is_some());
             }
         }
     }
@@ -934,13 +953,12 @@ mod tests {
             im(identities) => {
                 // service not registered but we don't have any credentials so we can not create
                 // new identities for it.
-                id1.service_id();
                 assert_eq!(im.identities().len(), 1);
-                assert!(im.next_identity(&d1_2).is_none());
-                assert!(im.next_identity(&d2_2).is_none());
+                assert!(im.next_identity(&ServiceLookup::try_from_service(&d1_2).unwrap()).is_none());
+                assert!(im.next_identity(&ServiceLookup::try_from_service(&d2_2).unwrap()).is_none());
 
                 // service already registered, we just return the credentials we have for it
-                let d1_id = im.next_identity(&d1_1);
+                let d1_id = im.next_identity(&ServiceLookup::try_from_service(&d1_1).unwrap());
                 check_service_identity(d1_id, &id1.spec().service_user, "srv1", "ns1");
             }
         }
@@ -956,25 +974,25 @@ mod tests {
                 assert_eq!(im.identities().len(), 1);
 
                 // ask for a new service identity, we can create it because we have creds
-                let d2_2_id = im.next_identity(&d2_2);
+                let d2_2_id = im.next_identity(&ServiceLookup::try_from_service(&d2_2).unwrap());
                 check_service_identity(d2_2_id, &c1, "srv2", "ns2");
 
                 // service identity already registered
-                let d1_1_id = im.next_identity(&d1_1);
+                let d1_1_id = im.next_identity(&ServiceLookup::try_from_service(&d1_1).unwrap());
                 assert_eq!(d1_1_id.unwrap().spec(), id1.spec());
 
                 // ask for a new service identity, we can create it because we have creds
-                let d1_2_id = im.next_identity(&d1_2);
+                let d1_2_id = im.next_identity(&ServiceLookup::try_from_service(&d1_2).unwrap());
                 check_service_identity(d1_2_id, &c2, "srv1", "ns2");
 
                 // service not registered but we don't have any credentials so we can not create
                 // new identities for it.
-                assert!(im.next_identity(&d3_1).is_none());
+                assert!(im.next_identity(&ServiceLookup::try_from_service(&d3_1).unwrap()).is_none());
 
                 // We can still get the service identities we have registered
-                let d2_2_id = im.next_identity(&d2_2);
+                let d2_2_id = im.next_identity(&ServiceLookup::try_from_service(&d2_2).unwrap());
                 check_service_identity(d2_2_id, &c1, "srv2", "ns2");
-                let d1_2_id = im.next_identity(&d1_2);
+                let d1_2_id = im.next_identity(&ServiceLookup::try_from_service(&d1_2).unwrap());
                 check_service_identity(d1_2_id, &c2, "srv1", "ns2");
 
                 // We have created 2 ServiceIdentity so they are now registered
@@ -982,7 +1000,7 @@ mod tests {
                 let mut identities = im.identities();
                 identities.sort_by(|a, b| a.service_id().unwrap().partial_cmp(&b.service_id().unwrap()).unwrap());
                 let identities: Vec<String> = identities.iter().map(|i| i.service_id().unwrap()).collect();
-                assert_eq!(identities, vec!["ns1-srv1", "ns2-srv1", "ns2-srv2"]);
+                assert_eq!(identities, vec!["ns1_srv1", "ns2_srv1", "ns2_srv2"]);
             }
         }
     }
@@ -1230,7 +1248,7 @@ mod tests {
                 assert_message! {
                     (m :: IdentityManagerProtocol::IdentityManagerDebug(_) in watcher_rx) => {
                      if let IdentityManagerProtocol::IdentityManagerDebug(msg) = m {
-                            assert!(msg.eq("ServiceIdentity with id ns1-srv1 was not registered"),
+                            assert!(msg.eq("ServiceIdentity with id ns1_srv1 was not registered"),
                                     "Wrong message, got {}", msg);
                         }
                     }
@@ -1279,7 +1297,7 @@ mod tests {
                 assert_message! {
                     (m :: IdentityManagerProtocol::IdentityManagerDebug(_) in watcher_rx) => {
                      if let IdentityManagerProtocol::IdentityManagerDebug(msg) = m {
-                            assert!(msg.eq("ServiceIdentity with id ns1-srv1 unregistered"),
+                            assert!(msg.eq("ServiceIdentity with id ns1_srv1 unregistered"),
                                     "Wrong message, got {}", msg);
                         }
                     }
@@ -1306,7 +1324,7 @@ mod tests {
                 assert_message! {
                     (m :: IdentityManagerProtocol::IdentityManagerDebug(_) in watcher_rx) => {
                      if let IdentityManagerProtocol::IdentityManagerDebug(msg) = m {
-                            assert!(msg.eq("New ServiceIdentity requested for ServiceCandidate ns1-srv1"),
+                            assert!(msg.eq("New ServiceIdentity requested for ServiceCandidate ns1_srv1"),
                                     "Wrong message, got {}", msg);
                         }
                     }
@@ -1314,7 +1332,7 @@ mod tests {
                 assert_message! {
                     (m :: IdentityManagerProtocol::IdentityManagerDebug(_) in watcher_rx) => {
                      if let IdentityManagerProtocol::IdentityManagerDebug(msg) = m {
-                            assert!(msg.eq("Unable to assign service identity for service ns1-srv1. Identities pool seems to be empty!"),
+                            assert!(msg.eq("Unable to assign service identity for service ns1_srv1. Identities pool seems to be empty!"),
                                     "Wrong message, got {}", msg);
                         }
                     }
@@ -1366,7 +1384,7 @@ mod tests {
                 assert_message! {
                     (m :: IdentityManagerProtocol::IdentityManagerDebug(_) in watcher_rx) => {
                      if let IdentityManagerProtocol::IdentityManagerDebug(msg) = m {
-                            assert!(msg.eq("New ServiceIdentity requested for ServiceCandidate ns1-srv1"),
+                            assert!(msg.eq("New ServiceIdentity requested for ServiceCandidate ns1_srv1"),
                                     "Wrong message, got {}", msg);
                         }
                     }
@@ -1374,7 +1392,7 @@ mod tests {
                 assert_message! {
                     (m :: IdentityManagerProtocol::IdentityManagerDebug(_) in watcher_rx) => {
                      if let IdentityManagerProtocol::IdentityManagerDebug(msg) = m {
-                            assert!(msg.eq("ServiceIdentity created for service ns1-srv1"),
+                            assert!(msg.eq("ServiceIdentity created for service ns1_srv1"),
                                     "Wrong message, got {}", msg);
                         }
                     }
@@ -1408,7 +1426,7 @@ mod tests {
                 assert_message! {
                     (m :: IdentityManagerProtocol::IdentityManagerDebug(_) in watcher_rx) => {
                      if let IdentityManagerProtocol::IdentityManagerDebug(msg) = m {
-                            assert!(msg.eq("New ServiceIdentity requested for ServiceCandidate ns2-srv2"),
+                            assert!(msg.eq("New ServiceIdentity requested for ServiceCandidate ns2_srv2"),
                                     "Wrong message, got {}", msg);
                         }
                     }
@@ -1416,7 +1434,7 @@ mod tests {
                 assert_message! {
                     (m :: IdentityManagerProtocol::IdentityManagerDebug(_) in watcher_rx) => {
                      if let IdentityManagerProtocol::IdentityManagerDebug(msg) = m {
-                            assert!(msg.eq("ServiceIdentity created for service ns2-srv2"),
+                            assert!(msg.eq("ServiceIdentity created for service ns2_srv2"),
                                     "Wrong message, got {}", msg);
                         }
                     }
@@ -1450,7 +1468,7 @@ mod tests {
                 assert_message! {
                     (m :: IdentityManagerProtocol::IdentityManagerDebug(_) in watcher_rx) => {
                      if let IdentityManagerProtocol::IdentityManagerDebug(msg) = m {
-                            assert!(msg.eq("New ServiceIdentity requested for ServiceCandidate ns3-srv1"),
+                            assert!(msg.eq("New ServiceIdentity requested for ServiceCandidate ns3_srv1"),
                                     "Wrong message, got {}", msg);
                         }
                     }
@@ -1458,7 +1476,7 @@ mod tests {
                 assert_message! {
                     (m :: IdentityManagerProtocol::IdentityManagerDebug(_) in watcher_rx) => {
                      if let IdentityManagerProtocol::IdentityManagerDebug(msg) = m {
-                            assert!(msg.eq("Unable to assign service identity for service ns3-srv1. Identities pool seems to be empty!"),
+                            assert!(msg.eq("Unable to assign service identity for service ns3_srv1. Identities pool seems to be empty!"),
                                     "Wrong message, got {}", msg);
                         }
                     }
@@ -1472,7 +1490,7 @@ mod tests {
                 assert_message! {
                     (m :: IdentityManagerProtocol::IdentityManagerDebug(_) in watcher_rx) => {
                      if let IdentityManagerProtocol::IdentityManagerDebug(msg) = m {
-                            assert!(msg.eq("New ServiceIdentity requested for ServiceCandidate ns1-srv1"),
+                            assert!(msg.eq("New ServiceIdentity requested for ServiceCandidate ns1_srv1"),
                                     "Wrong message, got {}", msg);
                         }
                     }
@@ -1480,7 +1498,7 @@ mod tests {
                 assert_message! {
                     (m :: IdentityManagerProtocol::IdentityManagerDebug(_) in watcher_rx) => {
                      if let IdentityManagerProtocol::IdentityManagerDebug(msg) = m {
-                            assert!(msg.eq("ServiceIdentity created for service ns1-srv1"),
+                            assert!(msg.eq("ServiceIdentity created for service ns1_srv1"),
                                     "Wrong message, got {}", msg);
                         }
                     }
@@ -1545,7 +1563,7 @@ mod tests {
                 assert_message! {
                     (m :: IdentityManagerProtocol::IdentityManagerDebug(_) in watcher_rx) => {
                         if let IdentityManagerProtocol::IdentityManagerDebug(msg) = m {
-                            assert!(msg.eq("New ServiceIdentity requested for ServiceCandidate ns1-srv1"),
+                            assert!(msg.eq("New ServiceIdentity requested for ServiceCandidate ns1_srv1"),
                                     "Wrong message, got {}", msg);
                         }
                     }
@@ -1553,7 +1571,7 @@ mod tests {
                 assert_message! {
                     (m :: IdentityManagerProtocol::IdentityManagerDebug(_) in watcher_rx) => {
                         if let IdentityManagerProtocol::IdentityManagerDebug(msg) = m {
-                            assert!(msg.eq("ServiceIdentity created for service ns1-srv1"),
+                            assert!(msg.eq("ServiceIdentity created for service ns1_srv1"),
                                     "Wrong message, got {}", msg);
                         }
                     }
@@ -1613,7 +1631,7 @@ mod tests {
                 assert_message! {
                     (m :: IdentityManagerProtocol::IdentityManagerDebug(_) in watcher_rx) => {
                      if let IdentityManagerProtocol::IdentityManagerDebug(msg) = m {
-                            assert!(msg.eq("New ServiceIdentity requested for ServiceCandidate ns1-srv1"),
+                            assert!(msg.eq("New ServiceIdentity requested for ServiceCandidate ns1_srv1"),
                                     "Wrong message, got {}", msg);
                         }
                     }
@@ -1621,7 +1639,7 @@ mod tests {
                 assert_message! {
                     (m :: IdentityManagerProtocol::IdentityManagerDebug(_) in watcher_rx) => {
                      if let IdentityManagerProtocol::IdentityManagerDebug(msg) = m {
-                            assert!(msg.eq("Unable to assign service identity for service ns1-srv1. Identities pool seems to be empty!"),
+                            assert!(msg.eq("Unable to assign service identity for service ns1_srv1. Identities pool seems to be empty!"),
                                     "Wrong message, got {}", msg);
                         }
                     }
@@ -1721,7 +1739,7 @@ mod tests {
 
                 // Check first that IM unregistered the ServiceIdentity instances
                 let mut extra_service_identities: HashSet<String> = HashSet::from_iter((1 .. 5)
-                    .map(|i| format!("ServiceIdentity with id ns{}-srv{} unregistered", i, i))
+                    .map(|i| format!("ServiceIdentity with id ns{}_srv{} unregistered", i, i))
                     .collect::<Vec<_>>());
                 for i in 1 .. 5 {
                     assert_message!(m :: IdentityManagerProtocol::IdentityManagerDebug(_) in watcher_rx);

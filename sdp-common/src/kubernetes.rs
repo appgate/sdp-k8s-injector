@@ -127,11 +127,19 @@ impl Labelled for Deployment {
                 .iter()
                 .map(|(k, v)| (k.to_string(), v.to_string())),
         );
-        labels.extend([
-            ("namespace".to_string(), self.service_name()?),
-            ("name".to_string(), self.service_name()?),
-        ]);
-        Ok(labels)
+        let name = Named::name(self);
+        Namespaced::namespace(self)
+            .map(|ns| {
+                labels.extend([
+                    ("namespace".to_string(), ns),
+                    ("name".to_string(), name.clone()),
+                ]);
+                labels
+            })
+            .ok_or(SDPServiceError::from_string(format!(
+                "Unable to find namespace for Deployment {}",
+                &name
+            )))
     }
 }
 

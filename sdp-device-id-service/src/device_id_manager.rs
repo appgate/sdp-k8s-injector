@@ -495,7 +495,7 @@ mod tests {
                 assert_message! {
                     (m :: DeviceIdManagerProtocol::DeviceIdManagerDebug(_) in queue_rx) => {
                         if let DeviceIdManagerProtocol::DeviceIdManagerDebug(msg) = m {
-                            assert!(msg.eq("Found ServiceIdentity ns1-srv1"), "Wrong message, got {}", msg);
+                            assert!(msg.eq("Found ServiceIdentity ns1_srv1"), "Wrong message, got {}", msg);
                         }
                     }
                 }
@@ -503,7 +503,7 @@ mod tests {
                 assert_message! {
                     (m :: DeviceIdManagerProtocol::DeviceIdManagerDebug(_) in queue_rx) => {
                         if let DeviceIdManagerProtocol::DeviceIdManagerDebug(msg) = m {
-                            assert!(msg.eq("Received request for new DeviceId for ServiceIdentity ns1-srv1"), "Wrong message, got {}", msg)
+                            assert!(msg.eq("Received request for new DeviceId for ServiceIdentity ns1_srv1"), "Wrong message, got {}", msg)
                         }
                     }
                 }
@@ -513,7 +513,7 @@ mod tests {
                 assert_message! {
                     (m :: DeviceIdManagerProtocol::DeviceIdManagerDebug(_) in queue_rx) => {
                         if let DeviceIdManagerProtocol::DeviceIdManagerDebug(msg) = m {
-                            assert!(msg.eq("Created DeviceID ns1-srv1 for ServiceIdentity ns1-srv1"), "Wrong message, got {}", msg)
+                            assert!(msg.eq("Created DeviceID ns1_srv1 for ServiceIdentity ns1_srv1"), "Wrong message, got {}", msg)
                         }
                     }
                 }

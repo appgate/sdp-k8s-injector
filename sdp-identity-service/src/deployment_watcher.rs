@@ -118,7 +118,6 @@ impl<'a> DeploymentWatcher<Deployment> {
                     });
                 }
                 Some(Event::Deleted(deployment)) if deployment.is_candidate() => {
-                    let service_id = deployment.service_id();
                     when_ok!((deployment_service_id = deployment.service_id()) {
                         info!("Deleted service candidate {}", &deployment_service_id);
                         if let Err(err) = tx

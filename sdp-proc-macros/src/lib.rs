@@ -65,7 +65,7 @@ pub fn derive_identity_provider(input: proc_macro::TokenStream) -> proc_macro::T
         .collect();
 
     let mut identity_provider_params = IdentityProviderParams {
-        from: Ident::new("Deployment", proc_macro2::Span::call_site()),
+        from: Ident::new("ServiceLookup", proc_macro2::Span::call_site()),
         to: Ident::new("ServiceIdentity", proc_macro2::Span::call_site()),
     };
     for m in ms {

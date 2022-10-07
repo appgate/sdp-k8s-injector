@@ -1,7 +1,8 @@
 use crate::constants::IDENTITY_MANAGER_SECRET_NAME;
 pub use crate::crd::ServiceIdentity;
+use crate::errors::SDPServiceError;
 use crate::sdp::{auth::SDPUser, system::ClientProfileUrl};
-use crate::traits::Annotated;
+use crate::traits::{Annotated, Labelled, Named, Namespaced, Service};
 use json_patch::PatchOperation::Remove;
 use json_patch::{Patch, RemoveOperation};
 use k8s_openapi::api::core::v1::{ConfigMap, Container, Pod, Volume};
@@ -11,9 +12,68 @@ use kube::Api;
 use log::{error, info, warn};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::{collections::BTreeMap, error::Error};
 
 pub const SDP_INJECTOR_ANNOTATION: &str = "sdp-injector";
+
+pub struct ServiceLookup {
+    name: String,
+    namespace: String,
+    labels: Option<HashMap<String, String>>,
+}
+
+impl ServiceLookup {
+    pub fn new(namespace: &str, name: &str, labels: Option<HashMap<String, String>>) -> Self {
+        ServiceLookup {
+            name: name.to_string(),
+            namespace: namespace.to_string(),
+            labels,
+        }
+    }
+
+    pub fn try_from_service(
+        f: &(impl Named + Namespaced + Labelled),
+    ) -> Result<Self, SDPServiceError> {
+        match (f.namespace(), f.labels()) {
+            (Some(ns), labels) => Ok(Self::new(
+                &ns,
+                &f.name(),
+                Some(labels.unwrap_or(HashMap::default())),
+            )),
+            _ => Err(SDPServiceError::from_string(format!(
+                "Unable to get namespace from f {}",
+                f.name()
+            ))),
+        }
+    }
+}
+
+impl Named for ServiceLookup {
+    fn name(&self) -> String {
+        self.name.clone()
+    }
+}
+
+impl Namespaced for ServiceLookup {
+    fn namespace(&self) -> Option<String> {
+        Some(self.namespace.clone())
+    }
+}
+
+impl Service for ServiceLookup {}
+
+impl Labelled for ServiceLookup {
+    fn labels(
+        &self,
+    ) -> Result<std::collections::HashMap<String, String>, crate::errors::SDPServiceError> {
+        Ok(self
+            .labels
+            .as_ref()
+            .map(|labels| labels.clone())
+            .unwrap_or(HashMap::default()))
+    }
+}
 
 struct ServiceConfigFields {
     configmap_name: String,
@@ -88,11 +148,11 @@ impl ServiceUser {
     }
 
     pub fn secrets_name(&self, service_ns: &str, service_name: &str) -> String {
-        format!("{}-{}-service-user", service_ns, service_name)
+        format!("{}_{}-service-user", service_ns, service_name)
     }
 
     pub fn config_name(&self, service_ns: &str, service_name: &str) -> String {
-        format!("{}-{}-service-config", service_ns, service_name)
+        format!("{}_{}-service-config", service_ns, service_name)
     }
 
     pub async fn get_secrets_fields(
@@ -341,14 +401,6 @@ impl ServiceUser {
         )]));
         api.create(&PostParams::default(), &cm).await?;
         Ok(())
-    }
-}
-
-pub fn generate_service_id(namespace: &str, name: &str, internal: bool) -> String {
-    if internal {
-        format!("{}_{}", namespace, name)
-    } else {
-        format!("{}-{}", namespace, name)
     }
 }
 

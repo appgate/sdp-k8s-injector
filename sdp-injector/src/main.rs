@@ -954,7 +954,7 @@ mod tests {
                 pod: test_pod!(0),
                 envs: vec![
                     ("POD_N_CONTAINERS".to_string(), Some("0".to_string())),
-                    ("SERVICE_NAME".to_string(), Some("ns0-srv0".to_string())),
+                    ("SERVICE_NAME".to_string(), Some("ns0_srv0".to_string())),
                 ],
                 service: KubeService::default(),
                 ..Default::default()
@@ -970,10 +970,10 @@ mod tests {
                         "APPGATE_DEVICE_ID".to_string(),
                         Some("00000000-0000-0000-0000-000000000001".to_string()),
                     ),
-                    ("SERVICE_NAME".to_string(), Some("ns1-srv1".to_string())),
+                    ("SERVICE_NAME".to_string(), Some("ns1_srv1".to_string())),
                 ],
-                client_config_map: "ns1-srv1-service-config",
-                client_secrets: "ns1-srv1-service-user",
+                client_config_map: "ns1_srv1-service-config",
+                client_secrets: "ns1_srv1-service-user",
                 ..Default::default()
             },
             TestPatch {
@@ -981,10 +981,10 @@ mod tests {
                                   annotations => vec![("sdp-injector", "false")]),
                 envs: vec![
                     ("POD_N_CONTAINERS".to_string(), Some("1".to_string())),
-                    ("SERVICE_NAM".to_string(), Some("ns2-srv2".to_string())),
+                    ("SERVICE_NAM".to_string(), Some("ns2_srv2".to_string())),
                 ],
-                client_config_map: "ns2-srv2-service-config",
-                client_secrets: "ns2-srv2-service-user",
+                client_config_map: "ns2_srv2-service-config",
+                client_secrets: "ns2_srv2-service-user",
                 ..Default::default()
             },
             TestPatch {
@@ -1003,7 +1003,7 @@ mod tests {
                         "APPGATE_DEVICE_ID".to_string(),
                         Some("00000000-0000-0000-0000-000000000003".to_string()),
                     ),
-                    ("SERVICE_NAME".to_string(), Some("ns3-srv3".to_string())),
+                    ("SERVICE_NAME".to_string(), Some("ns3_srv3".to_string())),
                 ],
                 ..Default::default()
             },
@@ -1014,7 +1014,7 @@ mod tests {
                                                       (SDP_ANNOTATION_CLIENT_SECRETS, "some-secrets")]),
                 needs_patching: true,
                 client_secrets: "some-secrets",
-                client_config_map: "ns4-srv4-service-config",
+                client_config_map: "ns4_srv4-service-config",
                 envs: vec![
                     ("POD_N_CONTAINERS".to_string(), Some("1".to_string())),
                     ("K8S_DNS_SERVICE".to_string(), Some("".to_string())),
@@ -1022,7 +1022,7 @@ mod tests {
                         "APPGATE_DEVICE_ID".to_string(),
                         Some("00000000-0000-0000-0000-000000000004".to_string()),
                     ),
-                    ("SERVICE_NAME".to_string(), Some("ns4-srv4".to_string())),
+                    ("SERVICE_NAME".to_string(), Some("ns4_srv4".to_string())),
                 ],
                 ..Default::default()
             },
@@ -1034,7 +1034,7 @@ mod tests {
                 envs: vec![
                     ("POD_N_CONTAINERS".to_string(), Some("2".to_string())),
                     ("K8S_DNS_SERVICE".to_string(), Some("10.0.0.10".to_string())),
-                    ("SERVICE_NAME".to_string(), Some("ns5-srv5".to_string())),
+                    ("SERVICE_NAME".to_string(), Some("ns5_srv5".to_string())),
                     (
                         "APPGATE_DEVICE_ID".to_string(),
                         Some("00000000-0000-0000-0000-000000000005".to_string()),
@@ -1048,8 +1048,8 @@ mod tests {
                     }),
                     status: Some(ServiceStatus::default()),
                 },
-                client_config_map: "ns5-srv5-service-config",
-                client_secrets: "ns5-srv5-service-user",
+                client_config_map: "ns5_srv5-service-config",
+                client_secrets: "ns5_srv5-service-user",
                 ..Default::default()
             },
             TestPatch {
@@ -1058,10 +1058,10 @@ mod tests {
                                                      "some-random-service".to_string()]),
                 envs: vec![
                     ("POD_N_CONTAINERS".to_string(), Some("3".to_string())),
-                    ("SERVICE_NAME".to_string(), Some("ns6-srv6".to_string())),
+                    ("SERVICE_NAME".to_string(), Some("ns6_srv6".to_string())),
                 ],
-                client_config_map: "ns6-srv6-service-config",
-                client_secrets: "ns6-srv6-service-user",
+                client_config_map: "ns6_srv6-service-config",
+                client_secrets: "ns6_srv6-service-user",
                 ..Default::default()
             },
             TestPatch {
@@ -1071,10 +1071,10 @@ mod tests {
                                   annotations => vec![("sdp-injector", "true")]),
                 envs: vec![
                     ("POD_N_CONTAINERS".to_string(), Some("3".to_string())),
-                    ("SERVICE_NAME".to_string(), Some("ns7-srv7".to_string())),
+                    ("SERVICE_NAME".to_string(), Some("ns7_srv7".to_string())),
                 ],
-                client_config_map: "ns7-srv7-service-config",
-                client_secrets: "ns7-srv7-service-user",
+                client_config_map: "ns7_srv7-service-config",
+                client_secrets: "ns7_srv7-service-user",
                 ..Default::default()
             },
             TestPatch {
@@ -1082,10 +1082,10 @@ mod tests {
                                                      "some-random-service".to_string()]),
                 envs: vec![
                     ("POD_N_CONTAINERS".to_string(), Some("2".to_string())),
-                    ("SERVICE_NAME".to_string(), Some("ns8-srv8".to_string())),
+                    ("SERVICE_NAME".to_string(), Some("ns8_srv8".to_string())),
                 ],
-                client_config_map: "ns8-srv8-service-config",
-                client_secrets: "ns8-srv8-service-user",
+                client_config_map: "ns8_srv8-service-config",
+                client_secrets: "ns8_srv8-service-user",
                 ..Default::default()
             },
             TestPatch {
@@ -1094,10 +1094,10 @@ mod tests {
                                   annotations => vec![("sdp-injector", "true")]),
                 envs: vec![
                     ("POD_N_CONTAINERS".to_string(), Some("2".to_string())),
-                    ("SERVICE_NAME".to_string(), Some("ns9-srv9".to_string())),
+                    ("SERVICE_NAME".to_string(), Some("ns9_srv9".to_string())),
                 ],
-                client_config_map: "ns9-srv9-service-config",
-                client_secrets: "ns9-srv9-service-user",
+                client_config_map: "ns9_srv9-service-config",
+                client_secrets: "ns9_srv9-service-user",
                 ..Default::default()
             },
         ]
@@ -1653,8 +1653,8 @@ POD is missing needed volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-de
                 env.service_name,
                 pod.service_id().expect("Unable to get service id from Pod")
             );
-            assert_eq!(env.client_config, "ns1-srv1-service-config");
-            assert_eq!(env.client_secret_name, "ns1-srv1-service-user");
+            assert_eq!(env.client_config, "ns1_srv1-service-config");
+            assert_eq!(env.client_secret_name, "ns1_srv1-service-user");
             assert_eq!(
                 env.client_secret_controller_url_key,
                 "service-url".to_string()
@@ -1681,15 +1681,15 @@ POD is missing needed volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-de
         env = ServiceEnvironment::from_pod(&request);
         assert!(env.is_some());
         if let Some(env) = env {
-            assert_eq!(env.service_name, "ns0-srv0".to_string());
+            assert_eq!(env.service_name, "ns0_srv0".to_string());
             assert_eq!(env.client_config, "some-config-map".to_string());
             assert_eq!(env.client_secret_name, "some-secrets".to_string());
             assert_eq!(
                 env.client_secret_controller_url_key,
-                "ns0-srv0-password".to_string()
+                "ns0_srv0-password".to_string()
             );
-            assert_eq!(env.client_secret_pwd_key, "ns0-srv0-password".to_string());
-            assert_eq!(env.client_secret_user_key, "ns0-srv0-user".to_string());
+            assert_eq!(env.client_secret_pwd_key, "ns0_srv0-password".to_string());
+            assert_eq!(env.client_secret_user_key, "ns0_srv0-user".to_string());
             assert_eq!(env.n_containers, "0".to_string());
             assert_eq!(env.k8s_dns_service_ip, None);
         };
@@ -1701,15 +1701,15 @@ POD is missing needed volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-de
         env = ServiceEnvironment::from_pod(&request);
         assert!(env.is_some());
         if let Some(env) = env {
-            assert_eq!(env.service_name, "ns1-srv1".to_string());
-            assert_eq!(env.client_config, "ns1-srv1-service-config");
+            assert_eq!(env.service_name, "ns1_srv1".to_string());
+            assert_eq!(env.client_config, "ns1_srv1-service-config");
             assert_eq!(env.client_secret_name, "some-secrets".to_string());
             assert_eq!(
                 env.client_secret_controller_url_key,
-                "ns1-srv1-password".to_string()
+                "ns1_srv1-password".to_string()
             );
-            assert_eq!(env.client_secret_pwd_key, "ns1-srv1-password".to_string());
-            assert_eq!(env.client_secret_user_key, "ns1-srv1-user".to_string());
+            assert_eq!(env.client_secret_pwd_key, "ns1_srv1-password".to_string());
+            assert_eq!(env.client_secret_user_key, "ns1_srv1-user".to_string());
             assert_eq!(env.n_containers, "0".to_string());
             assert_eq!(env.k8s_dns_service_ip, None);
         };
@@ -1761,9 +1761,9 @@ POD is missing needed volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-de
                     ServiceEnvironment::from_identity_store(&request, store3.lock().await).await;
                 assert!(env.is_some());
                 if let Some(env) = env {
-                    assert_eq!(env.service_name, "ns1-srv1".to_string());
-                    assert_eq!(env.client_config, "ns1-srv1-service-config");
-                    assert_eq!(env.client_secret_name, "ns1-srv1-service-user");
+                    assert_eq!(env.service_name, "ns1_srv1".to_string());
+                    assert_eq!(env.client_config, "ns1_srv1-service-config");
+                    assert_eq!(env.client_secret_name, "ns1_srv1-service-user");
                     assert_eq!(env.client_secret_controller_url_key, "service-url");
                     assert_eq!(env.client_secret_pwd_key, "service-password");
                     assert_eq!(env.client_secret_user_key, "service-username");
