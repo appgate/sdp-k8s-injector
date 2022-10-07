@@ -148,11 +148,11 @@ impl ServiceUser {
     }
 
     pub fn secrets_name(&self, service_ns: &str, service_name: &str) -> String {
-        format!("{}_{}-service-user", service_ns, service_name)
+        format!("{}-{}-service-user", service_ns, service_name)
     }
 
     pub fn config_name(&self, service_ns: &str, service_name: &str) -> String {
-        format!("{}_{}-service-config", service_ns, service_name)
+        format!("{}-{}-service-config", service_ns, service_name)
     }
 
     pub async fn get_secrets_fields(

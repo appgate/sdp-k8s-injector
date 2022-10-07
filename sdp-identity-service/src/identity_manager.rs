@@ -167,18 +167,19 @@ impl ServiceIdentityProvider for IdentityManagerPool {
 
     fn next_identity(&mut self, from: &Self::From) -> Option<Self::To> {
         when_ok!((service_id: Self::To = from.service_id()) {
+            let service_name = from.service_name().unwrap(); // Safe since service_name is defined
             self.services.get(&service_id)
                 .map(|i| i.clone())
                 .or_else(|| {
                     if let Some(id) = self.pop().map(|service_user| {
                         let service_identity_spec = ServiceIdentitySpec {
                             service_name: Named::name(from),
-                            service_namespace: Namespaced::namespace(from).unwrap(), // Safe since if it has service_id it has namespace
+                            service_namespace: Namespaced::namespace(from).unwrap(), // Safe since if it has service_name it has namespace
                             service_user,
-                            labels: Labelled::labels(from).unwrap(), // Safe since if it has service_id it has labels
+                            labels: Labelled::labels(from).unwrap(), // Safe since if it has service_name it has labels
                             disabled: false,
                         };
-                        ServiceIdentity::new(&service_id, service_identity_spec)
+                        ServiceIdentity::new(&service_name, service_identity_spec)
                     }) {
                         info!(
                             "ServiceCandidate {} has not ServiceIdentities registered, registering one for it",
