@@ -255,7 +255,7 @@ impl IdentityStore<ServiceIdentity> for InMemoryIdentityStore {
                     None
                 }
                 (None, _) => {
-                    error!("Service id {} hasis not registered", service_id);
+                    error!("Service id {} is not registered", service_id);
                     None
                 }
                 (_, None) => {

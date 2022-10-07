@@ -122,10 +122,10 @@ impl IdentityCreator {
         }
     }
 
-    async fn delete_sdp_user(&mut self, sdp_user_name: &str) -> Result<(), IdentityServiceError> {
-        info!("Deleting SDPUser with name {}", &sdp_user_name);
+    async fn delete_sdp_user(&mut self, sdp_user_id: &str) -> Result<(), IdentityServiceError> {
+        info!("Deleting SDPUser with name {}", &sdp_user_id);
         // Create a default SDPUser with the name of the one we want to delete
-        let sdp_user = SDPUser::from_name(sdp_user_name.to_string());
+        let sdp_user = SDPUser::from_name(sdp_user_id.to_string());
         // Derive a ServiceUser that we can use to delete the secret fields
         if let Some(service_user) =
             ServiceUser::from_sdp_user(&sdp_user, &ClientProfileUrl::default(), None)
@@ -139,7 +139,7 @@ impl IdentityCreator {
                 .map_err(|e| IdentityServiceError::from(e.to_string()))?;
         }
         self.system
-            .delete_user(&sdp_user_name)
+            .delete_user(&sdp_user_id)
             .await
             .map_err(|e| IdentityServiceError::from(e.to_string()))
     }
@@ -203,7 +203,7 @@ impl IdentityCreator {
         service_ns: &str,
         service_name: &str,
     ) -> Result<(), IdentityServiceError> {
-        self.delete_sdp_user(&service_user.name).await?;
+        self.delete_sdp_user(&service_user.id).await?;
         service_user
             .delete_secrets(self.secrets_api(service_ns), service_ns, service_name)
             .await

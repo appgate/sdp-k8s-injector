@@ -4,7 +4,7 @@ use kube::api::{DeleteParams, ListParams, PostParams};
 use kube::{Api, Client};
 use log::{error, info, warn};
 pub use sdp_common::crd::{ServiceIdentity, ServiceIdentitySpec};
-use sdp_common::service::{ServiceLookup, ServiceUser};
+use sdp_common::service::{self, ServiceLookup, ServiceUser};
 use sdp_common::traits::{HasCredentials, Labelled, Named, Namespaced, Service};
 use sdp_macros::{queue_debug, sdp_error, sdp_info, sdp_log, sdp_warn, when_ok};
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -368,11 +368,12 @@ impl IdentityManagerRunner<ServiceLookup, ServiceIdentity> {
             match msg {
                 IdentityManagerProtocol::DeleteServiceIdentity(service_identity) => {
                     when_ok!((service_id = service_identity.service_id()) {
+                        let service_name = service_identity.service_name().unwrap();
                         info!(
                             "Deleting ServiceIdentity with id {}",
                             service_id
                         );
-                        match im.delete(&service_id).await {
+                        match im.delete(&service_name).await {
                             Ok(_) => {
                                 info!(
                                     "Deregistering ServiceIdentity with id {}",
