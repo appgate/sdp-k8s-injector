@@ -367,7 +367,6 @@ mod tests {
     use crate::DeviceIdManagerRunner;
     use crate::ServiceIdentityWatcherProtocol;
     use futures::future;
-    use kube::error::Error;
     use sdp_common::crd::{DeviceId, DeviceIdSpec, ServiceIdentity, ServiceIdentitySpec};
     use sdp_common::service::ServiceUser;
     use sdp_macros::{device_id, service_identity, service_user};

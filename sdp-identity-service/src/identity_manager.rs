@@ -212,6 +212,24 @@ pub struct KubeIdentityManager {
     service_identity_api: Api<ServiceIdentity>,
 }
 
+async fn update_impl<'a>(
+    api: &Api<ServiceIdentity>,
+    identity: &'a ServiceIdentity,
+) -> Result<ServiceIdentity, IdentityServiceError> {
+    if let Some(mut obj) = api.get_opt(&identity.service_name()?).await? {
+        obj.spec = identity.spec.clone();
+        let new_obj = api
+            .replace(&identity.service_name()?, &PostParams::default(), &obj)
+            .await?;
+        Ok(new_obj)
+    } else {
+        Err(IdentityServiceError::from(format!(
+            "ServiceIdentity {} not found",
+            identity.service_name().unwrap()
+        )))
+    }
+}
+
 impl ServiceIdentityAPI for KubeIdentityManager {
     fn create<'a>(
         &'a self,
@@ -255,10 +273,10 @@ impl ServiceIdentityAPI for KubeIdentityManager {
 
     fn update<'a>(
         &'a self,
-        _identity: &'a ServiceIdentity,
+        identity: &'a ServiceIdentity,
     ) -> Pin<Box<dyn Future<Output = Result<ServiceIdentity, IdentityServiceError>> + Send + '_>>
     {
-        let fut = async move { Err(IdentityServiceError::from("Not implemented")) };
+        let fut = async move { update_impl(&self.service_identity_api, identity).await };
         Box::pin(fut)
     }
 
