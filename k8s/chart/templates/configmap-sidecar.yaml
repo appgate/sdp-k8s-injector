@@ -25,7 +25,9 @@ data:
             "/opt/appgate/service/appgateservice",
             "-t",
             "/var/run/sdp-driver/.driver.sock",
-            "--service"
+            "--service",
+            "-l",
+            "/var/log/appgate/driver.log"
           ],
           "resources": {},
           "terminationMessagePath": "/dev/termination-log",
@@ -34,6 +36,10 @@ data:
             {
               "mountPath": "/var/run/sdp-driver",
               "name": "run-sdp-driver"
+            },
+            {
+              "mountPath": "/var/log/appgate",
+              "name": "sdp-driver-logs"
             },
             {
               "mountPath": "/etc/pod-info",
@@ -65,6 +71,10 @@ data:
             {
               "mountPath": "/var/run/sdp-dnsmasq",
               "name": "run-sdp-dnsmasq"
+            },
+            {
+              "mountPath": "/var/log/appgate",
+              "name": "sdp-driver-logs"
             },
             {
               "mountPath": "/dev/net/tun",
@@ -104,6 +114,10 @@ data:
         {
           "mountPath": "/var/run/sdp-driver",
           "name": "run-sdp-driver"
+        },
+        {
+          "mountPath": "/var/log/appgate",
+          "name": "sdp-driver-logs"
         },
         {
           "mountPath": "/var/run/sdp-dnsmasq",

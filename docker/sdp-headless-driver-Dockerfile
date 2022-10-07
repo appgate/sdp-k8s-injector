@@ -39,6 +39,8 @@ RUN mkdir /var/run/sdp-driver && \
     chmod +x /opt/appgate/linux/set_dns && \
     chmod +x /opt/appgate/sdp-client-headless-driver && \
     chown -R 103:102 /opt/appgate && \
+    mkdir -p /var/log/appgate && \
+    chown -R 103:102 /var/log/appgate && \
     rm -rf \
         /usr/share/doc \
         /usr/share/man \
