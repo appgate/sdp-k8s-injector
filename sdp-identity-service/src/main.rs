@@ -1,6 +1,6 @@
 use clap::{Parser, Subcommand};
 use k8s_openapi::api::apps::v1::Deployment;
-use kube::CustomResourceExt;
+use kube::{Api, CustomResourceExt};
 use log::{error, info};
 use sdp_common::crd::ServiceIdentity;
 use sdp_common::kubernetes::get_k8s_client;
@@ -8,8 +8,9 @@ use sdp_common::sdp::system::get_sdp_system;
 use std::{panic, process::exit};
 use tokio::sync::mpsc::channel;
 
+use crate::deployment_watcher::Watcher;
 use crate::{
-    deployment_watcher::{DeploymentWatcher, DeploymentWatcherProtocol},
+    deployment_watcher::DeploymentWatcherProtocol,
     identity_creator::{IdentityCreator, IdentityCreatorProtocol},
     identity_manager::{IdentityManagerProtocol, IdentityManagerRunner},
 };
@@ -73,11 +74,14 @@ async fn main() -> () {
                 channel::<IdentityCreatorProtocol>(50);
             let (deployment_watched_proto_tx, deployment_watcher_proto_rx) =
                 channel::<DeploymentWatcherProtocol>(50);
-            tokio::spawn(async {
-                let deployment_watcher = DeploymentWatcher::new(deployment_watcher_client);
-                deployment_watcher
-                    .run(deployment_watcher_proto_rx, identity_manager_proto_tx)
-                    .await;
+            tokio::spawn(async move {
+                let deployment_api: Api<Deployment> = Api::all(deployment_watcher_client.clone());
+                let mut watcher = Watcher {
+                    api: deployment_api,
+                    queue_tx: identity_manager_proto_tx.clone(),
+                    queue_rx: deployment_watcher_proto_rx,
+                };
+                watcher.start().await;
             });
             tokio::spawn(async move {
                 let system = get_sdp_system();

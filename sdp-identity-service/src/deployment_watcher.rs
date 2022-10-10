@@ -1,18 +1,16 @@
-use std::collections::HashSet;
-
+use async_trait::async_trait;
 use futures::{StreamExt, TryStreamExt};
 use k8s_openapi::api::apps::v1::Deployment;
 use kube::{
     api::ListParams,
     runtime::watcher::{self, Event},
-    Api, Client,
+    Api, Resource,
 };
-use log::{debug, error, info, warn};
-use sdp_common::{
-    crd::ServiceIdentity,
-    traits::{Candidate, Service},
-};
-use sdp_macros::when_ok;
+use log::{error, info};
+use sdp_common::errors::SDPServiceError;
+use sdp_common::{crd::ServiceIdentity, traits::Candidate, traits::Service};
+use serde::de::DeserializeOwned;
+use std::fmt::Debug;
 use tokio::sync::mpsc::{Receiver, Sender};
 
 use crate::identity_manager::IdentityManagerProtocol;
@@ -22,138 +20,172 @@ pub enum DeploymentWatcherProtocol {
     IdentityManagerReady,
 }
 
-pub struct DeploymentWatcher<D: Candidate + Service> {
-    deployment_api: Api<D>,
+pub trait SimpleWatchingProtocol<P> {
+    fn initialize(&self) -> Option<P>;
+    fn applied(&self) -> Option<P>;
+    fn deleted(&self) -> Option<P>;
 }
 
-impl<'a> DeploymentWatcher<Deployment> {
-    pub fn new(client: Client) -> Self {
-        let deployment_api: Api<Deployment> = Api::all(client);
-        DeploymentWatcher {
-            deployment_api: deployment_api,
-        }
-    }
+#[async_trait]
+pub trait WatcherRoutine<P, R> {
+    async fn initialize(&self) -> Result<(), SDPServiceError>;
+    async fn wait(&mut self) -> Result<R, SDPServiceError>;
+    async fn ready(&self) -> Result<P, SDPServiceError>;
+    async fn watch(&self) -> ();
+}
 
-    pub async fn initialize(
-        &self,
-        mut q_rx: Receiver<DeploymentWatcherProtocol>,
-        q_tx: Sender<IdentityManagerProtocol<Deployment, ServiceIdentity>>,
-    ) -> () {
-        info!("Waiting for IdentityManager to be ready!");
-        let xs = self.deployment_api.list(&ListParams::default()).await;
+pub struct Watcher<E, P, R>
+where
+    E: Clone + Debug + Send + DeserializeOwned + Resource + SimpleWatchingProtocol<P> + 'static,
+{
+    pub api: Api<E>,
+    pub queue_tx: Sender<P>,
+    pub queue_rx: Receiver<R>,
+}
+
+#[async_trait]
+impl WatcherRoutine<IdentityManagerProtocol<Deployment, ServiceIdentity>, DeploymentWatcherProtocol>
+    for Watcher<
+        Deployment,
+        IdentityManagerProtocol<Deployment, ServiceIdentity>,
+        DeploymentWatcherProtocol,
+    >
+{
+    async fn initialize(&self) -> Result<(), SDPServiceError> {
+        let xs = self.api.list(&ListParams::default()).await;
         if let Err(e) = xs {
-            let err_str = format!(
-                "Unable to get current deployments: {}. Exiting.",
-                e.to_string()
-            );
+            let err_str = format!("Unable to list current deployments: {}", e.to_string());
             error!("{}", err_str);
             panic!("{}", err_str);
         }
 
         // First of all notify the known service candidates to the IdentityManager so we can clean up the system if needed
-        for candidate in xs.unwrap().items.iter().filter(|c| c.is_candidate()) {
-            when_ok!((candidate_service_id = candidate.service_id()) {
-                info!("Found service candidate: {}", candidate_service_id);
-                let msg = IdentityManagerProtocol::FoundServiceCandidate(candidate.clone());
-                if let Err(err) = q_tx.send(msg).await {
-                    error!("Error reporting found ServiceIdentity: {}", err);
+        for candidate in xs.unwrap().items.iter() {
+            if let Some(msg) = candidate.initialize() {
+                if let Err(err) = self.queue_tx.send(msg).await {
+                    error!("Error sending FoundServiceIdentity: {}", err);
                 }
-            });
+            }
         }
+        Ok(())
+    }
 
-        // Notify IdentityManager that we are ready to proceed
-        if let Err(err) = q_tx
-            .send(IdentityManagerProtocol::DeploymentWatcherReady)
-            .await
-        {
-            error!("Error reporting  {}", err);
-        }
-
-        // Wait for IdentityManager tell us to start processing events
-        while let Some(msg) = q_rx.recv().await {
+    async fn wait(&mut self) -> Result<DeploymentWatcherProtocol, SDPServiceError> {
+        while let Some(msg) = self.queue_rx.recv().await {
             match msg {
-                DeploymentWatcherProtocol::IdentityManagerReady => {
-                    info!("IdentityManager is ready, starting DeploymentWatcher!");
-                    break;
-                }
+                DeploymentWatcherProtocol::IdentityManagerReady => break,
             }
         }
+        Ok(DeploymentWatcherProtocol::IdentityManagerReady)
     }
 
-    pub async fn watch_deployments(
+    async fn ready(
         &self,
-        queue: Sender<IdentityManagerProtocol<Deployment, ServiceIdentity>>,
-    ) -> () {
-        info!("Starting Deployments watcher!");
-        let tx = &queue;
-        let xs = watcher::watcher(self.deployment_api.clone(), ListParams::default());
+    ) -> Result<IdentityManagerProtocol<Deployment, ServiceIdentity>, SDPServiceError> {
+        Ok(IdentityManagerProtocol::DeploymentWatcherReady)
+    }
+
+    async fn watch(&self) -> () {
+        let xs = watcher::watcher(self.api.clone(), ListParams::default());
         let mut xs = xs.boxed();
-        let mut applied: HashSet<String> = HashSet::new();
         loop {
-            match xs.try_next().await.expect("Error getting event!") {
-                Some(Event::Applied(deployment)) if deployment.is_candidate() => {
-                    when_ok!((deployment_service_id = deployment.service_id()) {
-                        if !applied.contains(&deployment_service_id) {
-                            info!("New service candidate: {}", &deployment_service_id);
-                            if let Err(err) = tx
-                                .send(IdentityManagerProtocol::RequestServiceIdentity {
-                                    service_candidate: deployment.clone(),
-                                })
-                                .await
-                            {
-                                error!("Error requesting new ServiceIdentity: {}", err);
-                            }
-                            applied.insert(deployment_service_id);
-                        } else {
-                            info!("Modified service candidate: {}", &deployment_service_id);
+            match xs.try_next().await {
+                Ok(Some(Event::Applied(e))) => {
+                    if let Some(msg) = e.applied() {
+                        if let Err(e) = self.queue_tx.send(msg).await {
+                            error!("Error sending Applied message: {}", e.to_string())
                         }
-                    });
+                    }
                 }
-                Some(Event::Applied(deployment)) => {
-                    when_ok!((deployment_service_id = deployment.service_id()) {
-                        info!(
-                            "Ignoring service {}, not a candidate",
-                            deployment_service_id
-                        );
-                    });
-                }
-                Some(Event::Deleted(deployment)) if deployment.is_candidate() => {
-                    when_ok!((deployment_service_id = deployment.service_id()) {
-                        info!("Deleted service candidate {}", &deployment_service_id);
-                        if let Err(err) = tx
-                            .send(IdentityManagerProtocol::DeletedServiceCandidate(
-                                deployment.clone(),
-                            ))
-                            .await
-                        {
-                            error!("Error requesting new ServiceIdentity: {}", err);
+                Ok(Some(Event::Deleted(e))) => {
+                    if let Some(msg) = e.deleted() {
+                        if let Err(e) = self.queue_tx.send(msg).await {
+                            error!("Error sending Deleted message: {}", e.to_string())
                         }
-                        applied.remove(&deployment_service_id);
-                    });
+                    }
                 }
-                Some(Event::Deleted(deployment)) => {
-                    when_ok!((deployment_service_id = deployment.service_id()) {
-                        debug!(
-                            "Ignoring service not being candidate {}",
-                            deployment_service_id
-                        );
-                    });
+                Ok(Some(Event::Restarted(_))) => {}
+                Ok(None) => {}
+                Err(e) => {
+                    error!("Error reading watcher events: {}", e.to_string());
                 }
-                // TODO: User this event, also we can replace the for list during initalization with this
-                Some(Event::Restarted(_xs)) => {
-                    warn!("Ignored restarted event");
-                }
-                None => {}
             }
         }
     }
+}
 
-    pub async fn run(
-        &self,
-        receiver: Receiver<DeploymentWatcherProtocol>,
-        sender: Sender<IdentityManagerProtocol<Deployment, ServiceIdentity>>,
-    ) -> () {
-        self.initialize(receiver, sender.clone()).await;
-        self.watch_deployments(sender).await;
+impl
+    Watcher<
+        Deployment,
+        IdentityManagerProtocol<Deployment, ServiceIdentity>,
+        DeploymentWatcherProtocol,
+    >
+{
+    pub async fn start(&mut self) {
+        info!("Initializing Deployment Watcher");
+        if let Ok(()) = self.initialize().await {}
+
+        if let Ok(msg) = self.ready().await {
+            info!("Deployment Watcher is ready to watch");
+            if let Err(err) = self.queue_tx.send(msg).await {
+                error!("Error sending DeploymentWatcherReady: {}", err);
+            }
+        }
+
+        info!("Waiting for IdentityManager to be ready");
+        if let Ok(_) = self.wait().await {
+            info!("Identity Manager is ready")
+        }
+
+        info!("Watching deployments");
+        self.watch().await
+    }
+}
+
+impl SimpleWatchingProtocol<IdentityManagerProtocol<Deployment, ServiceIdentity>> for Deployment {
+    fn initialize(&self) -> Option<IdentityManagerProtocol<Deployment, ServiceIdentity>> {
+        if self.is_candidate() {
+            info!(
+                "Found deployment {} at initialization",
+                self.service_name().unwrap()
+            );
+            Some(IdentityManagerProtocol::FoundServiceCandidate(self.clone()))
+        } else {
+            info!(
+                "Ignoring deployment {} for initialization",
+                self.service_name().unwrap()
+            );
+            None
+        }
+    }
+
+    fn applied(&self) -> Option<IdentityManagerProtocol<Deployment, ServiceIdentity>> {
+        if self.is_candidate() {
+            info!("Applied Deployment {}", self.service_name().unwrap());
+            Some(IdentityManagerProtocol::RequestServiceIdentity {
+                service_candidate: self.clone(),
+            })
+        } else {
+            info!(
+                "Ignoring applied Deployment {}, not a candidate",
+                self.service_name().unwrap()
+            );
+            None
+        }
+    }
+
+    fn deleted(&self) -> Option<IdentityManagerProtocol<Deployment, ServiceIdentity>> {
+        if self.is_candidate() {
+            info!("Deleted Deployment {}", self.service_name().unwrap());
+            Some(IdentityManagerProtocol::DeletedServiceCandidate(
+                self.clone(),
+            ))
+        } else {
+            info!(
+                "Ignoring deleted Deployment {}, not a candidate",
+                self.service_name().unwrap()
+            );
+            None
+        }
     }
 }
