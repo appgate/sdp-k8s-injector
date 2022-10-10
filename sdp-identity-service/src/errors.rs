@@ -8,7 +8,6 @@ use tokio::sync::mpsc::error::SendError;
 use crate::identity_manager::IdentityManagerProtocol;
 
 const IDENTITY_SERVICE_MANAGER: &str = "IdentityServiceManager";
-const IDENTITY_CREATOR: &str = "IdentityCreator";
 
 pub struct IdentityServiceError(SDPServiceError);
 

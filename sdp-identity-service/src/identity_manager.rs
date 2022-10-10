@@ -4,7 +4,7 @@ use kube::api::{DeleteParams, ListParams, PostParams};
 use kube::{Api, Client};
 use log::{error, info, warn};
 pub use sdp_common::crd::{ServiceIdentity, ServiceIdentitySpec};
-use sdp_common::service::{self, ServiceLookup, ServiceUser};
+use sdp_common::service::{ServiceLookup, ServiceUser};
 use sdp_common::traits::{HasCredentials, Labeled, Named, Namespaced, Service};
 use sdp_macros::{queue_debug, sdp_error, sdp_info, sdp_log, sdp_warn, when_ok};
 use std::collections::{HashMap, HashSet, VecDeque};
