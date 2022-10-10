@@ -21,6 +21,12 @@ spec:
       {{- end }}
       serviceAccountName: {{ include "sdp-k8s-client.serviceAccountName" .}}-identity-service
       {{ if eq .Values.sdp.selfClient.enabled true }}
+      dnsPolicy: None
+      dnsConfig:
+        nameservers:
+          - 127.0.0.1
+        searches:
+          {{ toYaml .Values.sdp.selfClient.dnsConfig.searches | nindent 8 }}
       volumes:
         - name: run-sdp-driver
         - name: run-sdp-dnsmasq

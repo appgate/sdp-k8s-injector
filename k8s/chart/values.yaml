@@ -37,11 +37,16 @@ sdp:
   ## @param sdp.selfClient.adminSecret Name of the secret for initial authentication
   ## @param sdp.selfClient.adminConfig Name of the config for initial authentication
   ## @param sdp.selfClient.dnsService IP of the kube-dns service
+  ## @param sdp.selfClient.dnsConfig.searches Search domains to add to the Pod DNS configuration
   selfClient:
     enabled: false
     adminSecret: ""
     adminConfig: ""
     dnsService: ""
+    dnsConfig:
+      searches:
+        - svc.cluster.local
+        - cluster.local
 
   ## @param sdp.injector.logLevel SDP Injector log level.
   ## @param sdp.injector.replica Number of Device ID Service replicas to deploy
