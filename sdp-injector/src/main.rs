@@ -23,7 +23,9 @@ use rustls::{Certificate, PrivateKey, ServerConfig};
 use rustls_pemfile::{read_one, Item};
 use sdp_common::constants::POD_DEVICE_ID_ANNOTATION;
 use sdp_common::crd::DeviceId;
-use sdp_common::traits::{Annotated, HasCredentials, ObjectRequest, Service, Validated};
+use sdp_common::traits::{
+    Annotated, HasCredentials, Namespaced, ObjectRequest, Service, Validated,
+};
 use sdp_macros::when_ok;
 use serde::Deserialize;
 use std::collections::hash_map::RandomState;
@@ -234,7 +236,7 @@ impl K8SDNSService for Option<KubeService> {
     }
 }
 trait Patched {
-    fn patch<R: ObjectRequest<Pod>>(
+    fn patch<R: ObjectRequest<Pod> + Namespaced>(
         &self,
         environment: &mut ServiceEnvironment,
         request: R,
@@ -411,7 +413,7 @@ impl SDPPod {
 }
 
 impl Patched for SDPPod {
-    fn patch<R: ObjectRequest<Pod>>(
+    fn patch<R: ObjectRequest<Pod> + Namespaced>(
         &self,
         environment: &mut ServiceEnvironment,
         request: R,
@@ -419,7 +421,10 @@ impl Patched for SDPPod {
         // Fill # of contaienrs
         let pod = request
             .object()
-            .ok_or_else(|| "POD not found in admission request")?;
+            .ok_or("POD not found in admission request")?;
+        let ns = request
+            .namespace()
+            .ok_or("Unable to get namespace for POD")?;
         let n_containers = containers(pod).map(|xs| xs.len()).unwrap_or(0);
         environment.n_containers = format!("{}", n_containers);
 
@@ -469,7 +474,7 @@ impl Patched for SDPPod {
             // Patch DNSConfiguration now
             patches.push(Add(AddOperation {
                 path: "/spec/dnsConfig".to_string(),
-                value: serde_json::to_value(&self.sdp_sidecars.dns_config())?,
+                value: serde_json::to_value(&self.sdp_sidecars.dns_config(&ns))?,
             }));
             patches.push(Add(AddOperation {
                 path: "/spec/dnsPolicy".to_string(),
@@ -579,18 +584,18 @@ impl SDPSidecars {
         self.containers.iter().map(|c| c.name.clone()).collect()
     }
 
-    fn dns_config(&self) -> PodDNSConfig {
-        let searches = Some(
-            self.dns_config
-                .searches
-                .split(" ")
-                .map(|s| s.trim().to_string())
-                .collect(),
-        );
+    fn dns_config(&self, namespace: &str) -> PodDNSConfig {
+        let mut searches: Vec<String> = self
+            .dns_config
+            .searches
+            .split(" ")
+            .map(|s| s.trim().to_string())
+            .collect();
+        searches.insert(0, format!("{}.{}", namespace, searches[0]));
         PodDNSConfig {
             nameservers: Some(vec!["127.0.0.1".to_string()]),
             options: None,
-            searches: searches,
+            searches: Some(searches),
         }
     }
 }
@@ -958,6 +963,11 @@ mod tests {
                     ("SERVICE_NAME".to_string(), Some("ns0_srv0".to_string())),
                 ],
                 service: KubeService::default(),
+                dns_searches: Some(vec![
+                    "ns0.svc.cluster.local".to_string(),
+                    "svc.cluster.local".to_string(),
+                    "cluster.local".to_string(),
+                ]),
                 ..Default::default()
             },
             TestPatch {
@@ -975,6 +985,11 @@ mod tests {
                 ],
                 client_config_map: "ns1-srv1-service-config",
                 client_secrets: "ns1-srv1-service-user",
+                dns_searches: Some(vec![
+                    "ns1.svc.cluster.local".to_string(),
+                    "svc.cluster.local".to_string(),
+                    "cluster.local".to_string(),
+                ]),
                 ..Default::default()
             },
             TestPatch {
@@ -986,6 +1001,11 @@ mod tests {
                 ],
                 client_config_map: "ns2-srv2-service-config",
                 client_secrets: "ns2-srv2-service-user",
+                dns_searches: Some(vec![
+                    "ns2.svc.cluster.local".to_string(),
+                    "svc.cluster.local".to_string(),
+                    "cluster.local".to_string(),
+                ]),
                 ..Default::default()
             },
             TestPatch {
@@ -1006,6 +1026,11 @@ mod tests {
                     ),
                     ("SERVICE_NAME".to_string(), Some("ns3_srv3".to_string())),
                 ],
+                dns_searches: Some(vec![
+                    "ns3.svc.cluster.local".to_string(),
+                    "svc.cluster.local".to_string(),
+                    "cluster.local".to_string(),
+                ]),
                 ..Default::default()
             },
             TestPatch {
@@ -1025,6 +1050,11 @@ mod tests {
                     ),
                     ("SERVICE_NAME".to_string(), Some("ns4_srv4".to_string())),
                 ],
+                dns_searches: Some(vec![
+                    "ns4.svc.cluster.local".to_string(),
+                    "svc.cluster.local".to_string(),
+                    "cluster.local".to_string(),
+                ]),
                 ..Default::default()
             },
             TestPatch {
@@ -1051,6 +1081,11 @@ mod tests {
                 },
                 client_config_map: "ns5-srv5-service-config",
                 client_secrets: "ns5-srv5-service-user",
+                dns_searches: Some(vec![
+                    "ns5.svc.cluster.local".to_string(),
+                    "svc.cluster.local".to_string(),
+                    "cluster.local".to_string(),
+                ]),
                 ..Default::default()
             },
             TestPatch {
@@ -1063,6 +1098,11 @@ mod tests {
                 ],
                 client_config_map: "ns6-srv6-service-config",
                 client_secrets: "ns6-srv6-service-user",
+                dns_searches: Some(vec![
+                    "ns6.svc.cluster.local".to_string(),
+                    "svc.cluster.local".to_string(),
+                    "cluster.local".to_string(),
+                ]),
                 ..Default::default()
             },
             TestPatch {
@@ -1076,6 +1116,11 @@ mod tests {
                 ],
                 client_config_map: "ns7-srv7-service-config",
                 client_secrets: "ns7-srv7-service-user",
+                dns_searches: Some(vec![
+                    "ns6.svc.cluster.local".to_string(),
+                    "svc.cluster.local".to_string(),
+                    "cluster.local".to_string(),
+                ]),
                 ..Default::default()
             },
             TestPatch {
@@ -1087,6 +1132,11 @@ mod tests {
                 ],
                 client_config_map: "ns8-srv8-service-config",
                 client_secrets: "ns8-srv8-service-user",
+                dns_searches: Some(vec![
+                    "ns7.svc.cluster.local".to_string(),
+                    "svc.cluster.local".to_string(),
+                    "cluster.local".to_string(),
+                ]),
                 ..Default::default()
             },
             TestPatch {
@@ -1099,6 +1149,11 @@ mod tests {
                 ],
                 client_config_map: "ns9-srv9-service-config",
                 client_secrets: "ns9-srv9-service-user",
+                dns_searches: Some(vec![
+                    "ns8.svc.cluster.local".to_string(),
+                    "svc.cluster.local".to_string(),
+                    "cluster.local".to_string(),
+                ]),
                 ..Default::default()
             },
         ]
@@ -1388,7 +1443,7 @@ POD is missing needed volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-de
                         .then(|| true)
                         .ok_or_else(|| {
                             format!(
-                                "DNSConfig fot searches {:?}, expected {:?}",
+                                "DNSConfig got searches {:?}, expected {:?}",
                                 dc.searches, test_patch.dns_searches
                             )
                         })
