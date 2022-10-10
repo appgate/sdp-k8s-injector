@@ -595,7 +595,13 @@ impl SDPSidecars {
     fn dns_config(&self, namespace: &str, searches: Option<Vec<String>>) -> PodDNSConfig {
         let mut searches =
             searches.unwrap_or(searches_string_to_vec(self.dns_config.searches.clone()));
-        searches.insert(0, format!("{}.{}", namespace, searches[0]));
+        if searches.len() > 0 {
+            if let Some(prefix) = searches[0].split(".").into_iter().next() {
+                if !prefix.eq_ignore_ascii_case(namespace) {
+                    searches.insert(0, format!("{}.{}", namespace, searches[0]));
+                }
+            }
+        }
         PodDNSConfig {
             nameservers: Some(vec!["127.0.0.1".to_string()]),
             options: None,
@@ -803,10 +809,11 @@ async fn get_dns_service(k8s_client: &Client) -> Result<Option<Body>, Box<dyn Er
 mod tests {
     use crate::deviceid::{IdentityStore, InMemoryIdentityStore};
     use crate::{
-        containers, load_sidecar_containers, patch_pod, volume_names, Patched, SDPPatchContext,
-        SDPPod, SDPSidecars, ServiceEnvironment, Validated, SDP_ANNOTATION_CLIENT_CONFIG,
-        SDP_ANNOTATION_CLIENT_DEVICE_ID, SDP_ANNOTATION_CLIENT_SECRETS,
-        SDP_ANNOTATION_DNS_SEARCHES, SDP_SERVICE_CONTAINER_NAME, SDP_SIDECARS_FILE_ENV,
+        containers, load_sidecar_containers, patch_pod, volume_names, DNSConfig, Patched,
+        SDPPatchContext, SDPPod, SDPSidecars, ServiceEnvironment, Validated,
+        SDP_ANNOTATION_CLIENT_CONFIG, SDP_ANNOTATION_CLIENT_DEVICE_ID,
+        SDP_ANNOTATION_CLIENT_SECRETS, SDP_ANNOTATION_DNS_SEARCHES, SDP_SERVICE_CONTAINER_NAME,
+        SDP_SIDECARS_FILE_ENV,
     };
     use json_patch::Patch;
     use k8s_openapi::api::core::v1::{
@@ -1727,6 +1734,42 @@ POD is missing needed volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-de
             assert_eq!(env.n_containers, "0".to_string());
             assert_eq!(env.k8s_dns_service_ip, None);
         };
+    }
+
+    #[test]
+    fn test_prefix_searches_1() {
+        let sdp_sidecars = SDPSidecars {
+            containers: Box::new(vec![]),
+            volumes: Box::new(vec![]),
+            dns_config: Box::new(DNSConfig {
+                searches: "svc.cluster.local cluster.local".to_string(),
+            }),
+        };
+
+        assert_eq!(
+            sdp_sidecars.dns_config(&"ns1", None).searches.unwrap(),
+            vec!(
+                "ns1.svc.cluster.local",
+                "svc.cluster.local",
+                "cluster.local"
+            )
+        )
+    }
+
+    #[test]
+    fn test_prefix_searches_2() {
+        let sdp_sidecars = SDPSidecars {
+            containers: Box::new(vec![]),
+            volumes: Box::new(vec![]),
+            dns_config: Box::new(DNSConfig {
+                searches: "ns1.svc.cluster.local cluster.local".to_string(),
+            }),
+        };
+
+        assert_eq!(
+            sdp_sidecars.dns_config(&"ns1", None).searches.unwrap(),
+            vec!("ns1.svc.cluster.local", "cluster.local")
+        )
     }
 
     #[test]
