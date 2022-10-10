@@ -66,6 +66,7 @@ const SDP_SERVICE_CONTAINER_NAME: &str = "sdp-service";
 const SDP_ANNOTATION_CLIENT_CONFIG: &str = "sdp-injector-client-config";
 const SDP_ANNOTATION_CLIENT_SECRETS: &str = "sdp-injector-client-secrets";
 const SDP_ANNOTATION_CLIENT_DEVICE_ID: &str = "sdp-injector-client-device-id";
+const SDP_ANNOTATION_DNS_SEARCHES: &str = "sdp-injector-dns-searches";
 const SDP_DNS_SERVICE_NAMES: [&str; 2] = ["kube-dns", "coredns"];
 
 mod deviceid;
@@ -471,10 +472,13 @@ impl Patched for SDPPod {
                     value: serde_json::to_value(&self.sdp_sidecars.volumes)?,
                 }));
             }
+            let custom_searches = pod
+                .annotation(SDP_ANNOTATION_DNS_SEARCHES)
+                .map(|s| searches_string_to_vec(s.to_string()));
             // Patch DNSConfiguration now
             patches.push(Add(AddOperation {
                 path: "/spec/dnsConfig".to_string(),
-                value: serde_json::to_value(&self.sdp_sidecars.dns_config(&ns))?,
+                value: serde_json::to_value(&self.sdp_sidecars.dns_config(&ns, custom_searches))?,
             }));
             patches.push(Add(AddOperation {
                 path: "/spec/dnsPolicy".to_string(),
@@ -579,18 +583,18 @@ struct SDPPatchContext<'a, E: IdentityStore<ServiceIdentity>> {
     k8s_dns_service: Option<KubeService>,
 }
 
+fn searches_string_to_vec(searches: String) -> Vec<String> {
+    searches.split(" ").map(|s| s.trim().to_string()).collect()
+}
+
 impl SDPSidecars {
     fn container_names(&self) -> Vec<String> {
         self.containers.iter().map(|c| c.name.clone()).collect()
     }
 
-    fn dns_config(&self, namespace: &str) -> PodDNSConfig {
-        let mut searches: Vec<String> = self
-            .dns_config
-            .searches
-            .split(" ")
-            .map(|s| s.trim().to_string())
-            .collect();
+    fn dns_config(&self, namespace: &str, searches: Option<Vec<String>>) -> PodDNSConfig {
+        let mut searches =
+            searches.unwrap_or(searches_string_to_vec(self.dns_config.searches.clone()));
         searches.insert(0, format!("{}.{}", namespace, searches[0]));
         PodDNSConfig {
             nameservers: Some(vec!["127.0.0.1".to_string()]),
@@ -801,8 +805,8 @@ mod tests {
     use crate::{
         containers, load_sidecar_containers, patch_pod, volume_names, Patched, SDPPatchContext,
         SDPPod, SDPSidecars, ServiceEnvironment, Validated, SDP_ANNOTATION_CLIENT_CONFIG,
-        SDP_ANNOTATION_CLIENT_DEVICE_ID, SDP_ANNOTATION_CLIENT_SECRETS, SDP_SERVICE_CONTAINER_NAME,
-        SDP_SIDECARS_FILE_ENV,
+        SDP_ANNOTATION_CLIENT_DEVICE_ID, SDP_ANNOTATION_CLIENT_SECRETS,
+        SDP_ANNOTATION_DNS_SEARCHES, SDP_SERVICE_CONTAINER_NAME, SDP_SIDECARS_FILE_ENV,
     };
     use json_patch::Patch;
     use k8s_openapi::api::core::v1::{
@@ -1013,7 +1017,8 @@ mod tests {
                                   annotations => vec![("sdp-injector", "who-knows"),
                                                       (SDP_ANNOTATION_CLIENT_SECRETS, "some-secrets"),
                                                       (SDP_ANNOTATION_CLIENT_CONFIG, "some-config-map"),
-                                                      (SDP_ANNOTATION_CLIENT_DEVICE_ID, "00000000-0000-0000-0000-000000000003")]),
+                                                      (SDP_ANNOTATION_CLIENT_DEVICE_ID, "00000000-0000-0000-0000-000000000003"),
+                                                      (SDP_ANNOTATION_DNS_SEARCHES, "one.svc.local two.svc.local svc.local")]),
                 needs_patching: true,
                 client_config_map: "some-config-map",
                 client_secrets: "some-secrets",
@@ -1027,9 +1032,10 @@ mod tests {
                     ("SERVICE_NAME".to_string(), Some("ns3_srv3".to_string())),
                 ],
                 dns_searches: Some(vec![
-                    "ns3.svc.cluster.local".to_string(),
-                    "svc.cluster.local".to_string(),
-                    "cluster.local".to_string(),
+                    "ns3.one.svc.local".to_string(),
+                    "one.svc.local".to_string(),
+                    "two.svc.local".to_string(),
+                    "svc.local".to_string(),
                 ]),
                 ..Default::default()
             },
@@ -1037,6 +1043,7 @@ mod tests {
                 pod: test_pod!(4, containers => vec!["random-service"],
                                   annotations => vec![("sdp-injector", "true"),
                                                       (SDP_ANNOTATION_CLIENT_DEVICE_ID, "00000000-0000-0000-0000-000000000004"),
+                                                      (SDP_ANNOTATION_DNS_SEARCHES, "ns4.one.svc.local two.svc.local svc.local"),
                                                       (SDP_ANNOTATION_CLIENT_SECRETS, "some-secrets")]),
                 needs_patching: true,
                 client_secrets: "some-secrets",
@@ -1051,9 +1058,9 @@ mod tests {
                     ("SERVICE_NAME".to_string(), Some("ns4_srv4".to_string())),
                 ],
                 dns_searches: Some(vec![
-                    "ns4.svc.cluster.local".to_string(),
-                    "svc.cluster.local".to_string(),
-                    "cluster.local".to_string(),
+                    "ns4.one.svc.local".to_string(),
+                    "two.svc.local".to_string(),
+                    "svc.local".to_string(),
                 ]),
                 ..Default::default()
             },
