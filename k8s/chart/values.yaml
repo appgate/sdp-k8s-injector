@@ -29,9 +29,11 @@ sdp:
   ## @param sdp.host Hostname of the SDP controller
   ## @param sdp.adminSecret Name of the secret for initial authentication
   ## @param sdp.clientVersion Version of the SDP client to inject as sidecars.
+  ## @param sdp.tag Tag to use for resources created by the injector
   host: ""
   adminSecret: ""
   clientVersion: 6.0.1
+  tag: k8s
 
   ## @param sdp.selfClient.enabled Whether to set up an SDP client on the Identity Service
   ## @param sdp.selfClient.adminSecret Name of the secret for initial authentication

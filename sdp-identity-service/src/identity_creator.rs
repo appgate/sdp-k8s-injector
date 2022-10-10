@@ -7,10 +7,12 @@ use k8s_openapi::api::core::v1::{ConfigMap, Secret};
 use kube::api::{Patch as KubePatch, PatchParams};
 use kube::{Api, Client};
 use log::{error, info, warn};
-use sdp_common::constants::{CLIENT_PROFILE_TAG, IDENTITY_MANAGER_SECRET_NAME, SDP_IDP_NAME};
+use sdp_common::constants::{IDENTITY_MANAGER_SECRET_NAME, SDP_IDP_NAME};
 use sdp_common::kubernetes::SDP_K8S_NAMESPACE;
 use sdp_common::sdp::auth::SDPUser;
-use sdp_common::sdp::system::{ClientProfile, ClientProfileUrl, System};
+use sdp_common::sdp::system::{
+    ClientProfile, ClientProfileUrl, System, SDP_SYSTEM_TAG_DEFAULT, SDP_SYSTEM_TAG_ENV,
+};
 use sdp_common::service::ServiceUser;
 use tokio::sync::mpsc::{Receiver, Sender};
 
@@ -39,8 +41,9 @@ async fn get_or_create_client_profile_url(
     system: &mut System,
 ) -> Result<ClientProfileUrl, IdentityServiceError> {
     // Create ClientProfile if needed
+    let tag = std::env::var(SDP_SYSTEM_TAG_ENV).unwrap_or(SDP_SYSTEM_TAG_DEFAULT.to_string());
     let ps = system
-        .get_client_profiles(Some(CLIENT_PROFILE_TAG))
+        .get_client_profiles(Some(&tag))
         .await
         .map_err(|e| format!("Unable to get client profiles: {}", e.to_string()))?;
     let psn = ps.len();
@@ -50,7 +53,7 @@ async fn get_or_create_client_profile_url(
         if psn > 1 {
             warn!(
                 "Seems there are defined more than one service client profile with the tag {}",
-                CLIENT_PROFILE_TAG
+                tag
             );
             warn!("First one found will be used: {}", p.name);
         }
@@ -62,7 +65,7 @@ async fn get_or_create_client_profile_url(
             name: profile_name,
             spa_key_name: spa_key_name,
             identity_provider_name: SDP_IDP_NAME.to_string(),
-            tags: vec![CLIENT_PROFILE_TAG.to_string()],
+            tags: vec![tag],
         };
         p = system
             .create_client_profile(&p)

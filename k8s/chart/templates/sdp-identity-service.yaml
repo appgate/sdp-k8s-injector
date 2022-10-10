@@ -143,6 +143,8 @@ spec:
                 secretKeyRef:
                   name: {{ required ".Values.sdp.adminSecret is required" .Values.sdp.adminSecret }}
                   key: sdp-k8s-client-provider
+            - name: SDP_K8S_TAG
+              value: {{ .Values.sdp.tag }}
           image: "{{ default .Values.global.image.repository .Values.sdp.identityService.image.repository }}/sdp-identity-service:{{ required "Values.sdp.identityService.image.tag is required" .Values.sdp.identityService.image.tag }}"
           imagePullPolicy: {{ default .Values.global.image.pullPolicy .Values.sdp.identityService.image.pullPolicy }}
           args:
