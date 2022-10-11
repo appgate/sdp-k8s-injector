@@ -10,6 +10,7 @@ use log::{error, info};
 use sdp_common::constants::POD_DEVICE_ID_ANNOTATION;
 use sdp_common::crd::{DeviceId, ServiceIdentity};
 use sdp_common::traits::{Annotated, Candidate, Service};
+use sdp_common::watcher::SimpleWatchingProtocol;
 use sdp_macros::when_ok;
 use serde::de::DeserializeOwned;
 use std::fmt::Debug;
@@ -20,11 +21,6 @@ use crate::deviceid::DeviceIdProviderRequestProtocol;
 pub struct Watcher<E, P> {
     pub api: Api<E>,
     pub queue_tx: Sender<P>,
-}
-
-pub trait SimpleWatchingProtocol<P> {
-    fn applied(&self) -> Option<P>;
-    fn deleted(&self) -> Option<P>;
 }
 
 pub async fn watch<E, P>(simple_watcher: Watcher<E, P>) -> ()
@@ -59,6 +55,10 @@ where
 }
 
 impl SimpleWatchingProtocol<DeviceIdProviderRequestProtocol<ServiceIdentity>> for ServiceIdentity {
+    fn initialize(&self) -> Option<DeviceIdProviderRequestProtocol<ServiceIdentity>> {
+        None
+    }
+
     fn applied(&self) -> Option<DeviceIdProviderRequestProtocol<ServiceIdentity>> {
         when_ok!((service_id:DeviceIdProviderRequestProtocol<ServiceIdentity> = self.service_id()) {
             info!("Applied ServiceIdentity {}", service_id);
@@ -79,6 +79,10 @@ impl SimpleWatchingProtocol<DeviceIdProviderRequestProtocol<ServiceIdentity>> fo
 }
 
 impl SimpleWatchingProtocol<DeviceIdProviderRequestProtocol<ServiceIdentity>> for DeviceId {
+    fn initialize(&self) -> Option<DeviceIdProviderRequestProtocol<ServiceIdentity>> {
+        None
+    }
+
     fn applied(&self) -> Option<DeviceIdProviderRequestProtocol<ServiceIdentity>> {
         when_ok!((service_id:DeviceIdProviderRequestProtocol<ServiceIdentity> = self.service_id()) {
             info!("Applied DeviceId {}", service_id);
@@ -97,6 +101,10 @@ impl SimpleWatchingProtocol<DeviceIdProviderRequestProtocol<ServiceIdentity>> fo
 }
 
 impl SimpleWatchingProtocol<DeviceIdProviderRequestProtocol<ServiceIdentity>> for Pod {
+    fn initialize(&self) -> Option<DeviceIdProviderRequestProtocol<ServiceIdentity>> {
+        None
+    }
+
     fn applied(&self) -> Option<DeviceIdProviderRequestProtocol<ServiceIdentity>> {
         None
     }
