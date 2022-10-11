@@ -5,3 +5,4 @@ pub mod kubernetes;
 pub mod sdp;
 pub mod service;
 pub mod traits;
+pub mod watcher;
