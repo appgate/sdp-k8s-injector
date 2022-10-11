@@ -1,13 +1,15 @@
 use async_trait::async_trait;
 use futures::{StreamExt, TryStreamExt};
 use k8s_openapi::api::apps::v1::Deployment;
+use k8s_openapi::Resource;
 use kube::{
     api::ListParams,
     runtime::watcher::{self, Event},
-    Api, Resource,
+    Api,
 };
 use log::{error, info};
 use sdp_common::errors::SDPServiceError;
+use sdp_common::watcher::SimpleWatchingProtocol;
 use sdp_common::{crd::ServiceIdentity, traits::Candidate, traits::Service};
 use serde::de::DeserializeOwned;
 use std::fmt::Debug;
@@ -20,20 +22,6 @@ pub enum DeploymentWatcherProtocol {
     IdentityManagerReady,
 }
 
-pub trait SimpleWatchingProtocol<P> {
-    fn initialize(&self) -> Option<P>;
-    fn applied(&self) -> Option<P>;
-    fn deleted(&self) -> Option<P>;
-}
-
-#[async_trait]
-pub trait WatcherRoutine<P, R> {
-    async fn initialize(&self) -> Result<(), SDPServiceError>;
-    async fn wait(&mut self) -> Result<R, SDPServiceError>;
-    async fn ready(&self) -> Result<P, SDPServiceError>;
-    async fn watch(&self) -> ();
-}
-
 pub struct Watcher<E, P, R>
 where
     E: Clone + Debug + Send + DeserializeOwned + Resource + SimpleWatchingProtocol<P> + 'static,
@@ -43,9 +31,8 @@ where
     pub queue_rx: Receiver<R>,
 }
 
-#[async_trait]
-impl WatcherRoutine<IdentityManagerProtocol<Deployment, ServiceIdentity>, DeploymentWatcherProtocol>
-    for Watcher<
+impl
+    Watcher<
         Deployment,
         IdentityManagerProtocol<Deployment, ServiceIdentity>,
         DeploymentWatcherProtocol,
@@ -112,15 +99,7 @@ impl WatcherRoutine<IdentityManagerProtocol<Deployment, ServiceIdentity>, Deploy
             }
         }
     }
-}
 
-impl
-    Watcher<
-        Deployment,
-        IdentityManagerProtocol<Deployment, ServiceIdentity>,
-        DeploymentWatcherProtocol,
-    >
-{
     pub async fn start(&mut self) {
         info!("Initializing Deployment Watcher");
         if let Ok(()) = self.initialize().await {}
