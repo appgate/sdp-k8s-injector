@@ -39,21 +39,6 @@ impl
         DeploymentWatcherProtocol,
     >
 {
-    async fn wait(&mut self) -> Result<DeploymentWatcherProtocol, SDPServiceError> {
-        while let Some(msg) = self.queue_rx.recv().await {
-            match msg {
-                DeploymentWatcherProtocol::IdentityManagerReady => break,
-            }
-        }
-        Ok(DeploymentWatcherProtocol::IdentityManagerReady)
-    }
-
-    async fn ready(
-        &self,
-    ) -> Result<IdentityManagerProtocol<Deployment, ServiceIdentity>, SDPServiceError> {
-        Ok(IdentityManagerProtocol::DeploymentWatcherReady)
-    }
-
     pub async fn start(&mut self) {
         info!("Initializing Deployment Watcher");
         let xs = self.api.list(&ListParams::default()).await;
@@ -71,16 +56,20 @@ impl
             }
         }
 
-        if let Ok(msg) = self.ready().await {
-            info!("Deployment Watcher is ready to watch");
-            if let Err(err) = self.queue_tx.send(msg).await {
-                error!("Error sending DeploymentWatcherReady: {}", err);
-            }
+        info!("Deployment Watcher is ready to watch");
+        let msg = IdentityManagerProtocol::DeploymentWatcherReady;
+        if let Err(err) = self.queue_tx.send(msg).await {
+            error!("Error sending DeploymentWatcherReady: {}", err);
         }
 
         info!("Waiting for IdentityManager to be ready");
-        if let Ok(_) = self.wait().await {
-            info!("Identity Manager is ready")
+        while let Some(msg) = self.queue_rx.recv().await {
+            match msg {
+                DeploymentWatcherProtocol::IdentityManagerReady => {
+                    info!("Identity Manager is ready");
+                    break;
+                }
+            }
         }
 
         info!("Watching deployments");
