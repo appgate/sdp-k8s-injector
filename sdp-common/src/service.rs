@@ -423,6 +423,13 @@ pub fn containers(pod: &Pod) -> Option<&Vec<Container>> {
     pod.spec.as_ref().map(|s| &s.containers)
 }
 
+pub fn init_containers(pod: &Pod) -> Option<&Vec<Container>> {
+    pod.spec
+        .as_ref()
+        .and_then(|s| s.init_containers.as_ref())
+        .and_then(|xs| (xs.len() > 0).then_some(xs))
+}
+
 pub fn volumes(pod: &Pod) -> Option<&Vec<Volume>> {
     pod.spec.as_ref().and_then(|s| s.volumes.as_ref())
 }

@@ -50,8 +50,9 @@ use uuid::Uuid;
 
 use crate::deviceid::{DeviceIdProvider, DeviceIdProviderRequestProtocol};
 use crate::watchers::{watch, Watcher};
-use sdp_common::service::{containers, volume_names, volumes, ServiceIdentity};
-
+use sdp_common::service::{
+    containers, init_containers, is_injection_disabled, volume_names, volumes, ServiceIdentity,
+};
 const SDP_K8S_HOST_ENV: &str = "SDP_K8S_HOST";
 const SDP_K8S_HOST_DEFAULT: &str = "kubernetes.default.svc";
 const SDP_K8S_NO_VERIFY_ENV: &str = "SDP_K8S_NO_VERIFY";
@@ -472,7 +473,11 @@ impl Patched for SDPPod {
 
         let mut patches = vec![];
         if self.needs_patching(&request) {
-            let k8s_dns_service_ip = self.k8s_dns_service.maybe_ip();
+            let k8s_dns_ip = self
+                .k8s_dns_service
+                .maybe_ip()
+                .ok_or("Unable to patch POD: K8S DNS service IP is unknown")?;
+            let dns_config = &self.sdp_sidecars.dns_config(&ns);
             patches = vec![
                 Add(AddOperation {
                     path: "/metadata/annotations".to_string(),
@@ -487,14 +492,26 @@ impl Patched for SDPPod {
                     value: serde_json::to_value(&environment.client_device_id)?,
                 }),
             ];
-            if k8s_dns_service_ip.is_none() {
-                warn!("Unable to get K8S service IP");
-            };
             for c in self.sdp_sidecars.containers.clone().iter_mut() {
                 c.env = Some(environment.variables(&c.name));
                 patches.push(Add(AddOperation {
                     path: "/spec/containers/-".to_string(),
                     value: serde_json::to_value(&c)?,
+                }));
+            }
+            if let Some(xs) = init_containers(pod) {
+                let mut init_containers = Vec::new();
+                init_containers.extend(xs.iter().map(|c| c.clone()));
+                let mut c0 = self.sdp_sidecars.init_containers.0.clone();
+                c0.env = Some(vec![
+                    env_var!(value :: "K8S_DNS_SERVICE" => k8s_dns_ip.clone()),
+                    env_var!(value :: "K8S_DNS_SEARCHES" => dns_config.searches.as_ref().unwrap_or(&vec!()).join(" ")),
+                ]);
+                init_containers.insert(0, self.sdp_sidecars.init_containers.0.clone());
+                init_containers.push(self.sdp_sidecars.init_containers.0.clone());
+                patches.push(Add(AddOperation {
+                    path: "/spec/initContainers".to_string(),
+                    value: serde_json::to_value(&init_containers)?,
                 }));
             }
             if volumes(pod).is_some() {
@@ -602,6 +619,8 @@ impl Default for DNSConfig {
 
 #[derive(Debug, Clone, Default, Deserialize)]
 struct SDPSidecars {
+    #[serde(rename = "initContainers")]
+    init_containers: Box<(Container, Container)>,
     containers: Box<Vec<Container>>,
     volumes: Box<Vec<Volume>>,
     #[serde(rename = "dnsConfig")]
@@ -900,6 +919,19 @@ mod tests {
             .map_err(|e| format!("Unable to load the sidecar information {}", e.to_string()))
     }
 
+    macro_rules! dns_service {
+        ($ip:expr) => {
+            KubeService {
+                metadata: ObjectMeta::default(),
+                spec: Some(ServiceSpec {
+                    cluster_ip: Some(format!("{}", $ip)),
+                    ..Default::default()
+                }),
+                status: Some(ServiceStatus::default()),
+            }
+        };
+    }
+
     macro_rules! set_pod_field {
         ($pod:expr, containers => $cs:expr) => {
             let test_cs: Vec<Container> = $cs
@@ -1005,7 +1037,7 @@ mod tests {
                 client_config_map: "ns0-srv0-service-config",
                 client_secrets: "ns0-srv0-service-user",
                 envs: vec![],
-                service: KubeService::default(),
+                service: dns_service!("10.10.10.10"),
                 dns_searches: Some(vec![
                     "svc.cluster.local".to_string(),
                     "cluster.local".to_string(),
@@ -1044,7 +1076,10 @@ mod tests {
                 needs_patching: true,
                 envs: vec![
                     ("POD_N_CONTAINERS".to_string(), Some("1".to_string())),
-                    ("K8S_DNS_SERVICE".to_string(), Some("".to_string())),
+                    (
+                        "K8S_DNS_SERVICE".to_string(),
+                        Some("10.10.10.10".to_string()),
+                    ),
                     (
                         "APPGATE_DEVICE_ID".to_string(),
                         Some("00000000-0000-0000-0000-000000000001".to_string()),
@@ -1065,6 +1100,10 @@ mod tests {
                                   annotations => vec![("sdp-injector", "false")]),
                 envs: vec![
                     ("POD_N_CONTAINERS".to_string(), Some("1".to_string())),
+                    (
+                        "K8S_DNS_SERVICE".to_string(),
+                        Some("10.10.10.10".to_string()),
+                    ),
                     ("SERVICE_NAME".to_string(), Some("ns2_srv2".to_string())),
                     (
                         "APPGATE_DEVICE_ID".to_string(),
@@ -1093,7 +1132,10 @@ mod tests {
                 client_secrets: "some-secrets",
                 envs: vec![
                     ("POD_N_CONTAINERS".to_string(), Some("1".to_string())),
-                    ("K8S_DNS_SERVICE".to_string(), Some("".to_string())),
+                    (
+                        "K8S_DNS_SERVICE".to_string(),
+                        Some("10.10.10.10".to_string()),
+                    ),
                     (
                         "APPGATE_DEVICE_ID".to_string(),
                         Some("00000000-0000-0000-0000-000000000003".to_string()),
@@ -1119,7 +1161,10 @@ mod tests {
                 client_config_map: "ns4-srv4-service-config",
                 envs: vec![
                     ("POD_N_CONTAINERS".to_string(), Some("1".to_string())),
-                    ("K8S_DNS_SERVICE".to_string(), Some("".to_string())),
+                    (
+                        "K8S_DNS_SERVICE".to_string(),
+                        Some("10.10.10.10".to_string()),
+                    ),
                     (
                         "APPGATE_DEVICE_ID".to_string(),
                         Some("00000000-0000-0000-0000-000000000004".to_string()),
@@ -1148,14 +1193,7 @@ mod tests {
                         Some("00000000-0000-0000-0000-000000000005".to_string()),
                     ),
                 ],
-                service: KubeService {
-                    metadata: ObjectMeta::default(),
-                    spec: Some(ServiceSpec {
-                        cluster_ip: Some(String::from("10.0.0.10")),
-                        ..Default::default()
-                    }),
-                    status: Some(ServiceStatus::default()),
-                },
+                service: dns_service!("10.0.0.10"),
                 client_config_map: "ns5-srv5-service-config",
                 client_secrets: "ns5-srv5-service-user",
                 dns_searches: Some(vec![
@@ -1171,6 +1209,10 @@ mod tests {
                                                      "some-random-service".to_string()]),
                 envs: vec![
                     ("POD_N_CONTAINERS".to_string(), Some("3".to_string())),
+                    (
+                        "K8S_DNS_SERVICE".to_string(),
+                        Some("10.10.10.10".to_string()),
+                    ),
                     ("SERVICE_NAME".to_string(), Some("ns6_srv6".to_string())),
                 ],
                 client_config_map: "ns6-srv6-service-config",
@@ -1189,6 +1231,10 @@ mod tests {
                                   annotations => vec![("sdp-injector", "true")]),
                 envs: vec![
                     ("POD_N_CONTAINERS".to_string(), Some("3".to_string())),
+                    (
+                        "K8S_DNS_SERVICE".to_string(),
+                        Some("10.10.10.10".to_string()),
+                    ),
                     ("SERVICE_NAME".to_string(), Some("ns7_srv7".to_string())),
                 ],
                 client_config_map: "ns7-srv7-service-config",
@@ -1205,6 +1251,10 @@ mod tests {
                                                      "some-random-service".to_string()]),
                 envs: vec![
                     ("POD_N_CONTAINERS".to_string(), Some("2".to_string())),
+                    (
+                        "K8S_DNS_SERVICE".to_string(),
+                        Some("10.10.10.10".to_string()),
+                    ),
                     ("SERVICE_NAME".to_string(), Some("ns8_srv8".to_string())),
                 ],
                 client_config_map: "ns8-srv8-service-config",
@@ -1222,6 +1272,10 @@ mod tests {
                                   annotations => vec![("sdp-injector", "true")]),
                 envs: vec![
                     ("POD_N_CONTAINERS".to_string(), Some("2".to_string())),
+                    (
+                        "K8S_DNS_SERVICE".to_string(),
+                        Some("10.10.10.10".to_string()),
+                    ),
                     ("SERVICE_NAME".to_string(), Some("ns9_srv9".to_string())),
                 ],
                 client_config_map: "ns9-srv9-service-config",
@@ -1672,7 +1726,7 @@ POD is missing needed volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-de
                 let sdp_patch_context = SDPPatchContext {
                     sdp_sidecars: Arc::clone(&sdp_sidecars),
                     identity_store: identity_storage.lock().await,
-                    k8s_dns_service: None,
+                    k8s_dns_service: Some(test.service),
                 };
 
                 patch_pod(request, sdp_patch_context)
@@ -1745,13 +1799,12 @@ POD is missing needed volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-de
         let sdp_sidecars =
             Arc::new(load_sidecar_containers_env().expect("Unable to load sidecars context"));
         let test_description = || "Test POD validation".to_string();
-        let service = KubeService::default();
         let results: Vec<TestResult> = validation_tests()
             .iter()
             .map(|t| {
                 let sdp_pod = SDPPod {
                     sdp_sidecars: Arc::clone(&sdp_sidecars),
-                    k8s_dns_service: Some(service.clone()),
+                    k8s_dns_service: Some(dns_service!("10.10.10.10")),
                 };
                 let request = TestObjectRequest::new(t.pod.clone());
                 let pass_validation = sdp_pod.validate(request);
