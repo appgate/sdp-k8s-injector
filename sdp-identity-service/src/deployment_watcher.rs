@@ -1,4 +1,3 @@
-use async_trait::async_trait;
 use futures::{StreamExt, TryStreamExt};
 use k8s_openapi::api::apps::v1::Deployment;
 use k8s_openapi::Resource;
