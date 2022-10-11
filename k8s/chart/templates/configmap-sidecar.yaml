@@ -11,6 +11,36 @@ metadata:
 data:
   sdp-sidecars.json: |-
     {
+      "initContainers": [
+        {
+          "name": "sdp-init-container-0",
+          "image": "busybox",
+          "imagePullPolicy": "IfNotPresent",
+          "securityContext": {
+            "allowPrivilegeEscalation": false,
+            "runAsUser": 0
+          },
+          "command" : [
+            "sh",
+            "-c",
+            "echo \"nameserver $K8S_DNS_SERVICE\n$K8S_DNS_SEARCHES\"> /etc/resolv.conf"
+          ]
+        },
+        {
+          "name": "sdp-init-container-f",
+          "image": "busybox",
+          "imagePullPolicy": "IfNotPresent",
+          "securityContext": {
+            "allowPrivilegeEscalation": false,
+            "runAsUser": 0
+          },
+          "command" : [
+            "sh",
+            "-c",
+            "echo \"nameserver 127.0.0.1\n$K8S_DNS_SEARCH\"> /etc/resolv.conf"
+          ]
+        }
+      ],
       "containers": [
         {
           "name": "sdp-service",
