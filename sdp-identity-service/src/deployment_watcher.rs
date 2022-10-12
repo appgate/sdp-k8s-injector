@@ -76,16 +76,20 @@ impl
         loop {
             match xs.try_next().await {
                 Ok(Some(Event::Applied(e))) => {
-                    if let Some(msg) = e.applied() {
-                        if let Err(e) = self.queue_tx.send(msg).await {
-                            error!("Error sending Applied message: {}", e.to_string())
+                    if e.is_candidate() {
+                        if let Some(msg) = e.applied() {
+                            if let Err(e) = self.queue_tx.send(msg).await {
+                                error!("Error sending Applied message: {}", e.to_string())
+                            }
                         }
                     }
                 }
                 Ok(Some(Event::Deleted(e))) => {
-                    if let Some(msg) = e.deleted() {
-                        if let Err(e) = self.queue_tx.send(msg).await {
-                            error!("Error sending Deleted message: {}", e.to_string())
+                    if e.is_candidate() {
+                        if let Some(msg) = e.deleted() {
+                            if let Err(e) = self.queue_tx.send(msg).await {
+                                error!("Error sending Deleted message: {}", e.to_string())
+                            }
                         }
                     }
                 }
