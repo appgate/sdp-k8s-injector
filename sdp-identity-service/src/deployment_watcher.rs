@@ -7,8 +7,6 @@ use kube::{
     Api,
 };
 use log::{error, info};
-use reqwest::Identity;
-use sdp_common::errors::SDPServiceError;
 use sdp_common::watcher::SimpleWatchingProtocol;
 use sdp_common::{crd::ServiceIdentity, traits::Candidate, traits::Service};
 use sdp_macros::when_ok;

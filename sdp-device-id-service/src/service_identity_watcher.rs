@@ -6,7 +6,7 @@ use kube::api::ListParams;
 use kube::runtime::watcher::{self, Event};
 use kube::{Api, Client};
 use log::{error, info, warn};
-use sdp_common::crd::{DeviceId, ServiceIdentity};
+use sdp_common::crd::{ServiceIdentity};
 use sdp_common::kubernetes::SDP_K8S_NAMESPACE;
 use sdp_common::traits::{HasCredentials, Service};
 use sdp_macros::when_ok;
@@ -36,7 +36,7 @@ impl<'a> ServiceIdentityWatcher<ServiceIdentity> {
 
     async fn watch_service_identity(
         &self,
-        sender: Sender<DeviceIdManagerProtocol<ServiceIdentity, DeviceId>>,
+        sender: Sender<DeviceIdManagerProtocol<ServiceIdentity>>,
     ) {
         info!("Starting ServiceIdentity Watcher");
         let tx = &sender;
@@ -81,7 +81,7 @@ impl<'a> ServiceIdentityWatcher<ServiceIdentity> {
     pub async fn run(
         &self,
         receiver: Receiver<ServiceIdentityWatcherProtocol>,
-        sender: Sender<DeviceIdManagerProtocol<ServiceIdentity, DeviceId>>,
+        sender: Sender<DeviceIdManagerProtocol<ServiceIdentity>>,
     ) {
         self.init(receiver).await;
         self.watch_service_identity(sender).await;

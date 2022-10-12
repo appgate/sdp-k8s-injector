@@ -35,7 +35,7 @@ fn crd() {
 async fn run() {
     let manager_client = kubernetes::get_k8s_client().await;
     let (manager_proto_tx_1, manager_proto_rx) =
-        channel::<DeviceIdManagerProtocol<ServiceIdentity, DeviceId>>(50);
+        channel::<DeviceIdManagerProtocol<ServiceIdentity>>(50);
     let manager_proto_tx_2 = manager_proto_tx_1.clone();
     let device_id_manager = DeviceIdManagerRunner::kube_runner(manager_client);
 

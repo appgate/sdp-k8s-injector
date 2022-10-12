@@ -16,10 +16,9 @@ use tokio::sync::mpsc::{Receiver, Sender};
 use uuid::Uuid;
 
 #[derive(Debug)]
-pub enum DeviceIdManagerProtocol<From: Service + HasCredentials, To: Service> {
+pub enum DeviceIdManagerProtocol<From: Service + HasCredentials> {
     DeviceIdManagerDebug(String),
     CreateDeviceId { service_identity_ref: From },
-    DeleteDeviceId { device_id: To },
     DeviceIdManagerInitialized,
     DeviceIdManagerStarted,
     FoundServiceIdentity { service_identity_ref: From },
@@ -267,13 +266,13 @@ impl DeviceIdManagerRunner<ServiceIdentity, DeviceId> {
 
     async fn run_device_id_manager<F: Service + HasCredentials + Send + Debug>(
         dm: &mut Box<dyn DeviceIdManager<F, DeviceId> + Send + Sync>,
-        mut manager_proto_rx: Receiver<DeviceIdManagerProtocol<F, DeviceId>>,
-        manager_proto_tx: Sender<DeviceIdManagerProtocol<F, DeviceId>>,
+        mut manager_proto_rx: Receiver<DeviceIdManagerProtocol<F>>,
+        manager_proto_tx: Sender<DeviceIdManagerProtocol<F>>,
         _watcher_proto_tx: Sender<ServiceIdentityWatcherProtocol>,
-        queue_tx: Option<&Sender<DeviceIdManagerProtocol<F, DeviceId>>>,
+        queue_tx: Option<&Sender<DeviceIdManagerProtocol<F>>>,
     ) {
         info!("Entering Device ID Manager main loop");
-        queue_debug!(DeviceIdManagerProtocol::<F, DeviceId>::DeviceIdManagerStarted => queue_tx);
+        queue_debug!(DeviceIdManagerProtocol::<F>::DeviceIdManagerStarted => queue_tx);
 
         while let Some(message) = manager_proto_rx.recv().await {
             match message {
@@ -283,19 +282,19 @@ impl DeviceIdManagerRunner<ServiceIdentity, DeviceId> {
                     service_identity_ref,
                 } => {
                     when_ok!((service_id = service_identity_ref.service_id()) {
-                        sdp_info!(DeviceIdManagerProtocol::<F, DeviceId>::DeviceIdManagerDebug | (
+                        sdp_info!(DeviceIdManagerProtocol::<F>::DeviceIdManagerDebug | (
                             "Received request for new DeviceId for ServiceIdentity {}", service_id
                         ) => queue_tx);
 
                         match dm.next_device_id(&service_identity_ref) {
                             Some(d) => match dm.create(&d).await {
                                 Ok(device_id) => {
-                                    sdp_info!(DeviceIdManagerProtocol::<F, DeviceId>::DeviceIdManagerDebug | (
+                                    sdp_info!(DeviceIdManagerProtocol::<F>::DeviceIdManagerDebug | (
                                         "Created DeviceID {} for ServiceIdentity {}", device_id.service_id().unwrap(), service_id
                                     ) => queue_tx);
                                 }
                                 Err(error) => {
-                                    sdp_error!(DeviceIdManagerProtocol::<F, DeviceId>::DeviceIdManagerDebug | (
+                                    sdp_error!(DeviceIdManagerProtocol::<F>::DeviceIdManagerDebug | (
                                         "Error creating DeviceId for ServiceIdentity {}: {}", service_id, error
                                     ) => queue_tx);
                                 }
@@ -305,13 +304,11 @@ impl DeviceIdManagerRunner<ServiceIdentity, DeviceId> {
                     });
                 }
 
-                DeviceIdManagerProtocol::DeleteDeviceId { device_id: _ } => {}
-
                 DeviceIdManagerProtocol::FoundServiceIdentity {
                     service_identity_ref,
                 } => {
                     when_ok!((service_id = service_identity_ref.service_id()) {
-                        sdp_info!(DeviceIdManagerProtocol::<F, DeviceId>::DeviceIdManagerDebug | (
+                        sdp_info!(DeviceIdManagerProtocol::<F>::DeviceIdManagerDebug | (
                             "Found ServiceIdentity {}",
                             service_id
                         ) => queue_tx);
@@ -333,14 +330,14 @@ impl DeviceIdManagerRunner<ServiceIdentity, DeviceId> {
 
     pub async fn run(
         mut self,
-        manager_proto_rx: Receiver<DeviceIdManagerProtocol<ServiceIdentity, DeviceId>>,
-        manager_proto_tx: Sender<DeviceIdManagerProtocol<ServiceIdentity, DeviceId>>,
+        manager_proto_rx: Receiver<DeviceIdManagerProtocol<ServiceIdentity>>,
+        manager_proto_tx: Sender<DeviceIdManagerProtocol<ServiceIdentity>>,
         watcher_proto_tx: Sender<ServiceIdentityWatcherProtocol>,
-        queue_tx: Option<Sender<DeviceIdManagerProtocol<ServiceIdentity, DeviceId>>>,
+        queue_tx: Option<Sender<DeviceIdManagerProtocol<ServiceIdentity>>>,
     ) -> () {
         info!("Starting Device ID Manager");
         DeviceIdManagerRunner::initialize(&mut self.dm).await;
-        queue_debug!(DeviceIdManagerProtocol::<ServiceIdentity, DeviceId>::DeviceIdManagerInitialized => queue_tx);
+        queue_debug!(DeviceIdManagerProtocol::<ServiceIdentity>::DeviceIdManagerInitialized => queue_tx);
 
         watcher_proto_tx
             .send(ServiceIdentityWatcherProtocol::DeviceIdManagerReady)
@@ -432,10 +429,10 @@ mod tests {
     macro_rules! test_device_id_manager {
         (($dm:ident($vs:expr), $queue_rx:ident, $manager_tx:ident, $watcher_rx:ident, $counters:ident) => $e:expr) => {
             let ($manager_tx, manager_rx) =
-                channel::<DeviceIdManagerProtocol<ServiceIdentity, DeviceId>>(10);
+                channel::<DeviceIdManagerProtocol<ServiceIdentity>>(10);
             let (watcher_tx, $watcher_rx) = channel::<ServiceIdentityWatcherProtocol>(10);
             let (queue_tx, mut $queue_rx) =
-                channel::<DeviceIdManagerProtocol<ServiceIdentity, DeviceId>>(10);
+                channel::<DeviceIdManagerProtocol<ServiceIdentity>>(10);
 
             let mut $dm = new_test_device_id_manager();
             for device_id in $vs.clone() {
