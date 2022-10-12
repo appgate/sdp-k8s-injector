@@ -594,10 +594,16 @@ impl SDPSidecars {
 
     fn dns_config(&self, namespace: &str, searches: Option<Vec<String>>) -> PodDNSConfig {
         let mut searches =
-            searches.unwrap_or(searches_string_to_vec(self.dns_config.searches.clone()));
-        if searches.len() > 0 {
-            if let Some(prefix) = searches[0].split(".").into_iter().next() {
-                if !prefix.eq_ignore_ascii_case(namespace) {
+            searches.unwrap_or_else(|| searches_string_to_vec(self.dns_config.searches.clone()));
+        if let Some(first_search) = searches.get(0) {
+            let first_search_cp = first_search.to_string();
+            let mut ss = first_search_cp.split(".").map(|s| s.to_string());
+            let s = ss.next();
+            let rest = ss.map(|s| s.to_string()).collect::<Vec<String>>().join(".");
+            if let Some(prefix) = s {
+                if !searches.contains(&rest) {
+                    searches.insert(1, rest.clone());
+                } else if !prefix.eq_ignore_ascii_case(namespace) {
                     searches.insert(0, format!("{}.{}", namespace, searches[0]));
                 }
             }
@@ -1066,6 +1072,7 @@ mod tests {
                 ],
                 dns_searches: Some(vec![
                     "ns4.one.svc.local".to_string(),
+                    "one.svc.local".to_string(),
                     "two.svc.local".to_string(),
                     "svc.local".to_string(),
                 ]),
@@ -1768,7 +1775,52 @@ POD is missing needed volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-de
 
         assert_eq!(
             sdp_sidecars.dns_config(&"ns1", None).searches.unwrap(),
-            vec!("ns1.svc.cluster.local", "cluster.local")
+            vec!(
+                "ns1.svc.cluster.local",
+                "svc.cluster.local",
+                "cluster.local"
+            )
+        )
+    }
+
+    #[test]
+    fn test_prefix_searches_3() {
+        let sdp_sidecars = SDPSidecars {
+            containers: Box::new(vec![]),
+            volumes: Box::new(vec![]),
+            dns_config: Box::new(DNSConfig {
+                searches: "ns1.svc.cluster.local cluster.local".to_string(),
+            }),
+        };
+
+        let custom_searches = vec!["svc.test.local".to_string(), "test.local".to_string()];
+
+        assert_eq!(
+            sdp_sidecars
+                .dns_config(&"ns1", Some(custom_searches))
+                .searches
+                .unwrap(),
+            vec!("ns1.svc.test.local", "svc.test.local", "test.local")
+        )
+    }
+
+    #[test]
+    fn test_prefix_searches_4() {
+        let sdp_sidecars = SDPSidecars {
+            containers: Box::new(vec![]),
+            volumes: Box::new(vec![]),
+            dns_config: Box::new(DNSConfig {
+                searches: "ns1.svc.cluster.local cluster.local".to_string(),
+            }),
+        };
+
+        let custom_searches = vec!["ns1.svc.test.local".to_string(), "test.local".to_string()];
+        assert_eq!(
+            sdp_sidecars
+                .dns_config(&"ns1", Some(custom_searches))
+                .searches
+                .unwrap(),
+            vec!("ns1.svc.test.local", "svc.test.local", "test.local")
         )
     }
 
