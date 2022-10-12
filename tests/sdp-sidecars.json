@@ -11,7 +11,7 @@
        "command" : [
          "sh",
          "-c",
-         "echo \"nameserver $K8S_DNS_SERVICE\n$K8S_DNS_SEARCHES\"> /etc/resolv.conf"
+         "echo \"nameserver $K8S_DNS_SERVICE\nsearch $K8S_DNS_SEARCHES\"> /etc/resolv.conf"
        ]
     },
     {
@@ -25,7 +25,7 @@
       "command" : [
         "sh",
         "-c",
-        "echo \"nameserver 127.0.0.1\n$K8S_DNS_SEARCH\"> /etc/resolv.conf"
+        "echo \"nameserver 127.0.0.1\nsearch $K8S_DNS_SEARCH\"> /etc/resolv.conf"
       ]
    }],
   "containers": [
