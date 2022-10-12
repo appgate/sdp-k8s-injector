@@ -508,7 +508,7 @@ impl Patched for SDPPod {
                     env_var!(value :: "K8S_DNS_SEARCHES" => dns_config.searches.as_ref().unwrap_or(&vec!()).join(" ")),
                 ]);
                 init_containers.insert(0, self.sdp_sidecars.init_containers.0.clone());
-                init_containers.push(self.sdp_sidecars.init_containers.0.clone());
+                init_containers.push(self.sdp_sidecars.init_containers.1.clone());
                 patches.push(Add(AddOperation {
                     path: "/spec/initContainers".to_string(),
                     value: serde_json::to_value(&init_containers)?,
@@ -898,7 +898,7 @@ mod tests {
     use kube::core::admission::AdmissionReview;
     use kube::core::ObjectMeta;
     use sdp_common::crd::{DeviceId, DeviceIdSpec, ServiceIdentity, ServiceIdentitySpec};
-    use sdp_common::service::ServiceUser;
+    use sdp_common::service::{init_containers, ServiceUser};
     use sdp_common::traits::{Annotated, Candidate, Named, Namespaced, ObjectRequest, Service};
     use sdp_macros::{service_device_ids, service_identity, service_user};
     use serde_json::json;
@@ -944,6 +944,19 @@ mod tests {
                 .collect();
             if let Some(spec) = $pod.spec.as_mut() {
                 spec.containers = test_cs;
+            }
+        };
+        ($pod:expr, init_containers => $cs:expr) => {
+            let test_cs: Vec<Container> = $cs
+                .iter()
+                .map(|x| {
+                    let mut c: Container = Default::default();
+                    c.name = x.to_string();
+                    c
+                })
+                .collect();
+            if let Some(spec) = $pod.spec.as_mut() {
+                spec.init_containers = Some(test_cs);
             }
         };
         ($pod:expr, volumes => $vs:expr) => {
@@ -1240,7 +1253,7 @@ mod tests {
                 client_config_map: "ns7-srv7-service-config",
                 client_secrets: "ns7-srv7-service-user",
                 dns_searches: Some(vec![
-                    "ns6.svc.cluster.local".to_string(),
+                    "ns7.svc.cluster.local".to_string(),
                     "svc.cluster.local".to_string(),
                     "cluster.local".to_string(),
                 ]),
@@ -1260,7 +1273,7 @@ mod tests {
                 client_config_map: "ns8-srv8-service-config",
                 client_secrets: "ns8-srv8-service-user",
                 dns_searches: Some(vec![
-                    "ns7.svc.cluster.local".to_string(),
+                    "ns8.svc.cluster.local".to_string(),
                     "svc.cluster.local".to_string(),
                     "cluster.local".to_string(),
                 ]),
@@ -1281,7 +1294,32 @@ mod tests {
                 client_config_map: "ns9-srv9-service-config",
                 client_secrets: "ns9-srv9-service-user",
                 dns_searches: Some(vec![
-                    "ns8.svc.cluster.local".to_string(),
+                    "ns9.svc.cluster.local".to_string(),
+                    "svc.cluster.local".to_string(),
+                    "cluster.local".to_string(),
+                ]),
+                ..Default::default()
+            },
+            TestPatch {
+                pod: test_pod!(10, containers => vec!["random-service"], 
+                                   init_containers => vec!["random-init-container"]),
+                needs_patching: true,
+                envs: vec![
+                    ("POD_N_CONTAINERS".to_string(), Some("1".to_string())),
+                    (
+                        "K8S_DNS_SERVICE".to_string(),
+                        Some("10.10.10.10".to_string()),
+                    ),
+                    (
+                        "APPGATE_DEVICE_ID".to_string(),
+                        Some("00000000-0000-0000-0000-000000000010".to_string()),
+                    ),
+                    ("SERVICE_NAME".to_string(), Some("ns10_srv10".to_string())),
+                ],
+                client_config_map: "ns10-srv10-service-config",
+                client_secrets: "ns10-srv10-service-user",
+                dns_searches: Some(vec![
+                    "ns10.svc.cluster.local".to_string(),
                     "svc.cluster.local".to_string(),
                     "cluster.local".to_string(),
                 ]),
@@ -1415,8 +1453,8 @@ POD is missing needed volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-de
         }
     }
 
-    fn container_names(pod: &Pod) -> Option<Vec<String>> {
-        containers(pod).map(|xs| xs.iter().map(|x| x.name.clone()).collect())
+    fn container_names(xs: &Vec<Container>) -> Vec<String> {
+        xs.iter().map(|x| x.name.clone()).collect()
     }
 
     #[tokio::test]
@@ -1428,6 +1466,13 @@ POD is missing needed volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-de
             let mut xs: Vec<String> = sdp_sidecars.container_names();
             xs.extend_from_slice(vs);
             HashSet::from_iter(xs.iter().cloned())
+        };
+
+        let expected_init_containers = |xs: &[String]| -> Vec<String> {
+            let mut xs = Vec::from(xs);
+            xs.insert(0, "sdp-init-container-0".to_string());
+            xs.push("sdp-init-container-f".to_string());
+            xs
         };
 
         let expected_volumes = |vs: &[String]| -> HashSet<String> {
@@ -1463,13 +1508,29 @@ POD is missing needed volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-de
 
         let assert_containers =
             |pod: &Pod, unpatched_containers: Vec<String>| -> Result<bool, String> {
-                let patched_containers = HashSet::from_iter(container_names(pod).unwrap_or(vec![]));
+                let patched_containers = HashSet::from_iter(container_names(
+                    containers(pod).expect("Not found containers"),
+                ));
                 (patched_containers == expected_containers(&unpatched_containers))
                     .then(|| true)
                     .ok_or(format!(
                         "Wrong containers after patch, got {:?}, expected {:?}",
                         patched_containers,
                         expected_containers(&unpatched_containers)
+                    ))
+            };
+
+        let assert_init_containers =
+            |pod: &Pod, unpatched_containers: Vec<String>| -> Result<bool, String> {
+                let init_containers = Vec::from_iter(container_names(
+                    init_containers(pod).expect("Not found init containers"),
+                ));
+                (init_containers == expected_init_containers(&unpatched_containers))
+                    .then(|| true)
+                    .ok_or(format!(
+                        "Wrong init containers after patch, got {:?}, expected {:?}",
+                        init_containers,
+                        expected_init_containers(&unpatched_containers)
                     ))
             };
 
@@ -1594,10 +1655,17 @@ POD is missing needed volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-de
         let assert_patch =
             |pod: &Pod, patch: Patch, test_patch: &TestPatch| -> Result<bool, String> {
                 let patched_pod = assert_patch(pod, patch)?;
-                let unpatched_containers = container_names(pod).unwrap_or(vec![]);
+                let unpatched_containers =
+                    container_names(containers(pod).expect("Unable to get containers"));
+                let init_containers = init_containers(pod);
                 let unpatched_volumes = volume_names(pod).unwrap_or(vec![]);
                 assert_volumes(&patched_pod, unpatched_volumes)?;
                 assert_containers(&patched_pod, unpatched_containers)?;
+                if init_containers.is_some() {
+                    let unpatched_init_containers = container_names(init_containers.unwrap());
+                    println!("CC {:?} ", unpatched_init_containers);
+                    assert_init_containers(&patched_pod, unpatched_init_containers)?;
+                }
                 assert_envs(&patched_pod, test_patch)?;
                 assert_dnsconfig(&patched_pod, test_patch)
             };
