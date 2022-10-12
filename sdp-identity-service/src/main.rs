@@ -81,7 +81,7 @@ async fn main() -> () {
                     queue_tx: identity_manager_proto_tx.clone(),
                     queue_rx: deployment_watcher_proto_rx,
                 };
-                watcher.start().await;
+                watcher.watch().await;
             });
             tokio::spawn(async move {
                 let system = get_sdp_system();

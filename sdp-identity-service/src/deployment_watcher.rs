@@ -39,7 +39,7 @@ impl
         DeploymentWatcherProtocol,
     >
 {
-    pub async fn start(&mut self) {
+    pub async fn watch(&mut self) {
         info!("Initializing Deployment Watcher");
         let xs = self.api.list(&ListParams::default()).await;
         if let Err(e) = xs {
