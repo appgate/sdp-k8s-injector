@@ -120,7 +120,7 @@ pub fn derive_identity_provider(input: proc_macro::TokenStream) -> proc_macro::T
                 self.pool.unregister_identity(to)
             }
 
-            fn next_identity(&mut self, from: &Self::From) -> Option<Self::To> {
+            fn next_identity(&mut self, from: &Self::From) -> Option<(Self::To, bool)> {
                 self.pool.next_identity(from)
             }
 

@@ -32,7 +32,8 @@ trait ServiceIdentityProvider {
     type To: Service + HasCredentials + Send;
     fn register_identity(&mut self, to: Self::To) -> ();
     fn unregister_identity(&mut self, to: &Self::To) -> Option<Self::To>;
-    fn next_identity(&mut self, from: &Self::From) -> Option<Self::To>;
+    // true if identity is newly created, false if identity is already registered
+    fn next_identity(&mut self, from: &Self::From) -> Option<(Self::To, bool)>;
     fn identity(&self, from: &Self::From) -> Option<&Self::To>;
     fn identities(&self) -> Vec<&Self::To>;
 
@@ -165,12 +166,14 @@ impl ServiceIdentityProvider for IdentityManagerPool {
         })
     }
 
-    fn next_identity(&mut self, from: &Self::From) -> Option<Self::To> {
-        when_ok!((service_id: Self::To = from.service_id()) {
+    fn next_identity(&mut self, from: &Self::From) -> Option<(Self::To, bool)> {
+        when_ok!((service_id: (Self::To, bool) = from.service_id()) {
             let service_name = from.service_name().unwrap(); // Safe since service_name is defined
-            self.services.get(&service_id)
-                .map(|i| i.clone())
-                .or_else(|| {
+            match self.services.get(&service_id) {
+                Some(id) => {
+                    Some((id.clone(), false))
+                }
+                None => {
                     if let Some(id) = self.pop().map(|service_user| {
                         let service_identity_spec = ServiceIdentitySpec {
                             service_name: Named::name(from),
@@ -186,12 +189,13 @@ impl ServiceIdentityProvider for IdentityManagerPool {
                             service_id
                         );
                         self.register_identity(id.clone());
-                        Some(id)
+                        Some((id, true))
                     } else {
                         error!("Unable to get a new identity for service candidate {}, is the identities pool empty?", service_id);
                         None
                     }
-            })
+                }
+            }
         })
     }
 
@@ -427,7 +431,7 @@ impl IdentityManagerRunner<ServiceLookup, ServiceIdentity> {
                         ) => external_queue_tx);
                         let a = ServiceLookup::try_from_service(&service_candidate).expect("Unable to conver service");
                         match im.next_identity(&a) {
-                            Some(service_identity) => match im.create(&service_identity).await {
+                            Some((service_identity, true)) => match im.create(&service_identity).await {
                                 Ok(service_identity) => {
                                     sdp_info!(IdentityManagerProtocol::<F, ServiceIdentity>::IdentityManagerDebug |(
                                         "ServiceIdentity created for service {}",
@@ -466,6 +470,12 @@ impl IdentityManagerRunner<ServiceLookup, ServiceIdentity> {
                                 ) => external_queue_tx);
                                 }
                             },
+                            Some((service_identity, false)) => {
+                                sdp_info!(IdentityManagerProtocol::<F, ServiceIdentity>::IdentityManagerDebug |(
+                                    "ServiceIdentity already exists for service {}",
+                                    service_id
+                                ) => external_queue_tx);
+                            }
                             None => {
                                 sdp_error!(IdentityManagerProtocol::<F, ServiceIdentity>::IdentityManagerDebug |(
                                     "Unable to assign service identity for service {}. Identities pool seems to be empty!",
