@@ -1,0 +1,17 @@
+#!/usr/bin/env sh
+
+if [ -n "$CLIENT_DEVICE_ID" ]; then
+    echo "Using custom device-id: $CLIENT_DEVICE_ID"
+    echo "$CLIENT_DEVICE_ID" | sed 's|-||g' > /etc/machine-id
+fi
+
+cat > /sdp-service/appgate.conf <<EOF
+[Settings]
+LogLevel = $APPGATE_LOGLEVEL
+[Credentials]
+ControllerUrl = $APPGATE_PROFILE_URL
+Username = $APPGATE_USERNAME
+Password = $APPGATE_PASSWORD
+EOF
+echo Running service
+exec /opt/appgate/service/appgateservice -f /sdp-service/appgate.conf -t /var/run/sdp-driver/.driver.sock --service
