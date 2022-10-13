@@ -970,13 +970,13 @@ mod tests {
     }
 
     fn check_service_identity(
-        si: Option<ServiceIdentity>,
+        si: Option<(ServiceIdentity, bool)>,
         c: &ServiceUser,
         service_name: &str,
         service_ns: &str,
     ) -> () {
         assert!(si.is_some());
-        let si_spec = si.unwrap();
+        let si_spec = si.unwrap().0;
         assert_eq!(si_spec.spec().service_name, service_name);
         assert_eq!(si_spec.spec().service_namespace, service_ns);
         assert_eq!(si_spec.spec().service_user.name, c.name);
@@ -1021,7 +1021,7 @@ mod tests {
 
                 // service identity already registered
                 let d1_1_id = im.next_identity(&ServiceLookup::try_from_service(&d1_1).unwrap());
-                assert_eq!(d1_1_id.unwrap().spec(), id1.spec());
+                assert_eq!(d1_1_id.unwrap().0.spec(), id1.spec());
 
                 // ask for a new service identity, we can create it because we have creds
                 let d1_2_id = im.next_identity(&ServiceLookup::try_from_service(&d1_2).unwrap());
@@ -1540,32 +1540,13 @@ mod tests {
                 assert_message! {
                     (m :: IdentityManagerProtocol::IdentityManagerDebug(_) in watcher_rx) => {
                      if let IdentityManagerProtocol::IdentityManagerDebug(msg) = m {
-                            assert!(msg.eq("ServiceIdentity created for service ns1_srv1"),
+                            assert!(msg.eq("ServiceIdentity already exists for service ns1_srv1"),
                                     "Wrong message, got {}", msg);
                         }
                     }
                 }
-                // TODO: Here we should not call this create API.
-                // Create it in k8s
-                assert_eq!(counters.lock().unwrap().create_calls, 3);
-
-                // We ask IC to create a new crendential
-                assert_message!(m :: IdentityCreatorProtocol::CreateIdentity in identity_creator_rx);
-                // We add labels and we activate new credential
-                assert_message! {
-                    (m :: IdentityCreatorProtocol::ActivateServiceUser {..} in identity_creator_rx) => {
-                        if let IdentityCreatorProtocol::ActivateServiceUser(service_user, service_ns, service_name, labels) = m {
-                            assert!(service_user.name == "service_user1");
-                            assert_eq!(service_ns, "ns1");
-                            assert_eq!(service_name, "srv1");
-                            assert!(labels == HashMap::from([
-                                ("namespace".to_string(),
-                                 "ns1".to_string()),
-                                ("name".to_string(), "srv1".to_string())
-                            ]));
-                        }
-                    }
-                }
+                // Create call count should remain the same because we are reusing ServiceIdentity
+                assert_eq!(counters.lock().unwrap().create_calls, 2);
 
                 assert_no_message!(identity_creator_rx);
             }
@@ -1575,7 +1556,7 @@ mod tests {
     #[tokio::test]
     async fn test_identity_manager_request_service_identity_2() {
         test_identity_manager! {
-            (watcher_rx, identity_manager_tx, identity_creator_rx, _deployment_watched_rx, counters) => {
+            (im(vec![]), watcher_rx, identity_manager_tx, identity_creator_rx, _deployment_watched_rx, counters) => {
                 assert_message!(m :: IdentityManagerProtocol::IdentityManagerInitialized in watcher_rx);
                 assert_message!(m :: IdentityManagerProtocol::IdentityManagerStarted in watcher_rx);
                 assert_message!(m :: IdentityCreatorProtocol::StartService in identity_creator_rx);
