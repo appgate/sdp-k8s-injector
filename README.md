@@ -110,6 +110,7 @@ sdp-demo      Active   1m     enabled
 | `sdp.adminSecret`                      | Name of the secret for initial authentication                                            | `""`                                    |
 | `sdp.clientVersion`                    | Version of the SDP client to inject as sidecars.                                         | `6.0.1`                                 |
 | `sdp.tag`                              | Tag to use for resources created by the injector                                         | `k8s`                                   |
+| `sdp.clusterId`                        | An identifier to prefix service users and client profiles                                | `dev`                                   |
 | `sdp.selfClient.enabled`               | Whether to set up an SDP client on the Identity Service                                  | `false`                                 |
 | `sdp.selfClient.adminSecret`           | Name of the secret for initial authentication                                            | `""`                                    |
 | `sdp.selfClient.adminConfig`           | Name of the config for initial authentication                                            | `""`                                    |

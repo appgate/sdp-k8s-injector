@@ -146,7 +146,7 @@ spec:
             - name: SDP_K8S_TAG
               value: {{ .Values.sdp.tag }}
             - name: SDP_CLUSTER_ID
-              value: {{ .Values.sdp.host }}
+              value: {{ .Values.sdp.clusterId }}
           image: "{{ default .Values.global.image.repository .Values.sdp.identityService.image.repository }}/sdp-identity-service:{{ required "Values.sdp.identityService.image.tag is required" .Values.sdp.identityService.image.tag }}"
           imagePullPolicy: {{ default .Values.global.image.pullPolicy .Values.sdp.identityService.image.pullPolicy }}
           args:
