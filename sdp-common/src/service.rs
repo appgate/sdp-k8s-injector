@@ -415,6 +415,10 @@ pub fn get_service_username(cluster_name: &str, service_ns: &str, service_name: 
     format!("{}_{}_{}", cluster_name, service_ns, service_name)
 }
 
+pub fn get_profile_client_url_name(cluster_name: &str) -> String {
+    format!("{}_k8s-service-profile-client-url", cluster_name)
+}
+
 pub fn containers(pod: &Pod) -> Option<&Vec<Container>> {
     pod.spec.as_ref().map(|s| &s.containers)
 }

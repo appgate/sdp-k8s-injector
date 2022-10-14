@@ -7,13 +7,13 @@ use k8s_openapi::api::core::v1::{ConfigMap, Secret};
 use kube::api::{Patch as KubePatch, PatchParams};
 use kube::{Api, Client};
 use log::{error, info, warn};
-use sdp_common::constants::{IDENTITY_MANAGER_SECRET_NAME, SDP_IDP_NAME};
+use sdp_common::constants::{IDENTITY_MANAGER_SECRET_NAME, SDP_CLUSTER_ID_ENV, SDP_IDP_NAME};
 use sdp_common::kubernetes::SDP_K8S_NAMESPACE;
 use sdp_common::sdp::auth::SDPUser;
 use sdp_common::sdp::system::{
     ClientProfile, ClientProfileUrl, System, SDP_SYSTEM_TAG_DEFAULT, SDP_SYSTEM_TAG_ENV,
 };
-use sdp_common::service::{get_service_username, ServiceUser};
+use sdp_common::service::{get_profile_client_url_name, get_service_username, ServiceUser};
 use tokio::sync::mpsc::{Receiver, Sender};
 
 use crate::errors::IdentityServiceError;
@@ -35,10 +35,12 @@ pub struct IdentityCreator {
     system: System,
     client: Client,
     service_users_pool_size: usize,
+    cluster_id: String,
 }
 
 async fn get_or_create_client_profile_url(
     system: &mut System,
+    cluster_id: &str,
 ) -> Result<ClientProfileUrl, IdentityServiceError> {
     // Create ClientProfile if needed
     let tag = std::env::var(SDP_SYSTEM_TAG_ENV).unwrap_or(SDP_SYSTEM_TAG_DEFAULT.to_string());
@@ -62,7 +64,7 @@ async fn get_or_create_client_profile_url(
         let spa_key_name = profile_name.replace(" ", "").to_lowercase();
         p = ClientProfile {
             id: uuid::Uuid::new_v4().to_string(),
-            name: profile_name,
+            name: get_profile_client_url_name(cluster_id),
             spa_key_name: spa_key_name,
             identity_provider_name: SDP_IDP_NAME.to_string(),
             tags: vec![tag],
@@ -83,10 +85,17 @@ async fn get_or_create_client_profile_url(
 
 impl IdentityCreator {
     pub fn new(system: System, client: Client, credentials_pool_size: usize) -> IdentityCreator {
+        let cluster_id = std::env::var(SDP_CLUSTER_ID_ENV);
+        if cluster_id.is_err() {
+            panic!(
+                "Unable to get cluster id, make sure SDP_CLUSTER_ID environemnt variable is set."
+            );
+        }
         IdentityCreator {
             system,
             client: client,
             service_users_pool_size: credentials_pool_size,
+            cluster_id: cluster_id.unwrap(),
         }
     }
 
@@ -102,7 +111,8 @@ impl IdentityCreator {
 
     async fn create_user(&mut self) -> Result<ServiceUser, IdentityServiceError> {
         let service_user = SDPUser::new();
-        let profile_url = get_or_create_client_profile_url(&mut self.system).await?;
+        let profile_url =
+            get_or_create_client_profile_url(&mut self.system, &self.cluster_id).await?;
         info!("Creating ServiceUser with id {}", service_user.id);
         if let Some(service_user) = self
             .system
@@ -240,7 +250,7 @@ impl IdentityCreator {
         identity_manager_proto_tx: Sender<IdentityManagerProtocol<Deployment, ServiceIdentity>>,
     ) -> Result<ClientProfileUrl, IdentityServiceError> {
         let users = system.get_users().await?;
-        let client_profile_url = get_or_create_client_profile_url(system).await?;
+        let client_profile_url = get_or_create_client_profile_url(system, &self.cluster_id).await?;
         // Notify ServiceIdentityManager about the actual credentials created in appgate
         let mut n_missing_users = self.service_users_pool_size;
         // This could be actived credentials or deactivated ones.

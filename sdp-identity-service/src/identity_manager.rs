@@ -3,6 +3,7 @@ use k8s_openapi::api::apps::v1::Deployment;
 use kube::api::{DeleteParams, ListParams, PostParams};
 use kube::{Api, Client};
 use log::{error, info, warn};
+use sdp_common::constants::SDP_CLUSTER_ID_ENV;
 pub use sdp_common::crd::{ServiceIdentity, ServiceIdentitySpec};
 use sdp_common::service::{ServiceLookup, ServiceUser};
 use sdp_common::traits::{HasCredentials, Labeled, Named, Namespaced, Service};
@@ -337,10 +338,13 @@ pub struct IdentityManagerRunner<From: Service + Send, To: Service + HasCredenti
 /// - DW sends the list of all CandidateServices (Deployments)
 /// - IM creates ServiceIDentity for those CandidateServices that need it and dont have one.
 impl IdentityManagerRunner<ServiceLookup, ServiceIdentity> {
-    pub fn kube_runner(
-        client: Client,
-        cluster_id: String,
-    ) -> IdentityManagerRunner<ServiceLookup, ServiceIdentity> {
+    pub fn kube_runner(client: Client) -> IdentityManagerRunner<ServiceLookup, ServiceIdentity> {
+        let cluster_id = std::env::var(SDP_CLUSTER_ID_ENV);
+        if cluster_id.is_err() {
+            panic!(
+                "Unable to get cluster id, make sure SDP_CLUSTER_ID environemnt variable is set."
+            );
+        }
         let service_identity_api: Api<ServiceIdentity> = Api::namespaced(client, "sdp-system");
         IdentityManagerRunner {
             im: Box::new(KubeIdentityManager {
@@ -350,7 +354,7 @@ impl IdentityManagerRunner<ServiceLookup, ServiceIdentity> {
                 },
                 service_identity_api: service_identity_api,
             }),
-            cluster_id,
+            cluster_id: cluster_id.unwrap(),
         }
     }
 
