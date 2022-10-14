@@ -284,7 +284,9 @@ impl DeviceIdProvider<ServiceIdentity> {
                         Some(DeviceIdProviderRequestProtocol::FoundServiceIdentity(s)) => {
                             when_ok!((service_id = s.service_id()) {
                                 info!("Registering new service {}", &service_id);
-                                self.store.register_service(s).await;
+                                if let Err(e) = self.store.register_service(s).await {
+                                    error!("Uneable to register service identity {}: {}", service_id, e);
+                                }
                             });
                         },
                         Some(DeviceIdProviderRequestProtocol::DeletedServiceIdentity(s)) => {
@@ -298,7 +300,9 @@ impl DeviceIdProvider<ServiceIdentity> {
                         Some(DeviceIdProviderRequestProtocol::FoundDevideId(id)) => {
                             when_ok!((service_id = id.service_id()) {
                                 info!("Registering new device ids for service {}", service_id);
-                                self.store.register_device_ids(id).await;
+                                if let Err(err) = self.store.register_device_ids(id).await {
+                                    error!("Uneable to register device ids {}: {}", service_id, err);
+                                }
                             });
                         },
                         Some(DeviceIdProviderRequestProtocol::DeletedDevideId(id)) => {

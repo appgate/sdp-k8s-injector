@@ -68,3 +68,9 @@ impl From<SDPClientError> for SDPServiceError {
         SDPServiceError::from_string(error.to_string())
     }
 }
+
+impl From<serde_json::error::Error> for SDPServiceError {
+    fn from(error: serde_json::error::Error) -> Self {
+        SDPServiceError::from_string(error.to_string())
+    }
+}
