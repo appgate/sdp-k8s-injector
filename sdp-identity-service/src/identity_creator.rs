@@ -13,7 +13,7 @@ use sdp_common::sdp::auth::SDPUser;
 use sdp_common::sdp::system::{
     ClientProfile, ClientProfileUrl, System, SDP_SYSTEM_TAG_DEFAULT, SDP_SYSTEM_TAG_ENV,
 };
-use sdp_common::service::ServiceUser;
+use sdp_common::service::{get_service_username, ServiceUser};
 use tokio::sync::mpsc::{Receiver, Sender};
 
 use crate::errors::IdentityServiceError;
@@ -23,8 +23,8 @@ use crate::identity_manager::{IdentityManagerProtocol, ServiceIdentity};
 pub enum IdentityCreatorProtocol {
     StartService,
     CreateIdentity,
-    // service user, service namespace, service name, labels
-    ActivateServiceUser(ServiceUser, String, String, HashMap<String, String>),
+    // service user, service service_ns, service_name, labels
+    ActivateServiceUser(ServiceUser, String, String, String, HashMap<String, String>),
     // service user, service namespace, service name
     DeleteServiceUser(ServiceUser, String, String),
     // sdp user name
@@ -377,6 +377,7 @@ impl IdentityCreator {
                 }
                 IdentityCreatorProtocol::ActivateServiceUser(
                     service_user,
+                    cluster_id,
                     service_ns,
                     service_name,
                     labels,
@@ -384,13 +385,13 @@ impl IdentityCreator {
                     let mut sdp_user = SDPUser::from(&service_user);
                     sdp_user.disabled = false;
                     sdp_user.labels = labels;
-                    sdp_user.name = format!("{}_{}", service_ns, service_name);
+                    sdp_user.name = get_service_username(&cluster_id, &service_ns, &service_name);
                     let mut service_user = service_user.clone();
                     service_user.name = sdp_user.name.clone();
 
                     info!(
                         "Activating ServiceUser with name {} [{}/{}]",
-                        sdp_user.name, service_ns, service_name
+                        sdp_user.name, service_ns, service_name,
                     );
                     if let Err(err) = system.modify_user(&sdp_user).await {
                         error!(

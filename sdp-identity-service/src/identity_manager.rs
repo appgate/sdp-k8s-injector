@@ -321,6 +321,7 @@ trait IdentityManager<From: Service + Send + Sync, To: Service + HasCredentials 
 
 pub struct IdentityManagerRunner<From: Service + Send, To: Service + HasCredentials + Send> {
     im: Box<dyn IdentityManager<From, To> + Send + Sync>,
+    cluster_id: String,
 }
 
 /// Load all the current ServiceIdentity
@@ -336,7 +337,10 @@ pub struct IdentityManagerRunner<From: Service + Send, To: Service + HasCredenti
 /// - DW sends the list of all CandidateServices (Deployments)
 /// - IM creates ServiceIDentity for those CandidateServices that need it and dont have one.
 impl IdentityManagerRunner<ServiceLookup, ServiceIdentity> {
-    pub fn kube_runner(client: Client) -> IdentityManagerRunner<ServiceLookup, ServiceIdentity> {
+    pub fn kube_runner(
+        client: Client,
+        cluster_id: String,
+    ) -> IdentityManagerRunner<ServiceLookup, ServiceIdentity> {
         let service_identity_api: Api<ServiceIdentity> = Api::namespaced(client, "sdp-system");
         IdentityManagerRunner {
             im: Box::new(KubeIdentityManager {
@@ -346,11 +350,13 @@ impl IdentityManagerRunner<ServiceLookup, ServiceIdentity> {
                 },
                 service_identity_api: service_identity_api,
             }),
+            cluster_id,
         }
     }
 
     async fn run_identity_manager<F: Service + Labeled + Clone + fmt::Debug + Send>(
         im: &mut Box<dyn IdentityManager<ServiceLookup, ServiceIdentity> + Send + Sync>,
+        cluster_id: String,
         mut identity_manager_rx: Receiver<IdentityManagerProtocol<F, ServiceIdentity>>,
         identity_manager_tx: Sender<IdentityManagerProtocol<F, ServiceIdentity>>,
         identity_creator_tx: Sender<IdentityCreatorProtocol>,
@@ -453,6 +459,7 @@ impl IdentityManagerRunner<ServiceLookup, ServiceIdentity> {
                                     if let Err(err) = identity_creator_tx
                                         .send(IdentityCreatorProtocol::ActivateServiceUser(
                                             service_identity.credentials().clone(),
+                                            cluster_id.clone(),
                                             service_identity.namespace().unwrap(),
                                             service_identity.name(),
                                             service_candidate.labels().unwrap(),
@@ -470,7 +477,7 @@ impl IdentityManagerRunner<ServiceLookup, ServiceIdentity> {
                                 ) => external_queue_tx);
                                 }
                             },
-                            Some((service_identity, false)) => {
+                            Some((_service_identity, false)) => {
                                 sdp_info!(IdentityManagerProtocol::<F, ServiceIdentity>::IdentityManagerDebug |(
                                     "ServiceIdentity already exists for service {}",
                                     service_id
@@ -762,6 +769,7 @@ impl IdentityManagerRunner<ServiceLookup, ServiceIdentity> {
         // We are not ready to process events
         IdentityManagerRunner::run_identity_manager(
             &mut self.im,
+            self.cluster_id,
             identity_manager_prot_rx,
             identity_manager_prot_tx,
             identity_creater_proto_tx,
@@ -942,6 +950,7 @@ mod tests {
     ) -> IdentityManagerRunner<ServiceLookup, ServiceIdentity> {
         IdentityManagerRunner {
             im: im as Box<dyn IdentityManager<ServiceLookup, ServiceIdentity> + Send + Sync>,
+            cluster_id: "TestCluster".to_string(),
         }
     }
 
@@ -1447,10 +1456,11 @@ mod tests {
                 // We add labels and we activate new credential
                 assert_message! {
                     (m :: IdentityCreatorProtocol::ActivateServiceUser {..} in identity_creator_rx) => {
-                        if let IdentityCreatorProtocol::ActivateServiceUser(service_user, service_ns, service_name, labels) = m {
+                        if let IdentityCreatorProtocol::ActivateServiceUser(service_user, cluster_id, service_ns, service_name, labels) = m {
                             assert_eq!(service_user.name, "service_user1");
                             assert_eq!(service_ns, "ns1");
                             assert_eq!(service_name, "srv1");
+                            assert_eq!(cluster_id, "TestCluster");
                             assert_eq!(labels, HashMap::from([
                                 ("namespace".to_string(), "ns1".to_string()),
                                 ("name".to_string(), "srv1".to_string())
@@ -1490,10 +1500,11 @@ mod tests {
                 // We add labels and we activate new credential
                 assert_message! {
                     (m :: IdentityCreatorProtocol::ActivateServiceUser {..} in identity_creator_rx) => {
-                        if let IdentityCreatorProtocol::ActivateServiceUser(service_user, ns, name, labels) = m {
+                        if let IdentityCreatorProtocol::ActivateServiceUser(service_user, cluster_id, ns, name, labels) = m {
                             assert!(service_user.name == "service_user2");
                             assert!(ns == "ns2");
                             assert!(name == "srv2");
+                            assert_eq!(cluster_id, "TestCluster");
                             assert!(labels == HashMap::from([
                                 ("namespace".to_string(), "ns2".to_string()),
                                 ("name".to_string(), "srv2".to_string())
@@ -1606,10 +1617,11 @@ mod tests {
                 // We add labels and we activate new credential
                 assert_message! {
                     (m :: IdentityCreatorProtocol::ActivateServiceUser {..} in identity_creator_rx) => {
-                        if let IdentityCreatorProtocol::ActivateServiceUser(service_user, service_ns, service_name, labels) = m {
+                        if let IdentityCreatorProtocol::ActivateServiceUser(service_user, cluster_id, service_ns, service_name, labels) = m {
                             assert_eq!(service_user.name, "service_user1");
                             assert_eq!(service_ns, "ns1");
                             assert_eq!(service_name, "srv1");
+                            assert_eq!(cluster_id, "TestCluster");
                             assert!(labels == HashMap::from([
                                 ("namespace".to_string(), "ns1".to_string()),
                                 ("name".to_string(), "srv1".to_string())

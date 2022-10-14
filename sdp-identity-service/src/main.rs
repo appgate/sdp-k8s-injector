@@ -2,6 +2,7 @@ use clap::{Parser, Subcommand};
 use k8s_openapi::api::apps::v1::Deployment;
 use kube::{Api, CustomResourceExt};
 use log::{error, info};
+use sdp_common::constants::SDP_CLUSTER_ID_ENV;
 use sdp_common::crd::ServiceIdentity;
 use sdp_common::kubernetes::get_k8s_client;
 use sdp_common::sdp::system::get_sdp_system;
@@ -64,8 +65,12 @@ async fn main() -> () {
             let identity_manager_client = client.clone();
             let deployment_watcher_client = client.clone();
             let identity_creator_client = client;
+            let cluster_id = std::env::var(SDP_CLUSTER_ID_ENV);
+            if cluster_id.is_err() {
+                panic!("Unable to get cluster id, make sure SDP_CLUSTER_ID environemnt variable is set.");
+            }
             let identity_manager_runner =
-                IdentityManagerRunner::kube_runner(identity_manager_client);
+                IdentityManagerRunner::kube_runner(identity_manager_client, cluster_id.unwrap());
             let (identity_manager_proto_tx, identity_manager_proto_rx) =
                 channel::<IdentityManagerProtocol<Deployment, ServiceIdentity>>(50);
             let identity_manager_proto_tx_cp = identity_manager_proto_tx.clone();

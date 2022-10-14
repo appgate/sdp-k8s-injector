@@ -411,6 +411,10 @@ pub fn is_injection_disabled<A: Annotated>(entity: &A) -> bool {
         .unwrap_or(false)
 }
 
+pub fn get_service_username(cluster_name: &str, service_ns: &str, service_name: &str) -> String {
+    format!("{}_{}_{}", cluster_name, service_ns, service_name)
+}
+
 pub fn containers(pod: &Pod) -> Option<&Vec<Container>> {
     pod.spec.as_ref().map(|s| &s.containers)
 }
