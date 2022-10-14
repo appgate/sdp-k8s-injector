@@ -23,6 +23,10 @@ impl SDPServiceError {
         }
     }
 
+    pub fn from_error<E: Display>(prefix: &str) -> impl Fn(E) -> Self + '_ {
+        move |e: E| SDPServiceError::from_string(format!("{}: {}", prefix, e.to_string()))
+    }
+
     pub fn with_service(self, who: String) -> Self {
         SDPServiceError {
             error: self.error,
@@ -46,9 +50,16 @@ impl Display for SDPServiceError {
     }
 }
 
+
 impl From<&str> for SDPServiceError {
     fn from(error: &str) -> Self {
         SDPServiceError::from_string(error.to_string())
+    }
+}
+
+impl From<String> for SDPServiceError {
+    fn from(error: String) -> Self {
+        SDPServiceError::from_string(error)
     }
 }
 

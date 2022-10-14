@@ -23,6 +23,7 @@ use rustls::{Certificate, PrivateKey, ServerConfig};
 use rustls_pemfile::{read_one, Item};
 use sdp_common::constants::POD_DEVICE_ID_ANNOTATION;
 use sdp_common::crd::DeviceId;
+use sdp_common::errors::SDPServiceError;
 use sdp_common::traits::{
     Annotated, HasCredentials, Namespaced, ObjectRequest, Service, Validated,
 };
@@ -130,29 +131,24 @@ impl IdentityStore<ServiceIdentity> for KubeIdentityStore {
     fn pop_device_id<'a>(
         &'a mut self,
         service_id: &'a str,
-    ) -> Pin<Box<dyn Future<Output = Option<(ServiceIdentity, Uuid)>> + Send + '_>> {
-        let fut = async move {
+    ) -> Pin<Box<dyn Future<Output = Result<Option<(ServiceIdentity, Uuid)>, SDPServiceError>> + Send + '_>> {
+    let fut = async move {
             let (q_tx, mut q_rx) = channel::<DeviceIdProviderResponseProtocol<ServiceIdentity>>(1);
-            if let Err(e) = self
+            self
                 .device_id_q_tx
                 .send(DeviceIdProviderRequestProtocol::RequestDeviceId(
                     q_tx,
                     service_id.to_string(),
                 ))
-                .await
-            {
-                error!("Error trying to get a device id: {}", e.to_string());
-                None
-            } else {
-                match timeout(Duration::from_secs(5), q_rx.recv()).await {
-                    Ok(Some(DeviceIdProviderResponseProtocol::AssignedDeviceId(
-                        service_identity,
-                        device_id,
-                    ))) => Some((service_identity, device_id)),
-                    Ok(Some(DeviceIdProviderResponseProtocol::NotFound)) => None,
-                    Ok(None) => None,
-                    Err(_e) => None,
-                }
+                .await.map_err(|e| format!("Error sending message to request device id: {}", e))?;
+            match timeout(Duration::from_secs(5), q_rx.recv()).await {
+                Ok(Some(DeviceIdProviderResponseProtocol::AssignedDeviceId(
+                    service_identity,
+                    device_id,
+                ))) => Ok(Some((service_identity, device_id))),
+                Ok(Some(DeviceIdProviderResponseProtocol::NotFound)) => Ok(None),
+                Ok(None) => Ok(None),
+                Err(e) => Err(SDPServiceError::from_string(e.to_string())),
             }
         };
         Box::pin(fut)
@@ -161,39 +157,38 @@ impl IdentityStore<ServiceIdentity> for KubeIdentityStore {
     fn register_service(
         &mut self,
         _service: ServiceIdentity,
-    ) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
-        Box::pin(async move { () })
+    ) -> Pin<Box<dyn Future<Output = Result<Option<ServiceIdentity>, SDPServiceError>> + Send + '_>> {
+        Box::pin(async move { Err(SDPServiceError::from("Registry does not support register of service identities")) })
     }
 
     fn register_device_ids(
         &mut self,
         _device_id: DeviceId,
-    ) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
-        Box::pin(async move { () })
-    }
-
-    fn unregister_service<'a>(
-        &'a mut self,
-        _service_id: &'a str,
-    ) -> Pin<Box<dyn Future<Output = Option<(ServiceIdentity, RegisteredDeviceId)>> + Send + '_>>
-    {
-        Box::pin(async move { None })
+    ) -> Pin<Box<dyn Future<Output = Result<Option<RegisteredDeviceId>, SDPServiceError>> + Send + '_>> {
+        Box::pin(async move { Err(SDPServiceError::from("Registry does not support register of device ids")) })
     }
 
     fn unregister_device_ids<'a>(
         &'a mut self,
         _device_id: &'a str,
-    ) -> Pin<Box<dyn Future<Output = Option<(ServiceIdentity, RegisteredDeviceId)>> + Send + '_>>
+    ) -> Pin<Box<dyn Future<Output = Result<Option<(ServiceIdentity, RegisteredDeviceId)>, SDPServiceError>> + Send + '_>>
     {
-        Box::pin(async move { None })
+        Box::pin(async move { Err(SDPServiceError::from("Registry does not support unregister if device ids")) })
+    }
+
+    fn unregister_service<'a>(
+        &'a mut self,
+        service_id: &'a str,
+    ) -> Pin<Box<dyn Future<Output = Result<Option<(ServiceIdentity, RegisteredDeviceId)>, SDPServiceError>> + Send + '_>> {
+        Box::pin(async move { Err(SDPServiceError::from("Registry does not support unregister if service identities")) })
     }
 
     fn push_device_id<'a>(
         &'a mut self,
         _service_id: &'a str,
         _uuid: Uuid,
-    ) -> Pin<Box<dyn Future<Output = Option<Uuid>> + Send + '_>> {
-        Box::pin(async move { None })
+    ) -> Pin<Box<dyn Future<Output = Result<Option<Uuid>, SDPServiceError>> + Send + '_>> {
+        Box::pin(async move { Err(SDPServiceError::from("Registry does not support regitery device ids")) })
     }
 }
 
@@ -258,14 +253,15 @@ struct ServiceEnvironment {
 }
 
 impl ServiceEnvironment {
-    async fn create<'a, E, R>(request: &R, store: MutexGuard<'a, E>) -> Option<Self>
+    async fn create<'a, E, R>(request: &R, store: MutexGuard<'a, E>) -> Result<Option<Self>, SDPServiceError>
     where
         E: IdentityStore<ServiceIdentity>,
         R: ObjectRequest<Pod> + Service + Annotated,
     {
-        if let Some(env) = ServiceEnvironment::from_pod(request) {
-            Some(env)
-        } else {
+        if let Some(e) = ServiceEnvironment::from_pod(request)? {
+            Ok(Some(e))
+        }
+        else {
             ServiceEnvironment::from_identity_store(request, store).await
         }
     }
@@ -277,63 +273,61 @@ impl ServiceEnvironment {
     >(
         request: &R,
         mut store: MutexGuard<'a, E>,
-    ) -> Option<Self> {
-        when_ok!((service_id: Self = request.service_id()) {
-        store
-            .pop_device_id(&service_id)
-            .await
-            .and_then(|(s, d)| {
-                let (user_field, password_field, profile_field) =
-                    s.spec.service_user.secrets_field_names(true);
-                when_ok!((service_id: Self = s.service_id()) {
-                    let secrets_name = s
-                        .credentials()
-                        .secrets_name(&s.spec.service_namespace, &s.spec.service_name);
-                    let config_name = s
-                        .credentials()
-                        .config_name(&s.spec.service_namespace, &s.spec.service_name);
-                    Some(ServiceEnvironment {
-                        service_name: service_id,
-                        client_config: config_name,
-                        client_secret_name: secrets_name,
-                        client_secret_controller_url_key: profile_field,
-                        client_secret_pwd_key: password_field,
-                        client_secret_user_key: user_field,
-                        client_device_id: d.to_string(),
-                        n_containers: "0".to_string(),
-                        k8s_dns_service_ip: None,
-                    })
-                })
-            })
-        })
-    }
-
-    fn from_pod<R: ObjectRequest<Pod> + Service + Annotated>(request: &R) -> Option<Self> {
-        request.object().and_then(|pod| {
-            when_ok!((service_id : Self = request.service_id()) {
-                let service_name = pod.service_name().unwrap();
-                let config = pod.annotation(SDP_ANNOTATION_CLIENT_CONFIG);
-                let secret = pod.annotation(SDP_ANNOTATION_CLIENT_SECRETS);
-                let device_id = pod.annotation(SDP_ANNOTATION_CLIENT_DEVICE_ID);
-                let user_field = format!("{}-user", &service_id);
-                let pwd_field = format!("{}-password", &service_id);
-                secret.map(|s| ServiceEnvironment {
-                    service_name: service_id.clone(),
-                    client_config: config
-                        .map(|s| s.clone())
-                        .unwrap_or(format!("{}-service-config", &service_name)),
-                    client_secret_name: s.to_string(),
-                    client_secret_controller_url_key: pwd_field.to_string(),
-                    client_secret_pwd_key: pwd_field,
+    ) -> Result<Option<Self>, SDPServiceError> {
+        let service_id = request.service_id()?;
+        match store.pop_device_id(&service_id).await {
+            Ok(Some((s, d))) => {
+                let (user_field, password_field, profile_field) = s.spec.service_user.secrets_field_names(true);
+                let service_identity_id = s.service_id()?;
+                let secrets_name = s
+                    .credentials()
+                    .secrets_name(&s.spec.service_namespace, &s.spec.service_name);
+                let config_name = s
+                    .credentials()
+                    .config_name(&s.spec.service_namespace, &s.spec.service_name);
+                Ok(Some(ServiceEnvironment {
+                    service_name: service_id,
+                    client_config: config_name,
+                    client_secret_name: secrets_name,
+                    client_secret_controller_url_key: profile_field,
+                    client_secret_pwd_key: password_field,
                     client_secret_user_key: user_field,
-                    client_device_id: device_id
-                        .map(|s| s.clone())
-                        .unwrap_or(uuid::Uuid::new_v4().to_string()),
+                    client_device_id: d.to_string(),
                     n_containers: "0".to_string(),
                     k8s_dns_service_ip: None,
-                })
-            })
-        })
+                }))
+            },
+            Ok(None) => Ok(None),
+            Err(e) => Err(e)
+        }
+    }
+
+    // TODO: should we check that the service_id is registered? 
+    // We dont want to inject pods that are not registered
+    fn from_pod<R: ObjectRequest<Pod> + Service + Annotated>(request: &R) -> Result<Option<Self>, SDPServiceError> {
+        let pod = request.object().ok_or_else(|| "POD not found in the request")?;
+        let service_id = request.service_id()?; 
+        let service_name = pod.service_name().unwrap();
+        let config = pod.annotation(SDP_ANNOTATION_CLIENT_CONFIG);
+        let secret = pod.annotation(SDP_ANNOTATION_CLIENT_SECRETS);
+        let device_id = pod.annotation(SDP_ANNOTATION_CLIENT_DEVICE_ID);
+        let user_field = format!("{}-user", &service_id);
+        let pwd_field = format!("{}-password", &service_id);
+        Ok(secret.map(|s| ServiceEnvironment {
+            service_name: service_id.clone(),
+            client_config: config
+                .map(|s| s.clone())
+                .unwrap_or(format!("{}-service-config", &service_name)),
+            client_secret_name: s.to_string(),
+            client_secret_controller_url_key: pwd_field.to_string(),
+            client_secret_pwd_key: pwd_field,
+            client_secret_user_key: user_field,
+            client_device_id: device_id
+                .map(|s| s.clone())
+                .unwrap_or(uuid::Uuid::new_v4().to_string()),
+            n_containers: "0".to_string(),
+            k8s_dns_service_ip: None,
+        }))
     }
 
     fn variables(&self, container_name: &str) -> Vec<EnvVar> {
@@ -645,11 +639,15 @@ fn load_cert_files() -> Result<(Option<Item>, Option<Item>), Box<dyn Error>> {
 
 async fn patch_deployment(
     admission_request: AdmissionRequest<Deployment>,
-) -> Result<AdmissionReview<DynamicObject>, Box<dyn Error>> {
+) -> Result<AdmissionReview<DynamicObject>, SDPServiceError> {
     let admission_response = AdmissionResponse::from(&admission_request);
     let mut patches = vec![];
     patches.push(Add(AddOperation {
         path: "/metadata/annotations/sdp-injection".to_string(),
+        value: serde_json::to_value("enabled")?,
+    }));
+    patches.push(Add(AddOperation {
+        path: "/spec/template/metadata/annotations/sdp-injection".to_string(),
         value: serde_json::to_value("enabled")?,
     }));
     let admission_response = admission_response.with_patch(Patch(patches))?;
@@ -659,7 +657,7 @@ async fn patch_deployment(
 async fn patch_pod<'a, E: IdentityStore<ServiceIdentity>>(
     admission_request: AdmissionRequest<Pod>,
     sdp_patch_context: SDPPatchContext<'a, E>,
-) -> Result<AdmissionReview<DynamicObject>, Box<dyn Error>> {
+) -> Result<AdmissionReview<DynamicObject>, SDPServiceError> {
     let _ = admission_request
         .object
         .as_ref()
@@ -685,7 +683,7 @@ async fn patch_pod<'a, E: IdentityStore<ServiceIdentity>>(
     when_ok!((service_id = admission_request.service_id()) {
         // Try to get the service environment and use it to patch the POD
         let mut environment =
-            ServiceEnvironment::create(&admission_request, sdp_patch_context.identity_store).await;
+            ServiceEnvironment::create(&admission_request, sdp_patch_context.identity_store).await?;
         match environment
             .as_mut()
             .map(|mut env| sdp_pod.patch(&mut env, admission_request))
@@ -696,7 +694,7 @@ async fn patch_pod<'a, E: IdentityStore<ServiceIdentity>>(
                     service_id,
                     patch.0.len()
                 );
-                admission_response = admission_response.with_patch(patch)?
+                admission_response = admission_response.with_patch(patch).map_err(|e| format!("Error serializing JSONPatch: {}", e))?
             }
             Some(Err(error)) => {
                 warn!(
@@ -706,7 +704,7 @@ async fn patch_pod<'a, E: IdentityStore<ServiceIdentity>>(
                 );
                 let mut status: Status = Default::default();
                 status.code = Some(400);
-                status.message = Some(format!("This POD can not be patched {}", error.to_string()));
+                status.message = Some(format!("This POD can not be patched {}", error));
                 admission_response.allowed = false;
                 admission_response.result = status;
             }
@@ -730,14 +728,15 @@ async fn patch_pod<'a, E: IdentityStore<ServiceIdentity>>(
 async fn mutate<E: IdentityStore<ServiceIdentity>>(
     body: Bytes,
     sdp_injector_context: Arc<SDPInjectorContext<E>>,
-) -> Result<Body, Box<dyn Error>> {
+) -> Result<Body, SDPServiceError> {
     let k8s_dns_service = dns_service_discover(&(sdp_injector_context.k8s_client)).await;
     let sdp_patch_context = SDPPatchContext {
         k8s_dns_service: k8s_dns_service,
         sdp_sidecars: Arc::clone(&sdp_injector_context.sdp_sidecars),
         identity_store: sdp_injector_context.identity_store.lock().await,
     };
-    let body = from_utf8(&body).map(|s| s.to_string())?;
+    let body = from_utf8(&body).map(|s| s.to_string())
+        .map_err(SDPServiceError::from_error("Unable to parse request body"))?;
     let admission_review = serde_json::from_str::<AdmissionReview<DynamicObject>>(&body)?;
     match admission_review
         .request
@@ -746,33 +745,29 @@ async fn mutate<E: IdentityStore<ServiceIdentity>>(
     {
         Some("pods") => {
             let admission_response;
-            let admission_review: AdmissionReview<Pod> = serde_json::from_str(&body)?;
-            let admission_request: AdmissionRequest<Pod> = admission_review.try_into()?;
-            if let Ok(service_id) = admission_request.service_id() {
-                info!("Patching POD for service {}", service_id);
-                admission_response = patch_pod(admission_request, sdp_patch_context).await?;
-                Ok(Body::from(serde_json::to_string(&admission_response)?))
-            } else {
-                Err(Box::<dyn Error>::from("Unable to find service id for Pod"))
-            }
+            let admission_review: AdmissionReview<Pod> = serde_json::from_str(&body).
+                map_err(SDPServiceError::from_error("Unable to parse AdmissionReview<Pod>"))?;
+            let admission_request: AdmissionRequest<Pod> = admission_review.try_into()
+                .map_err(SDPServiceError::from_error("Unable to parse AdmissionRequest<Pod>"))?;
+            let service_id = admission_request.service_id()?;
+            admission_response = patch_pod(admission_request, sdp_patch_context).await?;
+            Ok(Body::from(serde_json::to_string(&admission_response)
+                .map_err(SDPServiceError::from_error("Unable to serialize body response"))?))
         }
         Some("deployments") => {
-            let admission_review: AdmissionReview<Deployment> = serde_json::from_str(&body)?;
-            let admission_request: AdmissionRequest<Deployment> = admission_review.try_into()?;
-            if let Ok(service_id) = admission_request.service_id() {
-                info!("Patching Deployment: {}", service_id);
-                let admission_response = patch_deployment(admission_request).await?;
-                Ok(Body::from(serde_json::to_string(&admission_response)?))
-            } else {
-                Err(Box::<dyn Error>::from(
-                    "Unable to find service id for Deploument",
-                ))
-            }
+            let admission_review: AdmissionReview<Deployment> = serde_json::from_str(&body)
+                .map_err(SDPServiceError::from_error("Unable to parse AdmissionReview<Deployment>"))?;
+            let admission_request: AdmissionRequest<Deployment> = admission_review.try_into()
+            .map_err(SDPServiceError::from_error("Unable to parse AdmissionReview<Deployment>"))?;
+            let service_id = admission_request.service_id()?;
+            let admission_response = patch_deployment(admission_request).await?;
+            Ok(Body::from(serde_json::to_string(&admission_response)
+                .map_err(SDPServiceError::from_error("Unable to serialize body response"))?))
         }
         _ => {
             let err_str = "Unknown resource to patch";
             error!("{}", err_str);
-            let err = Box::<dyn Error>::from(err_str.to_string());
+            let err = SDPServiceError::from(err_str);
             Err(err)
         }
     }
