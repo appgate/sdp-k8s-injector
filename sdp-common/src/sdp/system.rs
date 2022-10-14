@@ -18,8 +18,6 @@ const SDP_SYSTEM_PASSWORD_ENV: &str = "SDP_K8S_PASSWORD";
 const SDP_SYSTEM_PASSWORD_DEFAULT: &str = "admin";
 const SDP_SYSTEM_PROVIDER_ENV: &str = "SDP_K8S_PROVIDER";
 const SDP_SYSTEM_PROVIDER_DEFAULT: &str = "local";
-pub const SDP_SYSTEM_TAG_ENV: &str = "SDP_K8S_TAG";
-pub const SDP_SYSTEM_TAG_DEFAULT: &str = "k8s";
 
 pub fn get_sdp_system() -> System {
     let hosts = std::env::var(SDP_SYSTEM_HOSTS)

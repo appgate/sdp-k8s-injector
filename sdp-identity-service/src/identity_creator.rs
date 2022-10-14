@@ -10,9 +10,7 @@ use log::{error, info, warn};
 use sdp_common::constants::{IDENTITY_MANAGER_SECRET_NAME, SDP_CLUSTER_ID_ENV, SDP_IDP_NAME};
 use sdp_common::kubernetes::SDP_K8S_NAMESPACE;
 use sdp_common::sdp::auth::SDPUser;
-use sdp_common::sdp::system::{
-    ClientProfile, ClientProfileUrl, System, SDP_SYSTEM_TAG_DEFAULT, SDP_SYSTEM_TAG_ENV,
-};
+use sdp_common::sdp::system::{ClientProfile, ClientProfileUrl, System};
 use sdp_common::service::{get_profile_client_url_name, get_service_username, ServiceUser};
 use tokio::sync::mpsc::{Receiver, Sender};
 
