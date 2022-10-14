@@ -43,44 +43,43 @@ async fn get_or_create_client_profile_url(
     cluster_id: &str,
 ) -> Result<ClientProfileUrl, IdentityServiceError> {
     // Create ClientProfile if needed
-    let tag = std::env::var(SDP_SYSTEM_TAG_ENV).unwrap_or(SDP_SYSTEM_TAG_DEFAULT.to_string());
+    let profile_name = get_profile_client_url_name(cluster_id);
     let ps = system
-        .get_client_profiles(Some(&tag))
+        .get_client_profiles(None)
         .await
         .map_err(|e| format!("Unable to get client profiles: {}", e.to_string()))?;
-    let psn = ps.len();
-    let mut p: ClientProfile;
-    if psn > 0 {
-        p = ps[0].clone();
-        if psn > 1 {
+    let (profile_id, profile_name) = match ps.iter().filter(|p| p.name == profile_name).next() {
+        Some(p) => (p.id.clone(), p.name.clone()),
+        None => {
             warn!(
-                "Seems there are defined more than one service client profile with the tag {}",
-                tag
+                "We could not find any client profile url for this cluster with name {}, creating a new one",
+                profile_name
             );
-            warn!("First one found will be used: {}", p.name);
+            let spa_key_name = profile_name.replace(" ", "").to_lowercase();
+            let p = ClientProfile {
+                id: uuid::Uuid::new_v4().to_string(),
+                name: get_profile_client_url_name(cluster_id),
+                spa_key_name: spa_key_name,
+                identity_provider_name: SDP_IDP_NAME.to_string(),
+                tags: vec![],
+            };
+            let p = system
+                .create_client_profile(&p)
+                .await
+                .map_err(|e| format!("Unable to create a new client profile: {}", e))?;
+            (p.id, p.name)
         }
-    } else {
-        let profile_name = "K8S Service Profile".to_string();
-        let spa_key_name = profile_name.replace(" ", "").to_lowercase();
-        p = ClientProfile {
-            id: uuid::Uuid::new_v4().to_string(),
-            name: get_profile_client_url_name(cluster_id),
-            spa_key_name: spa_key_name,
-            identity_provider_name: SDP_IDP_NAME.to_string(),
-            tags: vec![tag],
-        };
-        p = system
-            .create_client_profile(&p)
-            .await
-            .map_err(|e| format!("Unable to create a new client profile: {}", e))?;
-    }
-    system.get_profile_client_url(&p.id).await.map_err(|e| {
-        IdentityServiceError::from(format!(
-            "Unable to get the client profile url for client profile {}: {}",
-            p.name,
-            e.to_string()
-        ))
-    })
+    };
+    system
+        .get_profile_client_url(&profile_id)
+        .await
+        .map_err(|e| {
+            IdentityServiceError::from(format!(
+                "Unable to get the client profile url for client profile {}: {}",
+                profile_name,
+                e.to_string()
+            ))
+        })
 }
 
 impl IdentityCreator {
