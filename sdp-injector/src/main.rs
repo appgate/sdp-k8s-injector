@@ -896,7 +896,7 @@ mod tests {
     use kube::core::admission::AdmissionReview;
     use kube::core::ObjectMeta;
     use sdp_common::crd::{DeviceId, DeviceIdSpec, ServiceIdentity, ServiceIdentitySpec};
-    use sdp_common::service::{init_containers, ServiceUser};
+    use sdp_common::service::{init_containers, ServiceUser, SDP_INJECTOR_ANNOTATION_ENABLED};
     use sdp_common::traits::{Annotated, Candidate, Named, Namespaced, ObjectRequest, Service};
     use sdp_macros::{service_device_ids, service_identity, service_user};
     use sdp_test_macros::{pod, set_pod_field};
@@ -1317,7 +1317,7 @@ POD is missing needed volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-de
         assert!(!pod.is_candidate());
         let pod = pod!(0, annotations => vec![("sdp-injector", "false")]);
         assert!(!pod.is_candidate());
-        let pod = pod!(0, annotations => vec![("sdp-injector", "enabled")]);
+        let pod = pod!(0, annotations => vec![(SDP_INJECTOR_ANNOTATION_ENABLED, "true")]);
         assert!(pod.is_candidate());
     }
 

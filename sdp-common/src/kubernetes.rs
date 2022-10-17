@@ -10,7 +10,7 @@ use log::error;
 
 use crate::{
     errors::SDPServiceError,
-    service::{is_injection_disabled, SDP_INJECTOR_ANNOTATION},
+    service::needs_injection,
     traits::{Annotated, Candidate, Labeled, Named, Namespaced, ObjectRequest, Service},
 };
 
@@ -83,9 +83,7 @@ impl Labeled for Pod {
 
 impl Candidate for Pod {
     fn is_candidate(&self) -> bool {
-        Annotated::annotation(self, SDP_INJECTOR_ANNOTATION)
-            .map(|v| v.eq("enabled"))
-            .unwrap_or(false)
+        needs_injection(self)
     }
 }
 
@@ -115,9 +113,7 @@ impl Annotated for Pod {
 
 impl Candidate for Deployment {
     fn is_candidate(&self) -> bool {
-        // All deployments in NS labelled for injector are candidates unless
-        // explicitly the injection is disabled
-        !is_injection_disabled(self)
+        needs_injection(self)
     }
 }
 
@@ -264,5 +260,63 @@ impl Candidate for AdmissionRequest<Deployment> {
         self.object()
             .map(|deployment| deployment.is_candidate())
             .unwrap_or(false)
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use k8s_openapi::api::core::v1::Pod;
+    use sdp_test_macros::{pod, set_pod_field};
+    use std::collections::BTreeMap;
+
+    use crate::{
+        service::{SDP_INJECTOR_ANNOTATION_ENABLED, SDP_INJECTOR_ANNOTATION_STRATEGY},
+        traits::Candidate,
+    };
+
+    #[test]
+    fn test_sdp_injection_enabled() {
+        assert!((!&pod!(0).is_candidate()));
+        assert!(!&pod!(0, annotations => vec![
+            (SDP_INJECTOR_ANNOTATION_STRATEGY, ""),
+        ])
+        .is_candidate());
+        assert!(&pod!(0, annotations => vec![
+            (SDP_INJECTOR_ANNOTATION_STRATEGY, "enabledByDefault"),
+        ])
+        .is_candidate());
+        assert!(&pod!(0, annotations => vec![
+            (SDP_INJECTOR_ANNOTATION_STRATEGY, "enabledByDefault"),
+            (SDP_INJECTOR_ANNOTATION_ENABLED, "true")
+        ])
+        .is_candidate());
+        assert!(!&pod!(0, annotations => vec![
+            (SDP_INJECTOR_ANNOTATION_ENABLED, "false")
+        ])
+        .is_candidate());
+        assert!(!&pod!(0, annotations => vec![
+            (SDP_INJECTOR_ANNOTATION_STRATEGY, ""),
+            (SDP_INJECTOR_ANNOTATION_ENABLED, "false")
+        ])
+        .is_candidate());
+        assert!(!&pod!(0, annotations => vec![
+            (SDP_INJECTOR_ANNOTATION_STRATEGY, "enabledByDefault"),
+            (SDP_INJECTOR_ANNOTATION_ENABLED, "false")
+        ])
+        .is_candidate());
+        assert!(&pod!(0, annotations => vec![
+            (SDP_INJECTOR_ANNOTATION_STRATEGY, "disabledByDefault"),
+            (SDP_INJECTOR_ANNOTATION_ENABLED, "true")
+        ])
+        .is_candidate());
+        assert!(!&pod!(0, annotations => vec![
+            (SDP_INJECTOR_ANNOTATION_STRATEGY, "disabledByDefault"),
+        ])
+        .is_candidate());
+        assert!(!&pod!(0, annotations => vec![
+            (SDP_INJECTOR_ANNOTATION_STRATEGY, "disabledByDefault"),
+            (SDP_INJECTOR_ANNOTATION_ENABLED, "false")
+        ])
+        .is_candidate());
     }
 }
