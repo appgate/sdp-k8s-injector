@@ -460,7 +460,6 @@ impl Patched for SDPPod {
         environment: &mut ServiceEnvironment,
         request: R,
     ) -> Result<Patch, Box<dyn Error>> {
-        // Fill # of contaienrs
         let pod = request
             .object()
             .ok_or("POD not found in admission request")?;
