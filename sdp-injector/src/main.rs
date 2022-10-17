@@ -50,7 +50,11 @@ use uuid::Uuid;
 
 use crate::deviceid::{DeviceIdProvider, DeviceIdProviderRequestProtocol};
 use crate::watchers::{watch, Watcher};
-use sdp_common::service::{containers, init_containers, volume_names, volumes, ServiceIdentity};
+use sdp_common::service::{
+    containers, init_containers, volume_names, volumes, SDPInjectionStrategy, ServiceIdentity,
+    SDP_INJECTOR_ANNOTATION_ENABLED, SDP_INJECTOR_ANNOTATION_STRATEGY,
+};
+
 const SDP_K8S_HOST_ENV: &str = "SDP_K8S_HOST";
 const SDP_K8S_HOST_DEFAULT: &str = "kubernetes.default.svc";
 const SDP_K8S_NO_VERIFY_ENV: &str = "SDP_K8S_NO_VERIFY";
@@ -470,6 +474,7 @@ impl Patched for SDPPod {
         environment.k8s_dns_service_ip = self.k8s_dns_service.maybe_ip().map(|s| s.clone());
 
         let mut patches = vec![];
+
         if self.needs_patching(&request) {
             let k8s_dns_ip = self
                 .k8s_dns_service
@@ -479,20 +484,33 @@ impl Patched for SDPPod {
                 .annotation(SDP_ANNOTATION_DNS_SEARCHES)
                 .map(|s| searches_string_to_vec(s.to_string()));
             let dns_config = &self.sdp_sidecars.dns_config(&ns, custom_searches);
-            patches = vec![
-                Add(AddOperation {
+            if pod.annotations().is_none() {
+                patches.push(Add(AddOperation {
                     path: "/metadata/annotations".to_string(),
                     value: serde_json::to_value(HashMap::<String, String>::new())?,
+                }));
+            }
+            patches.extend(vec![
+                Add(AddOperation {
+                    path: format!("/metadata/annotations/{}", SDP_INJECTOR_ANNOTATION_STRATEGY),
+                    value: serde_json::to_value(
+                        pod.annotation(SDP_INJECTOR_ANNOTATION_STRATEGY)
+                            .unwrap_or(&SDPInjectionStrategy::EnabledByDefault.to_string()),
+                    )?,
                 }),
                 Add(AddOperation {
-                    path: "/metadata/annotations/sdp-injection".to_string(),
-                    value: serde_json::to_value("enabled")?,
+                    path: format!("/metadata/annotations/{}", SDP_INJECTOR_ANNOTATION_ENABLED),
+                    value: serde_json::to_value(
+                        pod.annotation(SDP_INJECTOR_ANNOTATION_ENABLED)
+                            .unwrap_or(&format!("true")),
+                    )?,
                 }),
                 Add(AddOperation {
                     path: format!("/metadata/annotations/{}", POD_DEVICE_ID_ANNOTATION),
                     value: serde_json::to_value(&environment.client_device_id)?,
                 }),
-            ];
+            ]);
+
             for c in self.sdp_sidecars.containers.clone().iter_mut() {
                 c.env = Some(environment.variables(&c.name));
                 patches.push(Add(AddOperation {
@@ -703,13 +721,27 @@ async fn patch_deployment(
 ) -> Result<AdmissionReview<DynamicObject>, SDPServiceError> {
     let admission_response = AdmissionResponse::from(&admission_request);
     let mut patches = vec![];
+    let deployment = admission_request
+        .object()
+        .ok_or("Unable to find Deployment inside AdmissionRequest")?;
     patches.push(Add(AddOperation {
-        path: "/metadata/annotations/sdp-injection".to_string(),
-        value: serde_json::to_value("enabled")?,
+        path: format!("/metadata/annotations/{}", SDP_INJECTOR_ANNOTATION_STRATEGY),
+        value: serde_json::to_value(
+            deployment
+                .annotation(SDP_INJECTOR_ANNOTATION_STRATEGY)
+                .unwrap_or(&SDPInjectionStrategy::EnabledByDefault.to_string()),
+        )?,
     }));
     patches.push(Add(AddOperation {
-        path: "/spec/template/metadata/annotations/sdp-injection".to_string(),
-        value: serde_json::to_value("enabled")?,
+        path: format!(
+            "/spec/template/metadata/annotations/{}",
+            SDP_INJECTOR_ANNOTATION_ENABLED
+        ),
+        value: serde_json::to_value(
+            deployment
+                .annotation(SDP_INJECTOR_ANNOTATION_ENABLED)
+                .unwrap_or(&format!("true")),
+        )?,
     }));
     let admission_response = admission_response
         .with_patch(Patch(patches))

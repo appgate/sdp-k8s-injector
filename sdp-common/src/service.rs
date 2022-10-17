@@ -25,6 +25,15 @@ pub enum SDPInjectionStrategy {
     DisabledByDefault,
 }
 
+impl ToString for SDPInjectionStrategy {
+    fn to_string(&self) -> String {
+        match self {
+            SDPInjectionStrategy::EnabledByDefault => "enabledByDefault".to_string(),
+            SDPInjectionStrategy::DisabledByDefault => "disabledByDefault".to_string(),
+        }
+    }
+}
+
 pub struct ServiceLookup {
     name: String,
     namespace: String,
