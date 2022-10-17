@@ -724,6 +724,14 @@ async fn patch_deployment(
     let deployment = admission_request
         .object()
         .ok_or("Unable to find Deployment inside AdmissionRequest")?;
+
+    // Patch Deployment metadata
+    if deployment.annotations().is_none() {
+        patches.push(Add(AddOperation {
+            path: "/metadata/annotations".to_string(),
+            value: serde_json::to_value(HashMap::<String, String>::new())?,
+        }));
+    }
     patches.push(Add(AddOperation {
         path: format!("/metadata/annotations/{}", SDP_INJECTOR_ANNOTATION_STRATEGY),
         value: serde_json::to_value(
@@ -731,7 +739,25 @@ async fn patch_deployment(
                 .annotation(SDP_INJECTOR_ANNOTATION_STRATEGY)
                 .unwrap_or(&SDPInjectionStrategy::EnabledByDefault.to_string()),
         )?,
+        // TODO: This should be coming from NS, not the Deployment
     }));
+    patches.push(Add(AddOperation {
+        path: format!("/metadata/annotations/{}", SDP_INJECTOR_ANNOTATION_ENABLED),
+        value: serde_json::to_value(
+            deployment
+                .annotation(SDP_INJECTOR_ANNOTATION_ENABLED)
+                .unwrap_or(&format!("true")),
+        )?,
+        // TODO: This should be coming from NS, not the Deployment
+    }));
+
+    // Patch Deployment template metadata
+    if deployment.spec.as_ref().and_then(|s| s.template.metadata.as_ref()).is_none() {
+        patches.push(Add(AddOperation {
+            path: "/spec/template/metadata/annotations".to_string(),
+            value: serde_json::to_value(HashMap::<String, String>::new())?,
+        }));
+    }
     patches.push(Add(AddOperation {
         path: format!(
             "/spec/template/metadata/annotations/{}",
@@ -742,6 +768,16 @@ async fn patch_deployment(
                 .annotation(SDP_INJECTOR_ANNOTATION_ENABLED)
                 .unwrap_or(&format!("true")),
         )?,
+        // TODO: This should be coming from NS, not the Deployment
+    }));
+    patches.push(Add(AddOperation {
+        path: format!("/spec/template/metadata/annotations/{}", SDP_INJECTOR_ANNOTATION_ENABLED),
+        value: serde_json::to_value(
+            deployment
+                .annotation(SDP_INJECTOR_ANNOTATION_ENABLED)
+                .unwrap_or(&format!("true")),
+        )?,
+        // TODO: This should be coming from NS, not the Deployment
     }));
     let admission_response = admission_response
         .with_patch(Patch(patches))
