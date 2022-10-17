@@ -33,13 +33,7 @@ pub trait IdentityStore<A: Service + HasCredentials>: Send + Sync {
     fn pop_device_id<'a>(
         &'a mut self,
         service_id: &'a str,
-    ) -> Pin<
-        Box<
-            dyn Future<Output = Result<Option<(ServiceIdentity, Uuid)>, SDPServiceError>>
-                + Send
-                + '_,
-        >,
-    >;
+    ) -> Pin<Box<dyn Future<Output = Result<(ServiceIdentity, Uuid), SDPServiceError>> + Send + '_>>;
 
     fn push_device_id<'a>(
         &'a mut self,
@@ -196,13 +190,8 @@ impl IdentityStore<ServiceIdentity> for InMemoryIdentityStore {
     fn pop_device_id<'a>(
         &'a mut self,
         service_id: &'a str,
-    ) -> Pin<
-        Box<
-            dyn Future<Output = Result<Option<(ServiceIdentity, Uuid)>, SDPServiceError>>
-                + Send
-                + '_,
-        >,
-    > {
+    ) -> Pin<Box<dyn Future<Output = Result<(ServiceIdentity, Uuid), SDPServiceError>> + Send + '_>>
+    {
         let fut = async move {
             let sid = self.identities.get(&service_id.to_string());
             let ds = self.device_ids.get(&service_id.to_string());
@@ -239,7 +228,7 @@ impl IdentityStore<ServiceIdentity> for InMemoryIdentityStore {
                             available_uuids,
                         ),
                     );
-                    Ok(Some((sid.clone(), uuid)))
+                    Ok((sid.clone(), uuid))
                 }
                 _ => {
                     Err(SDPServiceError::from_string(format!("Service {} is not registered ({}) or device ids for service are not registered ({})", service_id, sid.is_none(), ds.is_none())))
@@ -368,17 +357,13 @@ impl DeviceIdProvider<ServiceIdentity> {
                     match val {
                         Some(DeviceIdProviderRequestProtocol::RequestDeviceId(q_tx, service_id)) => {
                             let msg = match self.store.pop_device_id(&service_id).await {
-                                Ok(Some((service_identity, uuid))) =>  {
+                                Ok((service_identity, uuid)) =>  {
                                     info!("Requested device id for service {}", service_id);
                                     Some(DeviceIdProviderResponseProtocol::AssignedDeviceId(service_identity.clone(), uuid))
                                 },
-                                Ok(None) => {
-                                    warn!("Requested device id for service {} not found", service_id);
-                                    Some(DeviceIdProviderResponseProtocol::NotFound)
-                                },
                                 Err(e) => {
                                     error!("Error assigning devide id: {}", e.to_string());
-                                    None
+                                    Some(DeviceIdProviderResponseProtocol::NotFound)
                                 }
                             };
                             if let Some(msg) = msg {

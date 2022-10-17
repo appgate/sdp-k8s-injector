@@ -131,13 +131,8 @@ impl IdentityStore<ServiceIdentity> for KubeIdentityStore {
     fn pop_device_id<'a>(
         &'a mut self,
         service_id: &'a str,
-    ) -> Pin<
-        Box<
-            dyn Future<Output = Result<Option<(ServiceIdentity, Uuid)>, SDPServiceError>>
-                + Send
-                + '_,
-        >,
-    > {
+    ) -> Pin<Box<dyn Future<Output = Result<(ServiceIdentity, Uuid), SDPServiceError>> + Send + '_>>
+    {
         let fut = async move {
             let (q_tx, mut q_rx) = channel::<DeviceIdProviderResponseProtocol<ServiceIdentity>>(1);
             self.device_id_q_tx
@@ -151,10 +146,17 @@ impl IdentityStore<ServiceIdentity> for KubeIdentityStore {
                 Ok(Some(DeviceIdProviderResponseProtocol::AssignedDeviceId(
                     service_identity,
                     device_id,
-                ))) => Ok(Some((service_identity, device_id))),
-                Ok(Some(DeviceIdProviderResponseProtocol::NotFound)) => Ok(None),
-                Ok(None) => Ok(None),
-                Err(e) => Err(SDPServiceError::from_string(e.to_string())),
+                ))) => Ok((service_identity, device_id)),
+                Ok(Some(DeviceIdProviderResponseProtocol::NotFound)) | Ok(None) => {
+                    Err(SDPServiceError::from_string(format!(
+                        "Device id not found for service {}",
+                        service_id
+                    )))
+                }
+                Err(e) => Err(SDPServiceError::from_string(format!(
+                    "Error getting device id for service {}: {}",
+                    service_id, e
+                ))),
             }
         };
         Box::pin(fut)
@@ -298,13 +300,13 @@ impl ServiceEnvironment {
     async fn create<'a, E, R>(
         request: &R,
         store: MutexGuard<'a, E>,
-    ) -> Result<Option<Self>, SDPServiceError>
+    ) -> Result<Self, SDPServiceError>
     where
         E: IdentityStore<ServiceIdentity>,
         R: ObjectRequest<Pod> + Service + Annotated,
     {
         if let Some(e) = ServiceEnvironment::from_pod(request)? {
-            Ok(Some(e))
+            Ok(e)
         } else {
             ServiceEnvironment::from_identity_store(request, store).await
         }
@@ -317,33 +319,29 @@ impl ServiceEnvironment {
     >(
         request: &R,
         mut store: MutexGuard<'a, E>,
-    ) -> Result<Option<Self>, SDPServiceError> {
+    ) -> Result<Self, SDPServiceError> {
         let service_id = request.service_id()?;
-        match store.pop_device_id(&service_id).await {
-            Ok(Some((s, d))) => {
-                let (user_field, password_field, profile_field) =
-                    s.spec.service_user.secrets_field_names(true);
-                let secrets_name = s
-                    .credentials()
-                    .secrets_name(&s.spec.service_namespace, &s.spec.service_name);
-                let config_name = s
-                    .credentials()
-                    .config_name(&s.spec.service_namespace, &s.spec.service_name);
-                Ok(Some(ServiceEnvironment {
-                    service_name: service_id,
-                    client_config: config_name,
-                    client_secret_name: secrets_name,
-                    client_secret_controller_url_key: profile_field,
-                    client_secret_pwd_key: password_field,
-                    client_secret_user_key: user_field,
-                    client_device_id: d.to_string(),
-                    n_containers: "0".to_string(),
-                    k8s_dns_service_ip: None,
-                }))
+        store.pop_device_id(&service_id).await.map(|(s, d)| {
+            let (user_field, password_field, profile_field) =
+                s.spec.service_user.secrets_field_names(true);
+            let secrets_name = s
+                .credentials()
+                .secrets_name(&s.spec.service_namespace, &s.spec.service_name);
+            let config_name = s
+                .credentials()
+                .config_name(&s.spec.service_namespace, &s.spec.service_name);
+            ServiceEnvironment {
+                service_name: service_id,
+                client_config: config_name,
+                client_secret_name: secrets_name,
+                client_secret_controller_url_key: profile_field,
+                client_secret_pwd_key: password_field,
+                client_secret_user_key: user_field,
+                client_device_id: d.to_string(),
+                n_containers: "0".to_string(),
+                k8s_dns_service_ip: None,
             }
-            Ok(None) => Ok(None),
-            Err(e) => Err(e),
-        }
+        })
     }
 
     // TODO: should we check that the service_id is registered?
@@ -355,7 +353,6 @@ impl ServiceEnvironment {
             .object()
             .ok_or_else(|| "POD not found in the request")?;
         let service_id = request.service_id()?;
-        println!("service_id: {}", service_id);
         let service_name = pod.service_name().unwrap();
         let config = pod.annotation(SDP_ANNOTATION_CLIENT_CONFIG);
         let secret = pod.annotation(SDP_ANNOTATION_CLIENT_SECRETS);
@@ -730,16 +727,14 @@ async fn patch_pod<'a, E: IdentityStore<ServiceIdentity>>(
         k8s_dns_service: sdp_patch_context.k8s_dns_service,
     };
     let mut admission_response = AdmissionResponse::from(&admission_request);
-
     when_ok!((service_id = admission_request.service_id()) {
         // Try to get the service environment and use it to patch the POD
         let mut environment =
             ServiceEnvironment::create(&admission_request, sdp_patch_context.identity_store).await?;
-        match environment
-            .as_mut()
-            .map(|mut env| sdp_pod.patch(&mut env, admission_request))
+
+        match sdp_pod.patch(&mut environment, admission_request)
         {
-            Some(Ok(patch)) => {
+            Ok(patch) => {
                 info!(
                     "POD for service {} has {} patches",
                     service_id,
@@ -747,7 +742,7 @@ async fn patch_pod<'a, E: IdentityStore<ServiceIdentity>>(
                 );
                 admission_response = admission_response.with_patch(patch).map_err(|e| format!("Error serializing JSONPatch: {}", e))?
             }
-            Some(Err(error)) => {
+            Err(error) => {
                 warn!(
                     "Unable to patch POD for service {}: {}",
                     service_id,
@@ -756,18 +751,6 @@ async fn patch_pod<'a, E: IdentityStore<ServiceIdentity>>(
                 let mut status: Status = Default::default();
                 status.code = Some(400);
                 status.message = Some(format!("This POD can not be patched {}", error));
-                admission_response.allowed = false;
-                admission_response.result = status;
-            }
-            None => {
-                warn!(
-                    "Unable to patch POD for service {}. Service is not registered, trying later.",
-                    service_id
-                );
-                let mut status: Status = Default::default();
-                status.code = Some(503);
-                status.message =
-                    Some("Unable to find ServiceIdentity for this pod, retry later".to_string());
                 admission_response.allowed = false;
                 admission_response.result = status;
             }
@@ -1574,9 +1557,6 @@ POD is missing needed volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-de
                 .await
                 .expect(
                     format!("Unable to create ServiceEnvironment from POD {}", &pod_name).as_str(),
-                )
-                .expect(
-                    format!("Unable to create ServiceEnvironment from POD {}", &pod_name).as_str(),
                 );
             let needs_patching = sdp_pod.is_candidate(&request);
             let patch = sdp_pod.patch(&mut env, request);
@@ -1808,8 +1788,7 @@ POD is missing needed volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-de
 
         let env = ServiceEnvironment::from_identity_store(&request, store.lock().await).await;
         assert!(env.is_ok());
-        assert!(env.as_ref().unwrap().is_some());
-        if let Ok(Some(env)) = env {
+        if let Ok(env) = env {
             assert_eq!(
                 env.service_name,
                 pod.service_id().expect("Unable to get service id from Pod")
@@ -2014,8 +1993,7 @@ POD is missing needed volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-de
                 let env =
                     ServiceEnvironment::from_identity_store(&request, store3.lock().await).await;
                 assert!(env.is_ok());
-                assert!(env.as_ref().unwrap().is_some());
-                if let Ok(Some(env)) = env {
+                if let Ok(env) = env {
                     assert_eq!(env.service_name, "ns1_srv1".to_string());
                     assert_eq!(env.client_config, "ns1-srv1-service-config");
                     assert_eq!(env.client_secret_name, "ns1-srv1-service-user");
