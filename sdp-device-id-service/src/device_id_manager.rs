@@ -428,11 +428,9 @@ mod tests {
 
     macro_rules! test_device_id_manager {
         (($dm:ident($vs:expr), $queue_rx:ident, $manager_tx:ident, $watcher_rx:ident, $counters:ident) => $e:expr) => {
-            let ($manager_tx, manager_rx) =
-                channel::<DeviceIdManagerProtocol<ServiceIdentity>>(10);
+            let ($manager_tx, manager_rx) = channel::<DeviceIdManagerProtocol<ServiceIdentity>>(10);
             let (watcher_tx, $watcher_rx) = channel::<ServiceIdentityWatcherProtocol>(10);
-            let (queue_tx, mut $queue_rx) =
-                channel::<DeviceIdManagerProtocol<ServiceIdentity>>(10);
+            let (queue_tx, mut $queue_rx) = channel::<DeviceIdManagerProtocol<ServiceIdentity>>(10);
 
             let mut $dm = new_test_device_id_manager();
             for device_id in $vs.clone() {

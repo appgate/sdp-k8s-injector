@@ -131,16 +131,22 @@ impl IdentityStore<ServiceIdentity> for KubeIdentityStore {
     fn pop_device_id<'a>(
         &'a mut self,
         service_id: &'a str,
-    ) -> Pin<Box<dyn Future<Output = Result<Option<(ServiceIdentity, Uuid)>, SDPServiceError>> + Send + '_>> {
-    let fut = async move {
+    ) -> Pin<
+        Box<
+            dyn Future<Output = Result<Option<(ServiceIdentity, Uuid)>, SDPServiceError>>
+                + Send
+                + '_,
+        >,
+    > {
+        let fut = async move {
             let (q_tx, mut q_rx) = channel::<DeviceIdProviderResponseProtocol<ServiceIdentity>>(1);
-            self
-                .device_id_q_tx
+            self.device_id_q_tx
                 .send(DeviceIdProviderRequestProtocol::RequestDeviceId(
                     q_tx,
                     service_id.to_string(),
                 ))
-                .await.map_err(|e| format!("Error sending message to request device id: {}", e))?;
+                .await
+                .map_err(|e| format!("Error sending message to request device id: {}", e))?;
             match timeout(Duration::from_secs(5), q_rx.recv()).await {
                 Ok(Some(DeviceIdProviderResponseProtocol::AssignedDeviceId(
                     service_identity,
@@ -157,30 +163,62 @@ impl IdentityStore<ServiceIdentity> for KubeIdentityStore {
     fn register_service(
         &mut self,
         _service: ServiceIdentity,
-    ) -> Pin<Box<dyn Future<Output = Result<Option<ServiceIdentity>, SDPServiceError>> + Send + '_>> {
-        Box::pin(async move { Err(SDPServiceError::from("Registry does not support register of service identities")) })
+    ) -> Pin<Box<dyn Future<Output = Result<Option<ServiceIdentity>, SDPServiceError>> + Send + '_>>
+    {
+        Box::pin(async move {
+            Err(SDPServiceError::from(
+                "Registry does not support register of service identities",
+            ))
+        })
     }
 
     fn register_device_ids(
         &mut self,
         _device_id: DeviceId,
-    ) -> Pin<Box<dyn Future<Output = Result<Option<RegisteredDeviceId>, SDPServiceError>> + Send + '_>> {
-        Box::pin(async move { Err(SDPServiceError::from("Registry does not support register of device ids")) })
+    ) -> Pin<
+        Box<dyn Future<Output = Result<Option<RegisteredDeviceId>, SDPServiceError>> + Send + '_>,
+    > {
+        Box::pin(async move {
+            Err(SDPServiceError::from(
+                "Registry does not support register of device ids",
+            ))
+        })
     }
 
     fn unregister_device_ids<'a>(
         &'a mut self,
         _device_id: &'a str,
-    ) -> Pin<Box<dyn Future<Output = Result<Option<(ServiceIdentity, RegisteredDeviceId)>, SDPServiceError>> + Send + '_>>
-    {
-        Box::pin(async move { Err(SDPServiceError::from("Registry does not support unregister if device ids")) })
+    ) -> Pin<
+        Box<
+            dyn Future<
+                    Output = Result<Option<(ServiceIdentity, RegisteredDeviceId)>, SDPServiceError>,
+                > + Send
+                + '_,
+        >,
+    > {
+        Box::pin(async move {
+            Err(SDPServiceError::from(
+                "Registry does not support unregister if device ids",
+            ))
+        })
     }
 
     fn unregister_service<'a>(
         &'a mut self,
-        service_id: &'a str,
-    ) -> Pin<Box<dyn Future<Output = Result<Option<(ServiceIdentity, RegisteredDeviceId)>, SDPServiceError>> + Send + '_>> {
-        Box::pin(async move { Err(SDPServiceError::from("Registry does not support unregister if service identities")) })
+        _service_id: &'a str,
+    ) -> Pin<
+        Box<
+            dyn Future<
+                    Output = Result<Option<(ServiceIdentity, RegisteredDeviceId)>, SDPServiceError>,
+                > + Send
+                + '_,
+        >,
+    > {
+        Box::pin(async move {
+            Err(SDPServiceError::from(
+                "Registry does not support unregister if service identities",
+            ))
+        })
     }
 
     fn push_device_id<'a>(
@@ -188,7 +226,11 @@ impl IdentityStore<ServiceIdentity> for KubeIdentityStore {
         _service_id: &'a str,
         _uuid: Uuid,
     ) -> Pin<Box<dyn Future<Output = Result<Option<Uuid>, SDPServiceError>> + Send + '_>> {
-        Box::pin(async move { Err(SDPServiceError::from("Registry does not support regitery device ids")) })
+        Box::pin(async move {
+            Err(SDPServiceError::from(
+                "Registry does not support regitery device ids",
+            ))
+        })
     }
 }
 
@@ -253,15 +295,17 @@ struct ServiceEnvironment {
 }
 
 impl ServiceEnvironment {
-    async fn create<'a, E, R>(request: &R, store: MutexGuard<'a, E>) -> Result<Option<Self>, SDPServiceError>
+    async fn create<'a, E, R>(
+        request: &R,
+        store: MutexGuard<'a, E>,
+    ) -> Result<Option<Self>, SDPServiceError>
     where
         E: IdentityStore<ServiceIdentity>,
         R: ObjectRequest<Pod> + Service + Annotated,
     {
         if let Some(e) = ServiceEnvironment::from_pod(request)? {
             Ok(Some(e))
-        }
-        else {
+        } else {
             ServiceEnvironment::from_identity_store(request, store).await
         }
     }
@@ -277,8 +321,8 @@ impl ServiceEnvironment {
         let service_id = request.service_id()?;
         match store.pop_device_id(&service_id).await {
             Ok(Some((s, d))) => {
-                let (user_field, password_field, profile_field) = s.spec.service_user.secrets_field_names(true);
-                let service_identity_id = s.service_id()?;
+                let (user_field, password_field, profile_field) =
+                    s.spec.service_user.secrets_field_names(true);
                 let secrets_name = s
                     .credentials()
                     .secrets_name(&s.spec.service_namespace, &s.spec.service_name);
@@ -296,17 +340,22 @@ impl ServiceEnvironment {
                     n_containers: "0".to_string(),
                     k8s_dns_service_ip: None,
                 }))
-            },
+            }
             Ok(None) => Ok(None),
-            Err(e) => Err(e)
+            Err(e) => Err(e),
         }
     }
 
-    // TODO: should we check that the service_id is registered? 
+    // TODO: should we check that the service_id is registered?
     // We dont want to inject pods that are not registered
-    fn from_pod<R: ObjectRequest<Pod> + Service + Annotated>(request: &R) -> Result<Option<Self>, SDPServiceError> {
-        let pod = request.object().ok_or_else(|| "POD not found in the request")?;
-        let service_id = request.service_id()?; 
+    fn from_pod<R: ObjectRequest<Pod> + Service + Annotated>(
+        request: &R,
+    ) -> Result<Option<Self>, SDPServiceError> {
+        let pod = request
+            .object()
+            .ok_or_else(|| "POD not found in the request")?;
+        let service_id = request.service_id()?;
+        println!("service_id: {}", service_id);
         let service_name = pod.service_name().unwrap();
         let config = pod.annotation(SDP_ANNOTATION_CLIENT_CONFIG);
         let secret = pod.annotation(SDP_ANNOTATION_CLIENT_SECRETS);
@@ -650,7 +699,9 @@ async fn patch_deployment(
         path: "/spec/template/metadata/annotations/sdp-injection".to_string(),
         value: serde_json::to_value("enabled")?,
     }));
-    let admission_response = admission_response.with_patch(Patch(patches))?;
+    let admission_response = admission_response
+        .with_patch(Patch(patches))
+        .map_err(SDPServiceError::from_error("Unable to patch deployment"))?;
     Ok(admission_response.into_review())
 }
 
@@ -735,9 +786,12 @@ async fn mutate<E: IdentityStore<ServiceIdentity>>(
         sdp_sidecars: Arc::clone(&sdp_injector_context.sdp_sidecars),
         identity_store: sdp_injector_context.identity_store.lock().await,
     };
-    let body = from_utf8(&body).map(|s| s.to_string())
+    let body = from_utf8(&body)
+        .map(|s| s.to_string())
         .map_err(SDPServiceError::from_error("Unable to parse request body"))?;
-    let admission_review = serde_json::from_str::<AdmissionReview<DynamicObject>>(&body)?;
+    let admission_review = serde_json::from_str::<AdmissionReview<DynamicObject>>(&body).map_err(
+        SDPServiceError::from_error("Unable to parse AdmissionReview<DynamicObject>"),
+    )?;
     match admission_review
         .request
         .as_ref()
@@ -745,24 +799,38 @@ async fn mutate<E: IdentityStore<ServiceIdentity>>(
     {
         Some("pods") => {
             let admission_response;
-            let admission_review: AdmissionReview<Pod> = serde_json::from_str(&body).
-                map_err(SDPServiceError::from_error("Unable to parse AdmissionReview<Pod>"))?;
-            let admission_request: AdmissionRequest<Pod> = admission_review.try_into()
-                .map_err(SDPServiceError::from_error("Unable to parse AdmissionRequest<Pod>"))?;
-            let service_id = admission_request.service_id()?;
+            let admission_review: AdmissionReview<Pod> = serde_json::from_str(&body).map_err(
+                SDPServiceError::from_error("Unable to parse AdmissionReview<Pod>"),
+            )?;
+            let admission_request: AdmissionRequest<Pod> =
+                admission_review
+                    .try_into()
+                    .map_err(SDPServiceError::from_error(
+                        "Unable to parse AdmissionRequest<Pod>",
+                    ))?;
             admission_response = patch_pod(admission_request, sdp_patch_context).await?;
-            Ok(Body::from(serde_json::to_string(&admission_response)
-                .map_err(SDPServiceError::from_error("Unable to serialize body response"))?))
+            Ok(Body::from(
+                serde_json::to_string(&admission_response).map_err(SDPServiceError::from_error(
+                    "Unable to serialize body response",
+                ))?,
+            ))
         }
         Some("deployments") => {
             let admission_review: AdmissionReview<Deployment> = serde_json::from_str(&body)
-                .map_err(SDPServiceError::from_error("Unable to parse AdmissionReview<Deployment>"))?;
-            let admission_request: AdmissionRequest<Deployment> = admission_review.try_into()
-            .map_err(SDPServiceError::from_error("Unable to parse AdmissionReview<Deployment>"))?;
-            let service_id = admission_request.service_id()?;
+                .map_err(SDPServiceError::from_error(
+                    "Unable to parse AdmissionReview<Deployment>",
+                ))?;
+            let admission_request: AdmissionRequest<Deployment> = admission_review
+                .try_into()
+                .map_err(SDPServiceError::from_error(
+                    "Unable to parse AdmissionReview<Deployment>",
+                ))?;
             let admission_response = patch_deployment(admission_request).await?;
-            Ok(Body::from(serde_json::to_string(&admission_response)
-                .map_err(SDPServiceError::from_error("Unable to serialize body response"))?))
+            Ok(Body::from(
+                serde_json::to_string(&admission_response).map_err(SDPServiceError::from_error(
+                    "Unable to serialize body response",
+                ))?,
+            ))
         }
         _ => {
             let err_str = "Unknown resource to patch";
@@ -1492,16 +1560,21 @@ POD is missing needed volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-de
                 .lock()
                 .await
                 .register_service(service_identity!(n))
-                .await;
+                .await
+                .expect("Unable to register service identity");
             identity_storage
                 .lock()
                 .await
                 .register_device_ids(service_device_ids!(n))
-                .await;
+                .await
+                .expect("Unable to register device id");
 
             let request = TestObjectRequest::new(pod.clone());
             let mut env = ServiceEnvironment::create(&request, identity_storage.lock().await)
                 .await
+                .expect(
+                    format!("Unable to create ServiceEnvironment from POD {}", &pod_name).as_str(),
+                )
                 .expect(
                     format!("Unable to create ServiceEnvironment from POD {}", &pod_name).as_str(),
                 );
@@ -1546,12 +1619,14 @@ POD is missing needed volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-de
                 .lock()
                 .await
                 .register_service(service_identity!(n))
-                .await;
+                .await
+                .expect("Unable to register service identity");
             identity_storage
                 .lock()
                 .await
                 .register_device_ids(service_device_ids!(n))
-                .await;
+                .await
+                .expect("Unable to register device id");
         }
 
         let mut results: Vec<TestResult> = vec![];
@@ -1712,15 +1787,29 @@ POD is missing needed volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-de
         let store = Mutex::new(InMemoryIdentityStore::default());
         let request = TestObjectRequest::new(pod.clone());
         let env = ServiceEnvironment::from_identity_store(&request, store.lock().await).await;
-        assert!(env.is_none());
+        assert!(env.is_err());
+        if let Err(e) = env {
+            assert_eq!(e.error, "Service ns1_srv1 is not registered (true) or device ids for service are not registered (true)");
+        }
         let id = service_identity!(1);
         let ds = service_device_ids!(1);
-        store.lock().await.register_service(id).await;
-        store.lock().await.register_device_ids(ds).await;
+        store
+            .lock()
+            .await
+            .register_service(id)
+            .await
+            .expect("Unable to register service identity");
+        store
+            .lock()
+            .await
+            .register_device_ids(ds)
+            .await
+            .expect("Unable to register device ids");
 
         let env = ServiceEnvironment::from_identity_store(&request, store.lock().await).await;
-        assert!(env.is_some());
-        if let Some(env) = env {
+        assert!(env.is_ok());
+        assert!(env.as_ref().unwrap().is_some());
+        if let Ok(Some(env)) = env {
             assert_eq!(
                 env.service_name,
                 pod.service_id().expect("Unable to get service id from Pod")
@@ -1824,16 +1913,17 @@ POD is missing needed volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-de
         let mut pod = test_pod!(0);
         let request = TestObjectRequest::new(pod);
         let mut env = ServiceEnvironment::from_pod(&request);
-        assert!(env.is_none());
-
+        assert!(env.is_ok());
+        assert!(env.as_ref().unwrap().is_none());
         pod = test_pod!(0, annotations => vec![
             (SDP_ANNOTATION_CLIENT_SECRETS, "some-secrets"),
             (SDP_ANNOTATION_CLIENT_CONFIG, "some-config-map")
         ]);
         let request = TestObjectRequest::new(pod);
         env = ServiceEnvironment::from_pod(&request);
-        assert!(env.is_some());
-        if let Some(env) = env {
+        assert!(env.is_ok());
+        assert!(env.as_ref().unwrap().is_some());
+        if let Ok(Some(env)) = env {
             assert_eq!(env.service_name, "ns0_srv0".to_string());
             assert_eq!(env.client_config, "some-config-map".to_string());
             assert_eq!(env.client_secret_name, "some-secrets".to_string());
@@ -1852,8 +1942,9 @@ POD is missing needed volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-de
         ]);
         let request = TestObjectRequest::new(pod);
         env = ServiceEnvironment::from_pod(&request);
-        assert!(env.is_some());
-        if let Some(env) = env {
+        assert!(env.is_ok());
+        assert!(env.as_ref().unwrap().is_some());
+        if let Ok(Some(env)) = env {
             assert_eq!(env.service_name, "ns1_srv1".to_string());
             assert_eq!(env.client_config, "ns1-srv1-service-config");
             assert_eq!(env.client_secret_name, "some-secrets".to_string());
@@ -1872,7 +1963,8 @@ POD is missing needed volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-de
         ]);
         let request = TestObjectRequest::new(pod);
         env = ServiceEnvironment::from_pod(&request);
-        assert!(env.is_none());
+        assert!(env.is_ok());
+        assert!(env.as_ref().unwrap().is_none());
     }
 
     #[tokio::test]
@@ -1886,12 +1978,18 @@ POD is missing needed volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-de
         let t1 = tokio::spawn(async move {
             let id = service_identity!(1);
             let ds = service_device_ids!(1);
-            Arc::clone(&store).lock().await.register_service(id).await;
+            Arc::clone(&store)
+                .lock()
+                .await
+                .register_service(id)
+                .await
+                .expect("Unable to register service identity");
             Arc::clone(&store)
                 .lock()
                 .await
                 .register_device_ids(ds)
-                .await;
+                .await
+                .expect("Unable to register device ids");
             ch_tx
                 .send(true)
                 .await
@@ -1902,7 +2000,10 @@ POD is missing needed volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-de
         let t2 = tokio::spawn(async move {
             let request = TestObjectRequest::new(pod2);
             let env = ServiceEnvironment::from_identity_store(&request, store2.lock().await).await;
-            assert!(env.is_none());
+            assert!(env.is_err());
+            if let Err(ref e) = env {
+                assert_eq!(e.error, "Service ns2_srv2 is not registered (true) or device ids for service are not registered (true)");
+            }
             if ch_rx
                 .recv()
                 .await
@@ -1912,8 +2013,9 @@ POD is missing needed volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-de
                 let request = TestObjectRequest::new(pod1);
                 let env =
                     ServiceEnvironment::from_identity_store(&request, store3.lock().await).await;
-                assert!(env.is_some());
-                if let Some(env) = env {
+                assert!(env.is_ok());
+                assert!(env.as_ref().unwrap().is_some());
+                if let Ok(Some(env)) = env {
                     assert_eq!(env.service_name, "ns1_srv1".to_string());
                     assert_eq!(env.client_config, "ns1-srv1-service-config");
                     assert_eq!(env.client_secret_name, "ns1-srv1-service-user");

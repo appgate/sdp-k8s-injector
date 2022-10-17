@@ -4,8 +4,8 @@ use crate::sdp::errors::SDPClientError;
 
 #[derive(Debug)]
 pub struct SDPServiceError {
-    who: Option<String>,
-    error: String,
+    pub who: Option<String>,
+    pub error: String,
 }
 
 impl SDPServiceError {
@@ -49,7 +49,6 @@ impl Display for SDPServiceError {
         }
     }
 }
-
 
 impl From<&str> for SDPServiceError {
     fn from(error: &str) -> Self {

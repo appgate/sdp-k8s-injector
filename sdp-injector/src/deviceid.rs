@@ -33,7 +33,13 @@ pub trait IdentityStore<A: Service + HasCredentials>: Send + Sync {
     fn pop_device_id<'a>(
         &'a mut self,
         service_id: &'a str,
-    ) -> Pin<Box<dyn Future<Output = Result<Option<(ServiceIdentity, Uuid)>, SDPServiceError>> + Send + '_>>;
+    ) -> Pin<
+        Box<
+            dyn Future<Output = Result<Option<(ServiceIdentity, Uuid)>, SDPServiceError>>
+                + Send
+                + '_,
+        >,
+    >;
 
     fn push_device_id<'a>(
         &'a mut self,
@@ -41,22 +47,39 @@ pub trait IdentityStore<A: Service + HasCredentials>: Send + Sync {
         uuid: Uuid,
     ) -> Pin<Box<dyn Future<Output = Result<Option<Uuid>, SDPServiceError>> + Send + '_>>;
 
-    fn register_service(&mut self, service: A) -> Pin<Box<dyn Future<Output = Result<Option<A>, SDPServiceError>> + Send + '_>>;
+    fn register_service(
+        &mut self,
+        service: A,
+    ) -> Pin<Box<dyn Future<Output = Result<Option<A>, SDPServiceError>> + Send + '_>>;
 
     fn register_device_ids(
         &mut self,
         device_id: DeviceId,
-    ) -> Pin<Box<dyn Future<Output = Result<Option<RegisteredDeviceId>, SDPServiceError>> + Send + '_>>;
+    ) -> Pin<
+        Box<dyn Future<Output = Result<Option<RegisteredDeviceId>, SDPServiceError>> + Send + '_>,
+    >;
 
     fn unregister_service<'a>(
         &'a mut self,
         service_id: &'a str,
-    ) -> Pin<Box<dyn Future<Output = Result<Option<(A, RegisteredDeviceId)>, SDPServiceError>> + Send + '_>>;
+    ) -> Pin<
+        Box<
+            dyn Future<Output = Result<Option<(A, RegisteredDeviceId)>, SDPServiceError>>
+                + Send
+                + '_,
+        >,
+    >;
 
     fn unregister_device_ids<'a>(
         &'a mut self,
         device_id: &'a str,
-    ) -> Pin<Box<dyn Future<Output = Result<Option<(A, RegisteredDeviceId)>, SDPServiceError>> + Send + '_>>;
+    ) -> Pin<
+        Box<
+            dyn Future<Output = Result<Option<(A, RegisteredDeviceId)>, SDPServiceError>>
+                + Send
+                + '_,
+        >,
+    >;
 }
 
 pub struct DeviceIdProvider<A: Service + HasCredentials> {
@@ -82,7 +105,8 @@ impl IdentityStore<ServiceIdentity> for InMemoryIdentityStore {
     fn register_service(
         &mut self,
         service: ServiceIdentity,
-    ) -> Pin<Box<dyn Future<Output = Result<Option<ServiceIdentity>, SDPServiceError>> + Send + '_>> {
+    ) -> Pin<Box<dyn Future<Output = Result<Option<ServiceIdentity>, SDPServiceError>> + Send + '_>>
+    {
         let fut = async move {
             let service_id = service.service_id()?;
             Ok(self.identities.insert(service_id, service))
@@ -93,33 +117,27 @@ impl IdentityStore<ServiceIdentity> for InMemoryIdentityStore {
     fn register_device_ids(
         &mut self,
         device_id: DeviceId,
-    ) -> Pin<Box<dyn Future<Output = Result<Option<RegisteredDeviceId>, SDPServiceError>> + Send + '_>> {
+    ) -> Pin<
+        Box<dyn Future<Output = Result<Option<RegisteredDeviceId>, SDPServiceError>> + Send + '_>,
+    > {
         let fut = async move {
-            let maybe_uuids = device_id
-                .spec
-                .uuids
-                .iter()
-                .map(|s| {
-                    let a = Uuid::try_parse(s)
-                        .map_err(|e| {
-                            format!("Unable to parse Uuid {}: {}", s, e.to_string())
-                        });
-                    a
-                });
             let mut errors = Vec::new();
             let mut uuids = Vec::new();
-            for uuid in device_id.spec.uuids {
+            for uuid in &device_id.spec.uuids {
                 match Uuid::try_parse(&uuid) {
                     Ok(uuid) => {
                         uuids.push(uuid);
-                    },
-                    Err(err) => {
-                        errors.push(uuid);
+                    }
+                    Err(_) => {
+                        errors.push(uuid.clone());
                     }
                 }
             }
-            if ! errors.is_empty() {
-                Err(SDPServiceError::from_string(format!("Unable to parse uuids: {}", errors.join(","))))
+            if !errors.is_empty() {
+                Err(SDPServiceError::from_string(format!(
+                    "Unable to parse uuids: {}",
+                    errors.join(",")
+                )))
             } else {
                 let n = uuids.len();
                 Ok(self.device_ids.insert(
@@ -134,8 +152,14 @@ impl IdentityStore<ServiceIdentity> for InMemoryIdentityStore {
     fn unregister_service<'a>(
         &'a mut self,
         service_id: &'a str,
-    ) -> Pin<Box<dyn Future<Output = Result<Option<(ServiceIdentity, RegisteredDeviceId)>, SDPServiceError>> + Send + '_>>
-    {
+    ) -> Pin<
+        Box<
+            dyn Future<
+                    Output = Result<Option<(ServiceIdentity, RegisteredDeviceId)>, SDPServiceError>,
+                > + Send
+                + '_,
+        >,
+    > {
         let fut = async move {
             let device_id = self.device_ids.remove(service_id);
             let service_id = self.identities.remove(service_id);
@@ -150,8 +174,14 @@ impl IdentityStore<ServiceIdentity> for InMemoryIdentityStore {
     fn unregister_device_ids<'a>(
         &'a mut self,
         device_id: &'a str,
-    ) -> Pin<Box<dyn Future<Output = Result<Option<(ServiceIdentity, RegisteredDeviceId)>, SDPServiceError>> + Send + '_>>
-    {
+    ) -> Pin<
+        Box<
+            dyn Future<
+                    Output = Result<Option<(ServiceIdentity, RegisteredDeviceId)>, SDPServiceError>,
+                > + Send
+                + '_,
+        >,
+    > {
         let fut = async move {
             let service_id = self.identities.remove(device_id);
             let device_id = self.device_ids.remove(device_id);
@@ -166,7 +196,13 @@ impl IdentityStore<ServiceIdentity> for InMemoryIdentityStore {
     fn pop_device_id<'a>(
         &'a mut self,
         service_id: &'a str,
-    ) -> Pin<Box<dyn Future<Output = Result<Option<(ServiceIdentity, Uuid)>, SDPServiceError>> + Send + '_>> {
+    ) -> Pin<
+        Box<
+            dyn Future<Output = Result<Option<(ServiceIdentity, Uuid)>, SDPServiceError>>
+                + Send
+                + '_,
+        >,
+    > {
         let fut = async move {
             let sid = self.identities.get(&service_id.to_string());
             let ds = self.device_ids.get(&service_id.to_string());
@@ -180,9 +216,9 @@ impl IdentityStore<ServiceIdentity> for InMemoryIdentityStore {
                         available_uuids,
                     )),
                 ) => {
-                    (*n_available_uuids > 0).then(|| ()).ok_or_else(|| 
-                        format!("Requested device id for {} but no device ids are available",
-                        service_id))?;
+                    (*n_available_uuids > 0)
+                    .then(|| ())
+                    .ok_or_else(|| format!("Requested device id for {} but no device ids are available", service_id))?;
                     // Get first uuid and update current data
                     let mut available_uuids = available_uuids.clone();
                     let uuid = available_uuids.remove(0);
@@ -204,7 +240,6 @@ impl IdentityStore<ServiceIdentity> for InMemoryIdentityStore {
                         ),
                     );
                     Ok(Some((sid.clone(), uuid)))
-                    
                 }
                 _ => {
                     Err(SDPServiceError::from_string(format!("Service {} is not registered ({}) or device ids for service are not registered ({})", service_id, sid.is_none(), ds.is_none())))
@@ -258,12 +293,14 @@ impl IdentityStore<ServiceIdentity> for InMemoryIdentityStore {
                         uuid, service_id
                     )))
                 }
-                (None, _) => {
-                    Err(SDPServiceError::from_string(format!("Service id {} is not registered", service_id)))
-                }
-                (_, None) => {
-                    Err(SDPServiceError::from_string(format!("Service id {} has not device ids registered", service_id)))
-                }
+                (None, _) => Err(SDPServiceError::from_string(format!(
+                    "Service id {} is not registered",
+                    service_id
+                ))),
+                (_, None) => Err(SDPServiceError::from_string(format!(
+                    "Service id {} has not device ids registered",
+                    service_id
+                ))),
             }
         };
         Box::pin(fut)

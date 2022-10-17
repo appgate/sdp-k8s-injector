@@ -6,7 +6,7 @@ use kube::api::ListParams;
 use kube::runtime::watcher::{self, Event};
 use kube::{Api, Client};
 use log::{error, info, warn};
-use sdp_common::crd::{ServiceIdentity};
+use sdp_common::crd::ServiceIdentity;
 use sdp_common::kubernetes::SDP_K8S_NAMESPACE;
 use sdp_common::traits::{HasCredentials, Service};
 use sdp_macros::when_ok;

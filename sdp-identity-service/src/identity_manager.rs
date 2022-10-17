@@ -878,7 +878,7 @@ mod tests {
         delete_calls: usize,
         create_calls: usize,
         list_calls: usize,
-        update_calls: usize,
+        _update_calls: usize,
     }
 
     #[sdp_proc_macros::identity_provider()]
@@ -894,7 +894,7 @@ mod tests {
             api_counters.delete_calls = 0;
             api_counters.create_calls = 0;
             api_counters.list_calls = 0;
-            api_counters.update_calls = 0;
+            api_counters._update_calls = 0;
         }
     }
 
