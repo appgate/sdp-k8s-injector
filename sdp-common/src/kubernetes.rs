@@ -10,6 +10,7 @@ use log::error;
 
 use crate::{
     errors::SDPServiceError,
+    service::{is_injection_disabled, SDP_INJECTOR_ANNOTATION},
     traits::{Annotated, Candidate, Labeled, Named, Namespaced, ObjectRequest, Service},
 };
 
@@ -82,7 +83,7 @@ impl Labeled for Pod {
 
 impl Candidate for Pod {
     fn is_candidate(&self) -> bool {
-        Annotated::annotation(self, "sdp-injection")
+        Annotated::annotation(self, SDP_INJECTOR_ANNOTATION)
             .map(|v| v.eq("enabled"))
             .unwrap_or(false)
     }
@@ -114,9 +115,9 @@ impl Annotated for Pod {
 
 impl Candidate for Deployment {
     fn is_candidate(&self) -> bool {
-        Annotated::annotation(self, "sdp-injection")
-            .map(|v| v.eq("enabled"))
-            .unwrap_or(false)
+        // All deployments in NS labelled for injector are candidates unless
+        // explicitly the injection is disabled
+        !is_injection_disabled(self)
     }
 }
 
@@ -231,7 +232,18 @@ impl Namespaced for AdmissionRequest<Pod> {
 
 impl Service for AdmissionRequest<Pod> {}
 
+impl Candidate for AdmissionRequest<Pod> {
+    fn is_candidate(&self) -> bool {
+        self.object().map(|pod| pod.is_candidate()).unwrap_or(false)
+    }
+}
+
 // Implement required traits for AdmissionRequest<Deployment>
+impl ObjectRequest<Deployment> for AdmissionRequest<Deployment> {
+    fn object(&self) -> Option<&Deployment> {
+        self.object.as_ref()
+    }
+}
 
 impl Named for AdmissionRequest<Deployment> {
     fn name(&self) -> String {
@@ -246,3 +258,11 @@ impl Namespaced for AdmissionRequest<Deployment> {
 }
 
 impl Service for AdmissionRequest<Deployment> {}
+
+impl Candidate for AdmissionRequest<Deployment> {
+    fn is_candidate(&self) -> bool {
+        self.object()
+            .map(|deployment| deployment.is_candidate())
+            .unwrap_or(false)
+    }
+}

@@ -25,7 +25,7 @@ use sdp_common::constants::POD_DEVICE_ID_ANNOTATION;
 use sdp_common::crd::DeviceId;
 use sdp_common::errors::SDPServiceError;
 use sdp_common::traits::{
-    Annotated, HasCredentials, Namespaced, ObjectRequest, Service, Validated,
+    Annotated, Candidate, HasCredentials, Namespaced, ObjectRequest, Service, Validated,
 };
 use sdp_macros::when_ok;
 use serde::Deserialize;
@@ -50,9 +50,7 @@ use uuid::Uuid;
 
 use crate::deviceid::{DeviceIdProvider, DeviceIdProviderRequestProtocol};
 use crate::watchers::{watch, Watcher};
-use sdp_common::service::{
-    containers, is_injection_disabled, volume_names, volumes, ServiceIdentity,
-};
+use sdp_common::service::{containers, volume_names, volumes, ServiceIdentity};
 
 const SDP_K8S_HOST_ENV: &str = "SDP_K8S_HOST";
 const SDP_K8S_HOST_DEFAULT: &str = "kubernetes.default.svc";
@@ -444,10 +442,10 @@ impl SDPPod {
             .unwrap_or(false)
     }
 
-    fn is_candidate(&self, request: &dyn ObjectRequest<Pod>) -> bool {
+    fn needs_patching(&self, request: &dyn ObjectRequest<Pod>) -> bool {
         request
             .object()
-            .map(|pod| containers(pod).unwrap_or(&vec![]).len() > 0 && !is_injection_disabled(pod))
+            .map(|pod| containers(pod).unwrap_or(&vec![]).len() > 0)
             .unwrap_or(false)
             && !self.has_any_sidecars(request)
     }
@@ -473,7 +471,7 @@ impl Patched for SDPPod {
         environment.k8s_dns_service_ip = self.k8s_dns_service.maybe_ip().map(|s| s.clone());
 
         let mut patches = vec![];
-        if self.is_candidate(&request) {
+        if self.needs_patching(&request) {
             let k8s_dns_service_ip = self.k8s_dns_service.maybe_ip();
             patches = vec![
                 Add(AddOperation {
@@ -781,17 +779,20 @@ async fn mutate<E: IdentityStore<ServiceIdentity>>(
         .map(|r| r.resource.resource.as_str())
     {
         Some("pods") => {
-            let admission_response;
             let admission_review: AdmissionReview<Pod> = serde_json::from_str(&body).map_err(
                 SDPServiceError::from_error("Unable to parse AdmissionReview<Pod>"),
             )?;
+
             let admission_request: AdmissionRequest<Pod> =
                 admission_review
                     .try_into()
                     .map_err(SDPServiceError::from_error(
                         "Unable to parse AdmissionRequest<Pod>",
                     ))?;
-            admission_response = patch_pod(admission_request, sdp_patch_context).await?;
+            let mut admission_response = AdmissionResponse::from(&admission_request).into_review();
+            if admission_request.is_candidate() {
+                admission_response = patch_pod(admission_request, sdp_patch_context).await?;
+            }
             Ok(Body::from(
                 serde_json::to_string(&admission_response).map_err(SDPServiceError::from_error(
                     "Unable to serialize body response",
@@ -808,7 +809,11 @@ async fn mutate<E: IdentityStore<ServiceIdentity>>(
                 .map_err(SDPServiceError::from_error(
                     "Unable to parse AdmissionReview<Deployment>",
                 ))?;
-            let admission_response = patch_deployment(admission_request).await?;
+
+            let mut admission_response = AdmissionResponse::from(&admission_request).into_review();
+            if admission_request.is_candidate() {
+                admission_response = patch_deployment(admission_request).await?;
+            }
             Ok(Body::from(
                 serde_json::to_string(&admission_response).map_err(SDPServiceError::from_error(
                     "Unable to serialize body response",
@@ -1061,7 +1066,12 @@ mod tests {
                 envs: vec![
                     ("POD_N_CONTAINERS".to_string(), Some("1".to_string())),
                     ("SERVICE_NAME".to_string(), Some("ns2_srv2".to_string())),
+                    (
+                        "APPGATE_DEVICE_ID".to_string(),
+                        Some("00000000-0000-0000-0000-000000000002".to_string()),
+                    ),
                 ],
+                needs_patching: true,
                 client_config_map: "ns2-srv2-service-config",
                 client_secrets: "ns2-srv2-service-user",
                 dns_searches: Some(vec![
@@ -1277,7 +1287,7 @@ POD is missing needed volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-de
     }
 
     #[test]
-    fn needs_patching() {
+    fn test_needs_patching() {
         let sdp_sidecars =
             Arc::new(load_sidecar_containers_env().expect("Unable to load test SDPSidecars: "));
         let results: Vec<TestResult> = patch_tests(&sdp_sidecars)
@@ -1288,7 +1298,7 @@ POD is missing needed volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-de
                     k8s_dns_service: Some(t.service.clone()),
                 };
                 let request = TestObjectRequest::new(t.pod.clone());
-                let needs_patching = sdp_pod.is_candidate(&request);
+                let needs_patching = sdp_pod.needs_patching(&request);
                 (
                     t.needs_patching == needs_patching,
                     "Needs patching simple".to_string(),
@@ -1297,6 +1307,16 @@ POD is missing needed volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-de
             })
             .collect();
         assert_tests(&results)
+    }
+
+    #[test]
+    fn test_is_candidate_pod() {
+        let pod = test_pod!(0);
+        assert!(!pod.is_candidate());
+        let pod = test_pod!(0, annotations => vec![("sdp-injector", "false")]);
+        assert!(!pod.is_candidate());
+        let pod = test_pod!(0, annotations => vec![("sdp-injector", "enabled")]);
+        assert!(pod.is_candidate());
     }
 
     struct TestObjectRequest {
@@ -1558,7 +1578,7 @@ POD is missing needed volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-de
                 .expect(
                     format!("Unable to create ServiceEnvironment from POD {}", &pod_name).as_str(),
                 );
-            let needs_patching = sdp_pod.is_candidate(&request);
+            let needs_patching = sdp_pod.needs_patching(&request);
             let patch = sdp_pod.patch(&mut env, request);
             if test.needs_patching && needs_patching {
                 match patch
