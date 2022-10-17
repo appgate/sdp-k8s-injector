@@ -481,7 +481,7 @@ impl IdentityManagerRunner<ServiceLookup, ServiceIdentity> {
                                 ) => external_queue_tx);
                                 }
                             },
-                            Some((_service_identity, false)) => {
+                            Some((_, false)) => {
                                 sdp_info!(IdentityManagerProtocol::<F, ServiceIdentity>::IdentityManagerDebug |(
                                     "ServiceIdentity already exists for service {}",
                                     service_id

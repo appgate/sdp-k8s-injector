@@ -12,6 +12,7 @@ bench = false
 [dependencies]
 sdp-macros = { path = "../sdp-macros" }
 sdp-common = { path = "../sdp-common" }
+sdp-test-macros = { path = "../sdp-test-macros" }
 
 tokio = { version = "~1.18", features = ["rt", "macros", "rt-multi-thread"] }
 hyper = { version = "0.14", features = ["server"]}

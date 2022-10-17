@@ -899,6 +899,7 @@ mod tests {
     use sdp_common::service::{init_containers, ServiceUser};
     use sdp_common::traits::{Annotated, Candidate, Named, Namespaced, ObjectRequest, Service};
     use sdp_macros::{service_device_ids, service_identity, service_user};
+    use sdp_test_macros::{pod, set_pod_field};
     use serde_json::json;
     use std::collections::{BTreeMap, HashMap, HashSet};
     use std::iter::FromIterator;
@@ -915,97 +916,6 @@ mod tests {
         );
         load_sidecar_containers()
             .map_err(|e| format!("Unable to load the sidecar information {}", e.to_string()))
-    }
-
-    macro_rules! dns_service {
-        ($ip:expr) => {
-            KubeService {
-                metadata: ObjectMeta::default(),
-                spec: Some(ServiceSpec {
-                    cluster_ip: Some(format!("{}", $ip)),
-                    ..Default::default()
-                }),
-                status: Some(ServiceStatus::default()),
-            }
-        };
-    }
-
-    macro_rules! set_pod_field {
-        ($pod:expr, containers => $cs:expr) => {
-            let test_cs: Vec<Container> = $cs
-                .iter()
-                .map(|x| {
-                    let mut c: Container = Default::default();
-                    c.name = x.to_string();
-                    c
-                })
-                .collect();
-            if let Some(spec) = $pod.spec.as_mut() {
-                spec.containers = test_cs;
-            }
-        };
-        ($pod:expr, init_containers => $cs:expr) => {
-            let test_cs: Vec<Container> = $cs
-                .iter()
-                .map(|x| {
-                    let mut c: Container = Default::default();
-                    c.name = x.to_string();
-                    c
-                })
-                .collect();
-            if let Some(spec) = $pod.spec.as_mut() {
-                spec.init_containers = Some(test_cs);
-            }
-        };
-        ($pod:expr, volumes => $vs:expr) => {
-            let volumes: Vec<Volume> = $vs
-                .iter()
-                .map(|x| {
-                    let mut v: Volume = Default::default();
-                    v.name = x.to_string();
-                    v
-                })
-                .collect();
-
-            if volumes.len() > 0 {
-                if let Some(spec) = $pod.spec.as_mut() {
-                    spec.volumes = Some(volumes);
-                }
-            }
-        };
-        ($pod:expr, annotations => $cs:expr) => {
-            let mut bm = BTreeMap::new();
-            for (k, v) in $cs {
-                bm.insert(k.to_string(), v.to_string());
-            }
-            $pod.metadata.annotations = Some(bm);
-        };
-    }
-
-    macro_rules! test_pod {
-        ($n:tt) => {{
-            let mut pod: Pod = Default::default();
-            pod.spec = Some(Default::default());
-            test_pod!($n, pod)
-        }};
-        ($n:tt, $pod:expr) => {{
-            $pod.metadata.namespace = Some(format!("{}{}", stringify!(ns), $n));
-            $pod.metadata.name = Some(format!("srv{}-replica{}-testpod{}", stringify!($n), stringify!($n), stringify!($n)));
-            $pod
-        }};
-        ($n:tt, $($fs:ident => $es:expr),*) => {{
-            let mut pod: Pod = Default::default();
-            pod.spec = Some(Default::default());
-            test_pod!($n, pod, $($fs => $es),*)
-        }};
-        ($n:tt, $pod:expr,$f:ident => $e:expr) => {{
-            set_pod_field!($pod, $f => $e);
-            test_pod!($n, $pod)
-        }};
-        ($n:tt, $pod:expr,$f:ident => $e:expr,$($fs:ident => $es:expr),*) => {{
-            set_pod_field!($pod, $f => $e);
-            test_pod!($n, $pod,$($fs => $es),*)
-        }};
     }
 
     fn assert_tests(test_results: &[TestResult]) -> () {
@@ -1043,7 +953,7 @@ mod tests {
     impl Default for TestPatch<'_> {
         fn default() -> Self {
             TestPatch {
-                pod: test_pod!(0),
+                pod: pod!(0),
                 needs_patching: false,
                 client_config_map: "ns0-srv0-service-config",
                 client_secrets: "ns0-srv0-service-user",
@@ -1068,7 +978,7 @@ mod tests {
         let sdp_sidecar_names = sdp_sidecars.container_names();
         vec![
             TestPatch {
-                pod: test_pod!(0),
+                pod: pod!(0),
                 envs: vec![
                     ("POD_N_CONTAINERS".to_string(), Some("0".to_string())),
                     ("SERVICE_NAME".to_string(), Some("ns0_srv0".to_string())),
@@ -1082,8 +992,8 @@ mod tests {
                 ..Default::default()
             },
             TestPatch {
-                pod: test_pod!(1, containers => vec!["random-service"],
-                                  annotations => vec![(SDP_ANNOTATION_CLIENT_DEVICE_ID, "00000000-0000-0000-0000-000000000001")]),
+                pod: pod!(1, containers => vec!["random-service"],
+                             annotations => vec![(SDP_ANNOTATION_CLIENT_DEVICE_ID, "00000000-0000-0000-0000-000000000001")]),
                 needs_patching: true,
                 envs: vec![
                     ("POD_N_CONTAINERS".to_string(), Some("1".to_string())),
@@ -1107,8 +1017,8 @@ mod tests {
                 ..Default::default()
             },
             TestPatch {
-                pod: test_pod!(2, containers => vec!["random-service"],
-                                  annotations => vec![("sdp-injector", "false")]),
+                pod: pod!(2, containers => vec!["random-service"],
+                             annotations => vec![("sdp-injector", "false")]),
                 envs: vec![
                     ("POD_N_CONTAINERS".to_string(), Some("1".to_string())),
                     (
@@ -1132,12 +1042,14 @@ mod tests {
                 ..Default::default()
             },
             TestPatch {
-                pod: test_pod!(3, containers => vec!["random-service"],
-                                  annotations => vec![("sdp-injector", "who-knows"),
-                                                      (SDP_ANNOTATION_CLIENT_SECRETS, "some-secrets"),
-                                                      (SDP_ANNOTATION_CLIENT_CONFIG, "some-config-map"),
-                                                      (SDP_ANNOTATION_CLIENT_DEVICE_ID, "00000000-0000-0000-0000-000000000003"),
-                                                      (SDP_ANNOTATION_DNS_SEARCHES, "one.svc.local two.svc.local svc.local")]),
+                pod: pod!(3, containers => vec!["random-service"],
+                 annotations => vec![
+                    ("sdp-injector", "who-knows"),
+                    (SDP_ANNOTATION_CLIENT_SECRETS, "some-secrets"),
+                    (SDP_ANNOTATION_CLIENT_CONFIG, "some-config-map"),
+                    (SDP_ANNOTATION_CLIENT_DEVICE_ID, "00000000-0000-0000-0000-000000000003"),
+                    (SDP_ANNOTATION_DNS_SEARCHES, "one.svc.local two.svc.local svc.local")]
+                ),
                 needs_patching: true,
                 client_config_map: "some-config-map",
                 client_secrets: "some-secrets",
@@ -1162,7 +1074,7 @@ mod tests {
                 ..Default::default()
             },
             TestPatch {
-                pod: test_pod!(4, containers => vec!["random-service"],
+                pod: pod!(4, containers => vec!["random-service"],
                                   annotations => vec![("sdp-injector", "true"),
                                                       (SDP_ANNOTATION_CLIENT_DEVICE_ID, "00000000-0000-0000-0000-000000000004"),
                                                       (SDP_ANNOTATION_DNS_SEARCHES, "ns4.one.svc.local two.svc.local svc.local"),
@@ -1191,7 +1103,7 @@ mod tests {
                 ..Default::default()
             },
             TestPatch {
-                pod: test_pod!(5, containers => vec!["some-random-service-1",
+                pod: pod!(5, containers => vec!["some-random-service-1",
                                                      "some-random-service-2"],
                                   annotations => vec![(SDP_ANNOTATION_CLIENT_CONFIG, "some-config-map")]),
                 needs_patching: true,
@@ -1215,7 +1127,7 @@ mod tests {
                 ..Default::default()
             },
             TestPatch {
-                pod: test_pod!(6, containers => vec![sdp_sidecar_names[0].clone(),
+                pod: pod!(6, containers => vec![sdp_sidecar_names[0].clone(),
                                                      sdp_sidecar_names[1].clone(),
                                                      "some-random-service".to_string()]),
                 envs: vec![
@@ -1236,7 +1148,7 @@ mod tests {
                 ..Default::default()
             },
             TestPatch {
-                pod: test_pod!(7, containers => vec![sdp_sidecar_names[0].clone(),
+                pod: pod!(7, containers => vec![sdp_sidecar_names[0].clone(),
                                                      sdp_sidecar_names[1].clone(),
                                                      "some-random-service".to_string()],
                                   annotations => vec![("sdp-injector", "true")]),
@@ -1258,7 +1170,7 @@ mod tests {
                 ..Default::default()
             },
             TestPatch {
-                pod: test_pod!(8, containers => vec![sdp_sidecar_names[1].clone(),
+                pod: pod!(8, containers => vec![sdp_sidecar_names[1].clone(),
                                                      "some-random-service".to_string()]),
                 envs: vec![
                     ("POD_N_CONTAINERS".to_string(), Some("2".to_string())),
@@ -1278,7 +1190,7 @@ mod tests {
                 ..Default::default()
             },
             TestPatch {
-                pod: test_pod!(9, containers => vec![sdp_sidecar_names[1].clone(),
+                pod: pod!(9, containers => vec![sdp_sidecar_names[1].clone(),
                                                     "some-random-service".to_string()],
                                   annotations => vec![("sdp-injector", "true")]),
                 envs: vec![
@@ -1299,7 +1211,7 @@ mod tests {
                 ..Default::default()
             },
             TestPatch {
-                pod: test_pod!(10, containers => vec!["random-service"], 
+                pod: pod!(10, containers => vec!["random-service"], 
                                    init_containers => vec!["random-init-container"]),
                 needs_patching: true,
                 envs: vec![
@@ -1329,46 +1241,46 @@ mod tests {
     fn validation_tests() -> Vec<TestValidate> {
         vec![
             TestValidate {
-                pod: test_pod!(0),
+                pod: pod!(0),
                 validation_errors: Some(r#"Unable to run SDP client on POD: POD is missing needed containers: sdp-dnsmasq, sdp-driver, sdp-service
 POD is missing needed volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-device"#.to_string()),
             },
             TestValidate {
-                pod: test_pod!(1, containers => vec!["sdp-dnsmasq"]),
+                pod: pod!(1, containers => vec!["sdp-dnsmasq"]),
                 validation_errors: Some(r#"Unable to run SDP client on POD: POD is missing needed containers: sdp-driver, sdp-service
 POD is missing needed volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-device"#.to_string()),
             },
             TestValidate {
-                pod: test_pod!(2, containers => vec!["sdp-dnsmasq", "sdp-service"]),
+                pod: pod!(2, containers => vec!["sdp-dnsmasq", "sdp-service"]),
                 validation_errors: Some(r#"Unable to run SDP client on POD: POD is missing needed containers: sdp-driver
 POD is missing needed volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-device"#.to_string()),
             },
             TestValidate {
-                pod: test_pod!(3, containers => vec!["sdp-service", "sdp-dnsmasq", "sdp-driver"]),
+                pod: pod!(3, containers => vec!["sdp-service", "sdp-dnsmasq", "sdp-driver"]),
                 validation_errors: Some(r#"Unable to run SDP client on POD: POD is missing needed volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-device"#.to_string()),
             },
             TestValidate {
-                pod: test_pod!(4, containers => vec!["sdp-service", "sdp-dnsmasq", "sdp-driver"],
+                pod: pod!(4, containers => vec!["sdp-service", "sdp-dnsmasq", "sdp-driver"],
                                   volumes => vec!["run-sdp-dnsmasq", "run-sdp-driver"]),
                 validation_errors: Some(r#"Unable to run SDP client on POD: POD is missing needed volumes: pod-info, tun-device"#.to_string()),
             },
             TestValidate {
-                pod: test_pod!(5, containers => vec!["sdp-service", "sdp-dnsmasq", "sdp-driver"],
+                pod: pod!(5, containers => vec!["sdp-service", "sdp-dnsmasq", "sdp-driver"],
                                   volumes => vec!["run-sdp-driver", "run-sdp-dnsmasq"]),
                 validation_errors: Some(r#"Unable to run SDP client on POD: POD is missing needed volumes: pod-info, tun-device"#.to_string()),
             },
             TestValidate {
-                pod: test_pod!(6, containers => vec!["sdp-driver"],
+                pod: pod!(6, containers => vec!["sdp-driver"],
                                   volumes => vec!["run-sdp-driver", "tun-device", "pod-info", "run-sdp-dnsmasq"]),
                 validation_errors: Some(r#"Unable to run SDP client on POD: POD is missing needed containers: sdp-dnsmasq, sdp-service"#.to_string()),
             },
             TestValidate {
-                pod: test_pod!(7, containers => vec!["sdp-service", "sdp-dnsmasq", "sdp-driver"],
+                pod: pod!(7, containers => vec!["sdp-service", "sdp-dnsmasq", "sdp-driver"],
                                   volumes => vec!["run-sdp-driver", "run-sdp-dnsmasq", "tun-device", "pod-info"]),
                 validation_errors: None,
             },
             TestValidate {
-                pod: test_pod!(8, containers => vec!["_sdp-service", "_sdp-dnsmasq", "_sdp-driver"],
+                pod: pod!(8, containers => vec!["_sdp-service", "_sdp-dnsmasq", "_sdp-driver"],
                                   volumes => vec!["_run-appgate", "_tun-device"]),
                 validation_errors: Some(r#"Unable to run SDP client on POD: POD is missing needed containers: sdp-dnsmasq, sdp-driver, sdp-service
 POD is missing needed volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-device"#.to_string()),
@@ -1401,11 +1313,11 @@ POD is missing needed volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-de
 
     #[test]
     fn test_is_candidate_pod() {
-        let pod = test_pod!(0);
+        let pod = pod!(0);
         assert!(!pod.is_candidate());
-        let pod = test_pod!(0, annotations => vec![("sdp-injector", "false")]);
+        let pod = pod!(0, annotations => vec![("sdp-injector", "false")]);
         assert!(!pod.is_candidate());
-        let pod = test_pod!(0, annotations => vec![("sdp-injector", "enabled")]);
+        let pod = pod!(0, annotations => vec![("sdp-injector", "enabled")]);
         assert!(pod.is_candidate());
     }
 
@@ -1902,7 +1814,7 @@ POD is missing needed volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-de
 
     #[tokio::test]
     async fn test_service_environment_from_identity_store() {
-        let pod = test_pod!(1);
+        let pod = pod!(1);
         let store = Mutex::new(InMemoryIdentityStore::default());
         let request = TestObjectRequest::new(pod.clone());
         let env = ServiceEnvironment::from_identity_store(&request, store.lock().await).await;
@@ -2032,12 +1944,12 @@ POD is missing needed volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-de
 
     #[test]
     fn test_service_environment_from_pod() {
-        let mut pod = test_pod!(0);
+        let mut pod = pod!(0);
         let request = TestObjectRequest::new(pod);
         let mut env = ServiceEnvironment::from_pod(&request);
         assert!(env.is_ok());
         assert!(env.as_ref().unwrap().is_none());
-        pod = test_pod!(0, annotations => vec![
+        pod = pod!(0, annotations => vec![
             (SDP_ANNOTATION_CLIENT_SECRETS, "some-secrets"),
             (SDP_ANNOTATION_CLIENT_CONFIG, "some-config-map")
         ]);
@@ -2059,7 +1971,7 @@ POD is missing needed volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-de
             assert_eq!(env.k8s_dns_service_ip, None);
         };
 
-        pod = test_pod!(1, annotations => vec![
+        pod = pod!(1, annotations => vec![
             (SDP_ANNOTATION_CLIENT_SECRETS, "some-secrets"),
         ]);
         let request = TestObjectRequest::new(pod);
@@ -2080,7 +1992,7 @@ POD is missing needed volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-de
             assert_eq!(env.k8s_dns_service_ip, None);
         };
 
-        pod = test_pod!(1, annotations => vec![
+        pod = pod!(1, annotations => vec![
             (SDP_ANNOTATION_CLIENT_CONFIG, "some-config-map")
         ]);
         let request = TestObjectRequest::new(pod);
@@ -2117,7 +2029,7 @@ POD is missing needed volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-de
                 .await
                 .expect("Error notifying client thread in test");
         });
-        let pod2 = test_pod!(2);
+        let pod2 = pod!(2);
 
         let t2 = tokio::spawn(async move {
             let request = TestObjectRequest::new(pod2);
@@ -2131,7 +2043,7 @@ POD is missing needed volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-de
                 .await
                 .expect("Error receiving notification from server thread in test")
             {
-                let pod1 = test_pod!(1);
+                let pod1 = pod!(1);
                 let request = TestObjectRequest::new(pod1);
                 let env =
                     ServiceEnvironment::from_identity_store(&request, store3.lock().await).await;

@@ -6,6 +6,8 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+sdp-test-macros = { path = "../sdp-test-macros" }
+
 serde_json = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 kube = { version = "0.74.0", default-features = false, features = ["admission", "rustls-tls", "derive", "client", "runtime"] }

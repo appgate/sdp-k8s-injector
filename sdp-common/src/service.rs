@@ -15,7 +15,15 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::{collections::BTreeMap, error::Error};
 
+pub const SDP_INJECTOR_ANNOTATION_STRATEGY: &str = "sdp-injector/strategy";
+pub const SDP_INJECTOR_ANNOTATION_ENABLED: &str = "sdp-injector/enabled";
 pub const SDP_INJECTOR_ANNOTATION: &str = "sdp-injector";
+
+#[derive(PartialEq, Debug)]
+pub enum SDPInjectionStrategy {
+    EnabledByDefault,
+    DisabledByDefault,
+}
 
 pub struct ServiceLookup {
     name: String,
@@ -404,11 +412,47 @@ impl ServiceUser {
     }
 }
 
+pub fn injection_stragegy<A: Annotated>(entity: &A) -> SDPInjectionStrategy {
+    entity
+        .annotation(SDP_INJECTOR_ANNOTATION_STRATEGY)
+        .and_then(|s| match s {
+            v if v.to_lowercase() == "enabledbydefault" => {
+                Some(SDPInjectionStrategy::EnabledByDefault)
+            }
+            v if v.to_lowercase() == "disabledbydefault" => {
+                Some(SDPInjectionStrategy::DisabledByDefault)
+            }
+            _ => None,
+        })
+        .unwrap_or_else(|| {
+            let ann = entity.annotation(SDP_INJECTOR_ANNOTATION_ENABLED);
+            if ann.is_some() && ann.unwrap().to_lowercase() == "enabled" {
+                SDPInjectionStrategy::EnabledByDefault
+            } else {
+                SDPInjectionStrategy::DisabledByDefault
+            }
+        })
+}
+
 pub fn is_injection_disabled<A: Annotated>(entity: &A) -> bool {
     entity
-        .annotation(SDP_INJECTOR_ANNOTATION)
+        .annotation(SDP_INJECTOR_ANNOTATION_ENABLED)
         .map(|v| v.to_lowercase() == "false" || v == "0")
         .unwrap_or(false)
+}
+
+pub fn is_injection_enabled<A: Annotated>(entity: &A) -> bool {
+    entity
+        .annotation(SDP_INJECTOR_ANNOTATION_ENABLED)
+        .map(|v| v.to_lowercase() == "true" || v == "1")
+        .unwrap_or(false)
+}
+
+pub fn needs_injection<A: Annotated>(entity: &A) -> bool {
+    match injection_stragegy(entity) {
+        SDPInjectionStrategy::EnabledByDefault => !is_injection_disabled(entity),
+        SDPInjectionStrategy::DisabledByDefault => is_injection_enabled(entity),
+    }
 }
 
 pub fn get_service_username(cluster_name: &str, service_ns: &str, service_name: &str) -> String {
@@ -436,4 +480,105 @@ pub fn volumes(pod: &Pod) -> Option<&Vec<Volume>> {
 
 pub fn volume_names(pod: &Pod) -> Option<Vec<String>> {
     volumes(pod).map(|vs| vs.iter().map(|v| v.name.clone()).collect())
+}
+
+#[cfg(test)]
+mod tests {
+    use k8s_openapi::api::core::v1::Pod;
+    use sdp_test_macros::{pod, set_pod_field};
+    use std::collections::BTreeMap;
+
+    use crate::service::{
+        needs_injection, SDPInjectionStrategy, SDP_INJECTOR_ANNOTATION_ENABLED,
+        SDP_INJECTOR_ANNOTATION_STRATEGY,
+    };
+
+    use super::injection_stragegy;
+
+    #[test]
+    fn test_sdp_injection_strategy_0() {
+        assert_eq!(
+            injection_stragegy(&pod!(0)),
+            SDPInjectionStrategy::DisabledByDefault
+        );
+        assert_eq!(
+            injection_stragegy(
+                &pod!(0, annotations => vec![("SDP_INJECTOR_ANNOTATION_STRATEGY", "")])
+            ),
+            SDPInjectionStrategy::DisabledByDefault
+        );
+        assert_eq!(
+            injection_stragegy(&pod!(0, annotations => vec![(
+            SDP_INJECTOR_ANNOTATION_STRATEGY, "enabledByDefault")
+            ])),
+            SDPInjectionStrategy::EnabledByDefault
+        );
+        assert_eq!(
+            injection_stragegy(&pod!(0, annotations => vec![(
+            SDP_INJECTOR_ANNOTATION_STRATEGY, "enabledbydefault")
+            ])),
+            SDPInjectionStrategy::EnabledByDefault
+        );
+        assert_eq!(
+            injection_stragegy(&pod!(0, annotations => vec![(
+            SDP_INJECTOR_ANNOTATION_STRATEGY, "enabled-by-default")
+            ])),
+            SDPInjectionStrategy::DisabledByDefault
+        );
+        assert_eq!(
+            injection_stragegy(&pod!(0, annotations => vec![(
+            SDP_INJECTOR_ANNOTATION_STRATEGY, "disabledByDefault")
+            ])),
+            SDPInjectionStrategy::DisabledByDefault
+        );
+        assert_eq!(
+            injection_stragegy(&pod!(0, annotations => vec![(
+            SDP_INJECTOR_ANNOTATION_STRATEGY, "disabledbydefault")
+            ])),
+            SDPInjectionStrategy::DisabledByDefault
+        );
+        assert_eq!(
+            injection_stragegy(&pod!(0, annotations => vec![(
+            SDP_INJECTOR_ANNOTATION_STRATEGY, "disabled-by-default")
+            ])),
+            SDPInjectionStrategy::DisabledByDefault
+        );
+    }
+
+    #[test]
+    fn test_sdp_injection_enabled() {
+        assert!(!needs_injection(&pod!(0)));
+        assert!(!needs_injection(&pod!(0, annotations => vec![
+            (SDP_INJECTOR_ANNOTATION_STRATEGY, ""),
+        ])));
+        assert!(needs_injection(&pod!(0, annotations => vec![
+            (SDP_INJECTOR_ANNOTATION_STRATEGY, "enabledByDefault"),
+        ])));
+        assert!(needs_injection(&pod!(0, annotations => vec![
+            (SDP_INJECTOR_ANNOTATION_STRATEGY, "enabledByDefault"),
+            (SDP_INJECTOR_ANNOTATION_ENABLED, "true")
+        ])));
+        assert!(!needs_injection(&pod!(0, annotations => vec![
+            (SDP_INJECTOR_ANNOTATION_ENABLED, "false")
+        ])));
+        assert!(!needs_injection(&pod!(0, annotations => vec![
+            (SDP_INJECTOR_ANNOTATION_STRATEGY, ""),
+            (SDP_INJECTOR_ANNOTATION_ENABLED, "false")
+        ])));
+        assert!(!needs_injection(&pod!(0, annotations => vec![
+            (SDP_INJECTOR_ANNOTATION_STRATEGY, "enabledByDefault"),
+            (SDP_INJECTOR_ANNOTATION_ENABLED, "false")
+        ])));
+        assert!(needs_injection(&pod!(0, annotations => vec![
+            (SDP_INJECTOR_ANNOTATION_STRATEGY, "disabledByDefault"),
+            (SDP_INJECTOR_ANNOTATION_ENABLED, "true")
+        ])));
+        assert!(!needs_injection(&pod!(0, annotations => vec![
+            (SDP_INJECTOR_ANNOTATION_STRATEGY, "disabledByDefault"),
+        ])));
+        assert!(!needs_injection(&pod!(0, annotations => vec![
+            (SDP_INJECTOR_ANNOTATION_STRATEGY, "disabledByDefault"),
+            (SDP_INJECTOR_ANNOTATION_ENABLED, "false")
+        ])));
+    }
 }

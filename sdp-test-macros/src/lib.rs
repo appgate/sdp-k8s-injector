@@ -41,3 +41,70 @@ macro_rules! assert_no_message {
         assert_no_message!($queue | 1000);
     };
 }
+
+#[macro_export]
+macro_rules! set_pod_field {
+    ($pod:expr, containers => $cs:expr) => {
+        let test_cs: Vec<Container> = $cs
+            .iter()
+            .map(|x| {
+                let mut c: Container = Default::default();
+                c.name = x.to_string();
+                c
+            })
+            .collect();
+        if let Some(spec) = $pod.spec.as_mut() {
+            spec.containers = test_cs;
+        }
+    };
+    ($pod:expr, volumes => $vs:expr) => {
+        let volumes: Vec<Volume> = $vs
+            .iter()
+            .map(|x| {
+                let mut v: Volume = Default::default();
+                v.name = x.to_string();
+                v
+            })
+            .collect();
+
+        if volumes.len() > 0 {
+            if let Some(spec) = $pod.spec.as_mut() {
+                spec.volumes = Some(volumes);
+            }
+        }
+    };
+    ($pod:expr, annotations => $cs:expr) => {
+        let mut bm = BTreeMap::new();
+        for (k, v) in $cs {
+            bm.insert(k.to_string(), v.to_string());
+        }
+        $pod.metadata.annotations = Some(bm);
+    };
+}
+
+#[macro_export]
+macro_rules! pod {
+    ($n:tt) => {{
+        let mut pod: Pod = Default::default();
+        pod.spec = Some(Default::default());
+        pod!($n, pod)
+    }};
+    ($n:tt, $pod:expr) => {{
+        $pod.metadata.namespace = Some(format!("{}{}", stringify!(ns), $n));
+        $pod.metadata.name = Some(format!("srv{}-replica{}-testpod{}", stringify!($n), stringify!($n), stringify!($n)));
+        $pod
+    }};
+    ($n:tt, $($fs:ident => $es:expr),*) => {{
+        let mut pod: Pod = Default::default();
+        pod.spec = Some(Default::default());
+        pod!($n, pod, $($fs => $es),*)
+    }};
+    ($n:tt, $pod:expr,$f:ident => $e:expr) => {{
+        set_pod_field!($pod, $f => $e);
+        pod!($n, $pod)
+    }};
+    ($n:tt, $pod:expr,$f:ident => $e:expr,$($fs:ident => $es:expr),*) => {{
+        set_pod_field!($pod, $f => $e);
+        pod!($n, $pod,$($fs => $es),*)
+    }};
+}
