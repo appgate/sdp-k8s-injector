@@ -327,7 +327,7 @@ impl DeviceIdProvider<ServiceIdentity> {
                             when_ok!((service_id = id.service_id()) {
                                 info!("Registering new device ids for service {}", service_id);
                                 if let Err(err) = self.store.register_device_ids(id).await {
-                                    error!("Uneable to register device ids {}: {}", service_id, err);
+                                    error!("Unable to register device ids {}: {}", service_id, err);
                                 }
                             });
                         },
