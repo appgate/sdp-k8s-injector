@@ -103,13 +103,21 @@ There are two types of strategy for `sdp-injector-strategy`:
 Annotate the namespace with `sdp-injector-strategy=<STRATEGY>` to set strategy. If the annotation is not set on the namespace, it will use `enabledByDefault` as its default strategy.
 
 ```bash
-$ kubectl annotate namespace `sdp-injector-enabled="true"`
-$ kubectl annotate namespace `sdp-injector-strategy="enabledByDefault"`
+$ kubectl annotate namespace sdp-injector-enabled="true"
+$ kubectl annotate namespace sdp-injector-strategy="enabledByDefault"
 ```
 
-To disable injection in a namespace annotated with `enabledByDefault`, annotate the deployment with `sdp-injector-enabled="false"`.
+To disable injection at a per-deployment basis in a namespace annotated with `enabledByDefault`, annotate the deployment with `sdp-injector-enabled="false"`.
 
-To enable injection in a namespace annotated with `disabledByDefault`, annotate each deployment with `sdp-injector-enabled=true`.
+To enable injection at a per-deployment basis in a namespace annotated with `disabledByDefault`, annotate each deployment with `sdp-injector-enabled=true`.
+
+### Alternative Client Versions
+The injector takes the helm value `sdp.clientVersion` as the default client version to use. By annotating a pod or deployment with `sdp-injector-client-version=<VERSION>`, the injector will load an SDP client version different from the default.
+
+Assuming the default client version is 6.x.x, you can inject a 5.x.x client by annotating the pod with `sdp-injector-client-version=5.x.x`.
+```bash
+$ kubectl annotate pod <POD> sdp-injector-client-version="5.5.1"
+```
 
 ## Parameters
 
