@@ -14,4 +14,4 @@ Username = $APPGATE_USERNAME
 Password = $APPGATE_PASSWORD
 EOF
 echo Running service
-exec /opt/appgate/service/appgateservice -f /sdp-service/appgate.conf -t /var/run/sdp-driver/.driver.sock --service
+exec /opt/appgate/service/appgateservice --config /sdp-service/appgate.conf $@

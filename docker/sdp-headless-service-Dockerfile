@@ -53,4 +53,4 @@ RUN chmod +x /opt/appgate/sdp-client-headless-service && \
     chmod +x /opt/appgate/pod_info
 WORKDIR /sdp-service
 USER appgate
-CMD ["/opt/appgate/service/appgateservice"]
+ENTRYPOINT ["/opt/appgate/sdp-client-headless-service"]
