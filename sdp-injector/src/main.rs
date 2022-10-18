@@ -1,4 +1,5 @@
 use deviceid::{DeviceIdProviderResponseProtocol, IdentityStore, RegisteredDeviceId};
+use errors::SDPPatchError;
 use futures_util::stream::StreamExt;
 use futures_util::Future;
 use http::{Method, StatusCode, Uri};
@@ -21,7 +22,7 @@ use kube::{Api, Client, Config};
 use log::{debug, error, info, warn};
 use rustls::{Certificate, PrivateKey, ServerConfig};
 use rustls_pemfile::{read_one, Item};
-use sdp_common::constants::{POD_DEVICE_ID_ANNOTATION, SDP_DEFAULT_CLIENT_VERSION_ENV};
+use sdp_common::constants::{MAX_PATCH_ATTEMPTS, POD_DEVICE_ID_ANNOTATION, SDP_DEFAULT_CLIENT_VERSION_ENV};
 use sdp_common::crd::DeviceId;
 use sdp_common::errors::SDPServiceError;
 use sdp_common::traits::{
@@ -73,6 +74,7 @@ const SDP_ANNOTATION_DNS_SEARCHES: &str = "sdp-injector-dns-searches";
 const SDP_DNS_SERVICE_NAMES: [&str; 2] = ["kube-dns", "coredns"];
 
 mod deviceid;
+mod errors;
 mod watchers;
 
 macro_rules! env_var {
@@ -125,6 +127,12 @@ macro_rules! env_var {
         env
     }};
 }
+
+pub enum SDPPatchResponse {
+    RetryWithError(Box<AdmissionResponse>, SDPServiceError, u8),
+    Allow(Box<AdmissionResponse>),
+}
+
 struct KubeIdentityStore {
     device_id_q_tx: Sender<DeviceIdProviderRequestProtocol<ServiceIdentity>>,
 }
@@ -281,7 +289,7 @@ trait Patched {
         &self,
         environment: &mut ServiceEnvironment,
         request: R,
-    ) -> Result<Patch, Box<dyn Error>>;
+    ) -> Result<Patch, SDPServiceError>;
 }
 
 #[derive(Debug, PartialEq)]
@@ -459,7 +467,7 @@ impl Patched for SDPPod {
         &self,
         environment: &mut ServiceEnvironment,
         request: R,
-    ) -> Result<Patch, Box<dyn Error>> {
+    ) -> Result<Patch, SDPServiceError> {
         let pod = request
             .object()
             .ok_or("POD not found in admission request")?;
@@ -660,6 +668,7 @@ struct SDPInjectorContext<E: IdentityStore<ServiceIdentity>> {
     ns_api: Api<Namespace>,
     services_api: Api<KubeService>,
     identity_store: Mutex<E>,
+    attempts_store: Mutex<HashMap<String, u8>>,
 }
 
 #[derive(Debug)]
@@ -732,18 +741,27 @@ fn load_cert_files() -> Result<(Option<Item>, Option<Item>), Box<dyn Error>> {
 async fn patch_deployment(
     admission_request: AdmissionRequest<Deployment>,
     ns: Option<Namespace>,
-) -> Result<AdmissionReview<DynamicObject>, SDPServiceError> {
-    let admission_response = AdmissionResponse::from(&admission_request);
+) -> Result<SDPPatchResponse, SDPPatchError> {
+    let admission_response = Box::new(AdmissionResponse::from(&admission_request));
     let mut patches = vec![];
     let deployment = admission_request
         .object()
-        .ok_or("Unable to find Deployment inside AdmissionRequest")?;
+        .ok_or(SDPServiceError::from(
+            "Unable to find Deployment inside AdmissionRequest",
+        ))
+        .map_err(SDPPatchError::from_admission_response(Box::clone(
+            &admission_response,
+        )))?;
 
     // Patch Deployment metadata
     if deployment.annotations().is_none() {
         patches.push(Add(AddOperation {
             path: "/metadata/annotations".to_string(),
-            value: serde_json::to_value(HashMap::<String, String>::new())?,
+            value: serde_json::to_value(HashMap::<String, String>::new())
+                .map_err(|e| SDPServiceError::from(e))
+                .map_err(SDPPatchError::from_admission_response(Box::clone(
+                    &admission_response,
+                )))?,
         }));
     }
     patches.push(Add(AddOperation {
@@ -752,7 +770,11 @@ async fn patch_deployment(
             ns.as_ref()
                 .and_then(|ns| ns.annotation(SDP_INJECTOR_ANNOTATION_STRATEGY))
                 .unwrap_or(&SDPInjectionStrategy::EnabledByDefault.to_string()),
-        )?,
+        )
+        .map_err(|e| SDPServiceError::from(e))
+        .map_err(SDPPatchError::from_admission_response(Box::clone(
+            &admission_response,
+        )))?,
     }));
     patches.push(Add(AddOperation {
         path: format!("/metadata/annotations/{}", SDP_INJECTOR_ANNOTATION_ENABLED),
@@ -760,7 +782,11 @@ async fn patch_deployment(
             ns.as_ref()
                 .and_then(|ns| ns.annotation(SDP_INJECTOR_ANNOTATION_ENABLED))
                 .unwrap_or(&format!("true")),
-        )?,
+        )
+        .map_err(|e| SDPServiceError::from(e))
+        .map_err(SDPPatchError::from_admission_response(Box::clone(
+            &admission_response,
+        )))?,
     }));
 
     // Patch Deployment template metadata
@@ -777,7 +803,11 @@ async fn patch_deployment(
     {
         patches.push(Add(AddOperation {
             path: "/spec/template/metadata/annotations".to_string(),
-            value: serde_json::to_value(HashMap::<String, String>::new())?,
+            value: serde_json::to_value(HashMap::<String, String>::new())
+                .map_err(|e| SDPServiceError::from(e))
+                .map_err(SDPPatchError::from_admission_response(Box::clone(
+                    &admission_response,
+                )))?,
         }));
     }
     patches.push(Add(AddOperation {
@@ -789,75 +819,74 @@ async fn patch_deployment(
             ns.as_ref()
                 .and_then(|ns| ns.annotation(SDP_INJECTOR_ANNOTATION_ENABLED))
                 .unwrap_or(&format!("true")),
-        )?,
+        )
+        .map_err(|e| SDPServiceError::from(e))
+        .map_err(SDPPatchError::from_admission_response(Box::clone(
+            &admission_response,
+        )))?,
     }));
-    let admission_response = admission_response
+    patches.push(Add(AddOperation {
+        path: format!(
+            "/spec/template/metadata/annotations/{}",
+            SDP_INJECTOR_ANNOTATION_ENABLED
+        ),
+        value: serde_json::to_value(
+            ns.as_ref()
+                .and_then(|ns| ns.annotation(SDP_INJECTOR_ANNOTATION_ENABLED))
+                .unwrap_or(&format!("true")),
+        )
+        .map_err(|e| SDPServiceError::from(e))
+        .map_err(SDPPatchError::from_admission_response(Box::clone(
+            &admission_response,
+        )))?,
+    }));
+    let admission_response = Box::clone(&admission_response)
         .with_patch(Patch(patches))
-        .map_err(SDPServiceError::from_error("Unable to patch deployment"))?;
-    Ok(admission_response.into_review())
+        .map_err(SDPServiceError::from_error("Unable to patch deployment"))
+        .map_err(SDPPatchError::from_admission_response(Box::clone(
+            &admission_response,
+        )))?;
+    Ok(SDPPatchResponse::Allow(Box::new(admission_response)))
 }
 
 async fn patch_pod<'a, E: IdentityStore<ServiceIdentity>>(
     admission_request: AdmissionRequest<Pod>,
     sdp_patch_context: SDPPatchContext<'a, E>,
-) -> Result<AdmissionReview<DynamicObject>, SDPServiceError> {
-    let _ = admission_request
-        .object
-        .as_ref()
-        .ok_or("Admission request does not contain a POD")?;
-    let _ = match (
-        &admission_request.namespace,
-        admission_request
-            .object
-            .as_ref()
-            .and_then(|r| r.metadata.namespace.as_ref()),
-    ) {
-        (_, Some(ns)) => Some(ns),
-        (Some(ns), None) => Some(ns),
-        _ => None,
-    }
-    .ok_or("Unable to find namespace in admission request or in the POD contained in it")?;
+) -> Result<SDPPatchResponse, SDPPatchError> {
     let sdp_pod = SDPPod {
         sdp_sidecars: Arc::clone(&sdp_patch_context.sdp_sidecars),
         k8s_dns_service: sdp_patch_context.k8s_dns_service,
     };
-    let mut admission_response = AdmissionResponse::from(&admission_request);
-    when_ok!((service_id = admission_request.service_id()) {
-        // Try to get the service environment and use it to patch the POD
-        let mut environment =
-            ServiceEnvironment::create(&admission_request, sdp_patch_context.identity_store).await?;
-
-        match sdp_pod.patch(&mut environment, admission_request)
-        {
-            Ok(patch) => {
-                info!(
-                    "POD for service {} has {} patches",
-                    service_id,
-                    patch.0.len()
-                );
-                admission_response = admission_response.with_patch(patch).map_err(|e| format!("Error serializing JSONPatch: {}", e))?
-            }
-            Err(error) => {
-                warn!(
-                    "Unable to patch POD for service {}: {}",
-                    service_id,
-                    error.to_string()
-                );
-                let mut status: Status = Default::default();
-                status.code = Some(400);
-                status.message = Some(format!("This POD can not be patched {}", error));
-                admission_response.allowed = false;
-                admission_response.result = status;
-            }
-        }
-    });
-    Ok(admission_response.into_review())
+    let admission_response = Box::new(AdmissionResponse::from(&admission_request));
+    let service_id =
+        admission_request
+            .service_id()
+            .map_err(SDPPatchError::from_admission_response(Box::clone(
+                &admission_response,
+            )))?;
+    // Try to get the service environment and use it to patch the POD
+    let mut environment =
+        ServiceEnvironment::create(&admission_request, sdp_patch_context.identity_store)
+            .await
+            .map_err(SDPPatchError::from_admission_response(Box::clone(
+                &admission_response,
+            )))?;
+    let patch = sdp_pod.patch(&mut environment, admission_request).map_err(
+        SDPPatchError::from_admission_response(Box::clone(&admission_response)),
+    )?;
+    let admission_response = Box::clone(&admission_response)
+        .with_patch(patch)
+        .map_err(SDPServiceError::from_error("Error serializing JSONPatch"))
+        .map_err(SDPPatchError::from_admission_response(Box::clone(
+            &admission_response,
+        )))?;
+    Ok(SDPPatchResponse::Allow(Box::new(admission_response)))
 }
 
-async fn mutate<E: IdentityStore<ServiceIdentity>>(
+async fn mutate<'a, E: IdentityStore<ServiceIdentity>>(
     body: Bytes,
     sdp_injector_context: Arc<SDPInjectorContext<E>>,
-) -> Result<Body, SDPServiceError> {
+) -> Result<SDPPatchResponse, SDPPatchError> {
     let k8s_dns_service = dns_service_discover(&(&sdp_injector_context.services_api)).await;
     let sdp_patch_context = SDPPatchContext {
         k8s_dns_service: k8s_dns_service,
@@ -870,6 +899,7 @@ async fn mutate<E: IdentityStore<ServiceIdentity>>(
     let admission_review = serde_json::from_str::<AdmissionReview<DynamicObject>>(&body).map_err(
         SDPServiceError::from_error("Unable to parse AdmissionReview<DynamicObject>"),
     )?;
+    let mut attempts_store = sdp_injector_context.attempts_store.lock().await;
     match admission_review
         .request
         .as_ref()
@@ -886,15 +916,28 @@ async fn mutate<E: IdentityStore<ServiceIdentity>>(
                     .map_err(SDPServiceError::from_error(
                         "Unable to parse AdmissionRequest<Pod>",
                     ))?;
-            let mut admission_response = AdmissionResponse::from(&admission_request).into_review();
             if admission_request.is_candidate() {
-                admission_response = patch_pod(admission_request, sdp_patch_context).await?;
+                let admission_service_id = format!("pods_{}", admission_request.service_id()?);
+                match patch_pod(admission_request, sdp_patch_context).await {
+                    Ok(SDPPatchResponse::Allow(admission_response)) => {
+                        attempts_store.remove(&admission_service_id);
+                        Ok(SDPPatchResponse::Allow(admission_response))
+                    }
+                    Ok(r) => Ok(r),
+                    Err(SDPPatchError::WithResponse(response, e)) => {
+                        *attempts_store
+                            .entry(admission_service_id.clone())
+                            .or_insert(0) += 1;
+                        let attempt = attempts_store.get(&admission_service_id).unwrap_or(&0);
+                        Ok(SDPPatchResponse::RetryWithError(response, e, *attempt))
+                    }
+                    Err(e) => Err(e),
+                }
+            } else {
+                Ok(SDPPatchResponse::Allow(Box::new(AdmissionResponse::from(
+                    &admission_request,
+                ))))
             }
-            Ok(Body::from(
-                serde_json::to_string(&admission_response).map_err(SDPServiceError::from_error(
-                    "Unable to serialize body response",
-                ))?,
-            ))
         }
         Some("deployments") => {
             let admission_review: AdmissionReview<Deployment> = serde_json::from_str(&body)
@@ -907,32 +950,35 @@ async fn mutate<E: IdentityStore<ServiceIdentity>>(
                     "Unable to parse AdmissionReview<Deployment>",
                 ))?;
 
-            let ns = admission_request
-                .namespace()
-                .ok_or_else(|| format!("Could not get name space name for requested Deployment"))?;
-            let ns = sdp_injector_context
-                .ns_api
-                .get_opt(&ns)
-                .await
-                .map_err(|e| {
-                    format!(
-                        "Could not get Namespace object for requested Deployment: {}",
-                        e
-                    )
-                })?;
-            let admission_response = patch_deployment(admission_request, ns).await?;
-            Ok(Body::from(
-                serde_json::to_string(&admission_response).map_err(SDPServiceError::from_error(
-                    "Unable to serialize body response",
-                ))?,
-            ))
+            let ns = admission_request.namespace().ok_or_else(|| {
+                SDPServiceError::from("Could not get name space name for requested Deployment")
+            })?;
+            let admission_service_id =
+                format!("deployment_{}", admission_request.service_id()?);
+            let ns = sdp_injector_context.ns_api.get_opt(&ns).await.map_err(
+                SDPServiceError::from_error(
+                    "Could not get Namespace object for requested Deployment",
+                ),
+            )?;
+            match patch_deployment(admission_request, ns).await {
+                Ok(SDPPatchResponse::Allow(admission_response)) => {
+                    attempts_store.remove(&admission_service_id);
+                    Ok(SDPPatchResponse::Allow(admission_response))
+                }
+                Ok(r) => Ok(r),
+                Err(SDPPatchError::WithResponse(response, e)) => {
+                    *attempts_store
+                        .entry(admission_service_id.clone())
+                        .or_insert(0) += 1;
+                    let attempt = attempts_store.get(&admission_service_id).unwrap_or(&0);
+                    Ok(SDPPatchResponse::RetryWithError(response, e, *attempt))
+                }
+                Err(e) => Err(e),
+            }
         }
-        _ => {
-            let err_str = "Unknown resource to patch";
-            error!("{}", err_str);
-            let err = SDPServiceError::from(err_str);
-            Err(err)
-        }
+        Some(s) => Err(SDPPatchError::WithoutResponse(
+            SDPServiceError::from_string(format!("Unknown resource to patch: {}", s)),
+        )),
     }
 }
 
@@ -1811,7 +1857,6 @@ POD is missing needed volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-de
                     identity_store: identity_storage.lock().await,
                     k8s_dns_service: Some(test.service),
                 };
-
                 patch_pod(request, sdp_patch_context)
                     .await
                     .map_err(|e| format!("Could not generate a response: {}", e.to_string()))
@@ -2207,16 +2252,85 @@ async fn injector_handler<E: IdentityStore<ServiceIdentity>>(
         (&Method::POST, "/mutate") => {
             let bs = hyper::body::to_bytes(req).await?;
             match mutate(bs, sdp_context).await {
-                Ok(body) => Ok(Response::new(body)),
-                Err(e) => {
-                    error!(
-                        "Error processing /mutate admission request: {}",
-                        e.to_string()
+                // Object properly patched and allowed
+                Ok(SDPPatchResponse::Allow(response)) => {
+                    info!(
+                        "Object properly patched with {} patches",
+                        response.patch.as_ref().map(|xs| xs.len()).unwrap_or(0)
                     );
-                    Ok(Response::builder()
-                        .status(StatusCode::UNPROCESSABLE_ENTITY)
-                        .body(Body::from(e.to_string()))
-                        .unwrap())
+                    let admission_review = response.into_review();
+                    let body = serde_json::to_string(&admission_review);
+                    match body {
+                        Err(e) => Ok(Response::builder()
+                            .status(StatusCode::UNPROCESSABLE_ENTITY)
+                            .body(Body::from(e.to_string()))
+                            .unwrap()),
+                        Ok(body) => Ok(Response::new(Body::from(body))),
+                    }
+                }
+                Ok(SDPPatchResponse::RetryWithError(mut response, error, attempts))
+                    if attempts >= MAX_PATCH_ATTEMPTS =>
+                {
+                    error!("Last patch attempt failed [attempt {}], accepting the object without patchs.", MAX_PATCH_ATTEMPTS);
+                    let mut status: Status = Default::default();
+                    status.code = Some(200);
+                    response.allowed = true;
+                    response.result = status;
+                    let admission_review = response.into_review();
+                    let body = serde_json::to_string(&admission_review);
+                    match body {
+                        Err(e) => Ok(Response::builder()
+                            .status(StatusCode::UNPROCESSABLE_ENTITY)
+                            .body(Body::from(e.to_string()))
+                            .unwrap()),
+                        Ok(body) => Ok(Response::new(Body::from(body))),
+                    }
+                }
+                Ok(SDPPatchResponse::RetryWithError(response, error, attempts)) => {
+                    error!(
+                        "Patch failed, attempt {} of {}. Retrying.",
+                        attempts, MAX_PATCH_ATTEMPTS
+                    );
+                    let admission_review = response.into_review();
+                    let body = serde_json::to_string(&admission_review);
+                    match body {
+                        Err(e) => Ok(Response::builder()
+                            .status(StatusCode::UNPROCESSABLE_ENTITY)
+                            .body(Body::from(e.to_string()))
+                            .unwrap()),
+                        Ok(body) => Ok(Response::builder()
+                            .status(StatusCode::UNPROCESSABLE_ENTITY)
+                            .body(Body::from(body))
+                            .unwrap()),
+                    }
+                }
+                Err(SDPPatchError::WithResponse(response, e)) => {
+                    let admission_review = response.into_review();
+                    let body = serde_json::to_string(&admission_review);
+                    match body {
+                        Err(e) => Ok(Response::builder()
+                            .status(StatusCode::UNPROCESSABLE_ENTITY)
+                            .body(Body::from(e.to_string()))
+                            .unwrap()),
+                        Ok(body) => Ok(Response::builder()
+                            .status(StatusCode::UNPROCESSABLE_ENTITY)
+                            .body(Body::from(body))
+                            .unwrap()),
+                    }
+                }
+                Err(SDPPatchError::WithoutResponse(e)) => {
+                    let admission_review = AdmissionResponse::invalid(e.to_string());
+                    let body = serde_json::to_string(&admission_review);
+                    match body {
+                        Err(e) => Ok(Response::builder()
+                            .status(StatusCode::UNPROCESSABLE_ENTITY)
+                            .body(Body::from(e.to_string()))
+                            .unwrap()),
+                        Ok(body) => Ok(Response::builder()
+                            .status(StatusCode::UNPROCESSABLE_ENTITY)
+                            .body(Body::from(body))
+                            .unwrap()),
+                    }
                 }
             }
         }
