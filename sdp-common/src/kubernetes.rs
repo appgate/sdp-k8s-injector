@@ -2,7 +2,10 @@ use std::collections::{BTreeMap, HashMap};
 
 use http::Uri;
 use k8s_openapi::{
-    api::{apps::v1::Deployment, core::v1::Pod},
+    api::{
+        apps::v1::Deployment,
+        core::v1::{Namespace, Pod},
+    },
     Metadata,
 };
 use kube::{core::admission::AdmissionRequest, Client, Config, Resource, ResourceExt};
@@ -260,6 +263,12 @@ impl Candidate for AdmissionRequest<Deployment> {
         self.object()
             .map(|deployment| deployment.is_candidate())
             .unwrap_or(false)
+    }
+}
+
+impl Annotated for Namespace {
+    fn annotations(&self) -> Option<&BTreeMap<String, String>> {
+        Some(ResourceExt::annotations(self))
     }
 }
 
