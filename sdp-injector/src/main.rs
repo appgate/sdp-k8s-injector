@@ -11,8 +11,8 @@ use json_patch::PatchOperation::Add;
 use json_patch::{AddOperation, Patch};
 use k8s_openapi::api::apps::v1::Deployment;
 use k8s_openapi::api::core::v1::{
-    ConfigMapKeySelector, Container, EnvVar, EnvVarSource, ObjectFieldSelector, Pod, PodDNSConfig,
-    SecretKeySelector, Service as KubeService, Volume,
+    ConfigMapKeySelector, Container, EnvVar, EnvVarSource, Namespace, ObjectFieldSelector, Pod,
+    PodDNSConfig, SecretKeySelector, Service as KubeService, Volume,
 };
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::Status;
 use kube::api::{DynamicObject, ListParams};
@@ -243,9 +243,8 @@ fn reader_from_cwd(file_name: &str) -> Result<BufReader<File>, Box<dyn Error>> {
     Ok(BufReader::new(file))
 }
 
-async fn dns_service_discover<'a>(k8s_client: &'a Client) -> Option<KubeService> {
+async fn dns_service_discover<'a>(services_api: &'a Api<KubeService>) -> Option<KubeService> {
     let names: HashSet<&str, RandomState> = HashSet::from_iter(SDP_DNS_SERVICE_NAMES);
-    let services_api: Api<KubeService> = Api::namespaced(k8s_client.clone(), "kube-system");
     debug!("Discovering K8S DNS service");
     let services = services_api.list(&ListParams::default()).await;
     services
@@ -644,7 +643,8 @@ struct SDPSidecars {
 
 struct SDPInjectorContext<E: IdentityStore<ServiceIdentity>> {
     sdp_sidecars: Arc<SDPSidecars>,
-    k8s_client: Client,
+    ns_api: Api<Namespace>,
+    services_api: Api<KubeService>,
     identity_store: Mutex<E>,
 }
 
@@ -717,6 +717,7 @@ fn load_cert_files() -> Result<(Option<Item>, Option<Item>), Box<dyn Error>> {
 
 async fn patch_deployment(
     admission_request: AdmissionRequest<Deployment>,
+    ns: Option<Namespace>,
 ) -> Result<AdmissionReview<DynamicObject>, SDPServiceError> {
     let admission_response = AdmissionResponse::from(&admission_request);
     let mut patches = vec![];
@@ -751,7 +752,12 @@ async fn patch_deployment(
     }));
 
     // Patch Deployment template metadata
-    if deployment.spec.as_ref().and_then(|s| s.template.metadata.as_ref()).is_none() {
+    if deployment
+        .spec
+        .as_ref()
+        .and_then(|s| s.template.metadata.as_ref())
+        .is_none()
+    {
         patches.push(Add(AddOperation {
             path: "/spec/template/metadata/annotations".to_string(),
             value: serde_json::to_value(HashMap::<String, String>::new())?,
@@ -770,7 +776,10 @@ async fn patch_deployment(
         // TODO: This should be coming from NS, not the Deployment
     }));
     patches.push(Add(AddOperation {
-        path: format!("/spec/template/metadata/annotations/{}", SDP_INJECTOR_ANNOTATION_ENABLED),
+        path: format!(
+            "/spec/template/metadata/annotations/{}",
+            SDP_INJECTOR_ANNOTATION_ENABLED
+        ),
         value: serde_json::to_value(
             deployment
                 .annotation(SDP_INJECTOR_ANNOTATION_ENABLED)
@@ -845,7 +854,7 @@ async fn mutate<E: IdentityStore<ServiceIdentity>>(
     body: Bytes,
     sdp_injector_context: Arc<SDPInjectorContext<E>>,
 ) -> Result<Body, SDPServiceError> {
-    let k8s_dns_service = dns_service_discover(&(sdp_injector_context.k8s_client)).await;
+    let k8s_dns_service = dns_service_discover(&(&sdp_injector_context.services_api)).await;
     let sdp_patch_context = SDPPatchContext {
         k8s_dns_service: k8s_dns_service,
         sdp_sidecars: Arc::clone(&sdp_injector_context.sdp_sidecars),
@@ -896,7 +905,20 @@ async fn mutate<E: IdentityStore<ServiceIdentity>>(
 
             let mut admission_response = AdmissionResponse::from(&admission_request).into_review();
             if admission_request.is_candidate() {
-                admission_response = patch_deployment(admission_request).await?;
+                let ns = admission_request.namespace().ok_or_else(|| {
+                    format!("Could not get name space name for requested Deployment")
+                })?;
+                let ns = sdp_injector_context
+                    .ns_api
+                    .get_opt(&ns)
+                    .await
+                    .map_err(|e| {
+                        format!(
+                            "Could not get Namespace object for requested Deployment: {}",
+                            e
+                        )
+                    })?;
+                admission_response = patch_deployment(admission_request, ns).await?;
             }
             Ok(Body::from(
                 serde_json::to_string(&admission_response).map_err(SDPServiceError::from_error(
@@ -938,7 +960,7 @@ async fn validate(body: Bytes, sdp_sidecars: Arc<SDPSidecars>) -> Result<Body, B
     Ok(Body::from(serde_json::to_string(&admission_response)?))
 }
 
-async fn get_dns_service(k8s_client: &Client) -> Result<Option<Body>, Box<dyn Error>> {
+async fn get_dns_service(k8s_client: &Api<KubeService>) -> Result<Option<Body>, Box<dyn Error>> {
     let k8s_dns_service = dns_service_discover(k8s_client).await;
     match k8s_dns_service {
         Some(s) => Ok(Some(Body::from(serde_json::to_string(&s)?))),
@@ -2192,7 +2214,7 @@ async fn injector_handler<E: IdentityStore<ServiceIdentity>>(
                     .unwrap()),
             }
         }
-        (&Method::GET, "/dns-service") => match get_dns_service(&sdp_context.k8s_client).await {
+        (&Method::GET, "/dns-service") => match get_dns_service(&sdp_context.services_api).await {
             Ok(Some(body)) => Ok(Response::new(body)),
             Ok(None) => Ok(Response::builder()
                 .status(StatusCode::NOT_FOUND)
@@ -2228,11 +2250,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .map(|v| v == "1" || v.to_lowercase() == "true")
         .unwrap_or(false);
     let k8s_client: Client = Client::try_from(k8s_config).expect("Unable to create k8s client");
-    let k8s_client_cp2 = k8s_client.clone();
     let service_identity_api: Api<ServiceIdentity> =
         Api::namespaced(k8s_client.clone(), "sdp-system");
     let pods_api: Api<Pod> = Api::all(k8s_client.clone());
-    let device_ids_api: Api<DeviceId> = Api::namespaced(k8s_client, "sdp-system");
+    let device_ids_api: Api<DeviceId> = Api::namespaced(k8s_client.clone(), "sdp-system");
     let (device_id_tx, device_id_rx) =
         channel::<DeviceIdProviderRequestProtocol<ServiceIdentity>>(50);
     let store = KubeIdentityStore {
@@ -2242,7 +2263,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
         load_sidecar_containers().expect("Unable to load the sidecar information");
     let sdp_injector_context = Arc::new(SDPInjectorContext {
         sdp_sidecars: Arc::new(sdp_sidecars),
-        k8s_client: k8s_client_cp2,
+        ns_api: Api::all(k8s_client.clone()),
+        services_api: Api::namespaced(k8s_client, "kube-system"),
         identity_store: Mutex::new(store),
     });
 
