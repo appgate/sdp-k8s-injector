@@ -21,7 +21,7 @@ use crate::identity_manager::{IdentityManagerProtocol, ServiceIdentity};
 pub enum IdentityCreatorProtocol {
     StartService,
     CreateIdentity,
-    // service user, service service_ns, service_name, labels
+    // service user, cluster_id, service_ns, service_name, labels
     ActivateServiceUser(ServiceUser, String, String, String, HashMap<String, String>),
     // service user, service namespace, service name
     DeleteServiceUser(ServiceUser, String, String),
