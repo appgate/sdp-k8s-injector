@@ -482,32 +482,30 @@ impl Patched for SDPPod {
                 .annotation(SDP_ANNOTATION_DNS_SEARCHES)
                 .map(|s| searches_string_to_vec(s.to_string()));
             let dns_config = &self.sdp_sidecars.dns_config(&ns, custom_searches);
-            if pod.annotations().is_none() {
+            if pod.annotations().is_none() || pod.annotations().unwrap().is_empty() {
                 patches.push(Add(AddOperation {
                     path: "/metadata/annotations".to_string(),
                     value: serde_json::to_value(HashMap::<String, String>::new())?,
                 }));
             }
-            patches.extend(vec![
-                Add(AddOperation {
-                    path: format!("/metadata/annotations/{}", SDP_INJECTOR_ANNOTATION_STRATEGY),
-                    value: serde_json::to_value(
-                        pod.annotation(SDP_INJECTOR_ANNOTATION_STRATEGY)
-                            .unwrap_or(&SDPInjectionStrategy::EnabledByDefault.to_string()),
-                    )?,
-                }),
-                Add(AddOperation {
-                    path: format!("/metadata/annotations/{}", SDP_INJECTOR_ANNOTATION_ENABLED),
-                    value: serde_json::to_value(
-                        pod.annotation(SDP_INJECTOR_ANNOTATION_ENABLED)
-                            .unwrap_or(&format!("true")),
-                    )?,
-                }),
-                Add(AddOperation {
-                    path: format!("/metadata/annotations/{}", POD_DEVICE_ID_ANNOTATION),
-                    value: serde_json::to_value(&environment.client_device_id)?,
-                }),
-            ]);
+            patches.push(Add(AddOperation {
+                path: format!("/metadata/annotations/{}", SDP_INJECTOR_ANNOTATION_STRATEGY),
+                value: serde_json::to_value(
+                    pod.annotation(SDP_INJECTOR_ANNOTATION_STRATEGY)
+                        .unwrap_or(&SDPInjectionStrategy::EnabledByDefault.to_string()),
+                )?,
+            }));
+            patches.push(Add(AddOperation {
+                path: format!("/metadata/annotations/{}", SDP_INJECTOR_ANNOTATION_ENABLED),
+                value: serde_json::to_value(
+                    pod.annotation(SDP_INJECTOR_ANNOTATION_ENABLED)
+                        .unwrap_or(&format!("true")),
+                )?,
+            }));
+            patches.push(Add(AddOperation {
+                path: format!("/metadata/annotations/{}", POD_DEVICE_ID_ANNOTATION),
+                value: serde_json::to_value(&environment.client_device_id)?,
+            }));
 
             for c in self.sdp_sidecars.containers.clone().iter_mut() {
                 c.env = Some(environment.variables(&c.name));
@@ -991,6 +989,19 @@ mod tests {
     use std::sync::Arc;
     use tokio::sync::mpsc::channel;
     use tokio::sync::Mutex;
+
+    macro_rules! dns_service {
+        ($ip:expr) => {
+            KubeService {
+                metadata: ObjectMeta::default(),
+                spec: Some(ServiceSpec {
+                    cluster_ip: Some(format!("{}", $ip)),
+                    ..Default::default()
+                }),
+                status: Some(ServiceStatus::default()),
+            }
+        };
+    }
 
     fn load_sidecar_containers_env() -> Result<SDPSidecars, String> {
         let manifest_dir =

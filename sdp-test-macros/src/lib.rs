@@ -57,6 +57,19 @@ macro_rules! set_pod_field {
             spec.containers = test_cs;
         }
     };
+    ($pod:expr, init_containers => $cs:expr) => {
+        let test_cs: Vec<Container> = $cs
+            .iter()
+            .map(|x| {
+                let mut c: Container = Default::default();
+                c.name = x.to_string();
+                c
+            })
+            .collect();
+        if let Some(spec) = $pod.spec.as_mut() {
+            spec.init_containers = Some(test_cs);
+        }
+    };
     ($pod:expr, volumes => $vs:expr) => {
         let volumes: Vec<Volume> = $vs
             .iter()
