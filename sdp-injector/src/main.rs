@@ -52,7 +52,8 @@ use crate::deviceid::{DeviceIdProvider, DeviceIdProviderRequestProtocol};
 use crate::watchers::{watch, Watcher};
 use sdp_common::service::{
     containers, init_containers, volume_names, volumes, SDPInjectionStrategy, ServiceIdentity,
-    SDP_INJECTOR_ANNOTATION_ENABLED, SDP_INJECTOR_ANNOTATION_STRATEGY,
+    SDP_INJECTOR_ANNOTATION_CLIENT_VERSION, SDP_INJECTOR_ANNOTATION_ENABLED,
+    SDP_INJECTOR_ANNOTATION_STRATEGY,
 };
 
 const SDP_K8S_HOST_ENV: &str = "SDP_K8S_HOST";
@@ -508,6 +509,19 @@ impl Patched for SDPPod {
             }));
 
             for c in self.sdp_sidecars.containers.clone().iter_mut() {
+                if let Some(image) = &c.image {
+                    c.image = pod
+                        .annotation(SDP_INJECTOR_ANNOTATION_CLIENT_VERSION)
+                        .map(|version| {
+                            let tag = image.rsplit(":").collect::<Vec<&str>>()[0];
+                            Some(format!(
+                                "{}:{}",
+                                image.trim_end_matches(&format!(":{}", tag)),
+                                version
+                            ))
+                        })
+                        .unwrap_or(Some(image.to_string()));
+                }
                 c.env = Some(environment.variables(&c.name));
                 patches.push(Add(AddOperation {
                     path: "/spec/containers/-".to_string(),
@@ -751,7 +765,12 @@ async fn patch_deployment(
     if deployment
         .spec
         .as_ref()
-        .and_then(|s| s.template.metadata.as_ref().and_then(|m| m.annotations.as_ref()))
+        .and_then(|s| {
+            s.template
+                .metadata
+                .as_ref()
+                .and_then(|m| m.annotations.as_ref())
+        })
         .is_none()
     {
         patches.push(Add(AddOperation {
@@ -898,9 +917,9 @@ async fn mutate<E: IdentityStore<ServiceIdentity>>(
                 ))?;
 
             let mut admission_response = AdmissionResponse::from(&admission_request).into_review();
-            let ns = admission_request.namespace().ok_or_else(|| {
-                format!("Could not get name space name for requested Deployment")
-            })?;
+            let ns = admission_request
+                .namespace()
+                .ok_or_else(|| format!("Could not get name space name for requested Deployment"))?;
             let ns = sdp_injector_context
                 .ns_api
                 .get_opt(&ns)

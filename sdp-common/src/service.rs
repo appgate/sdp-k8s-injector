@@ -17,6 +17,7 @@ use std::{collections::BTreeMap, error::Error};
 
 pub const SDP_INJECTOR_ANNOTATION_STRATEGY: &str = "sdp-injector-strategy";
 pub const SDP_INJECTOR_ANNOTATION_ENABLED: &str = "sdp-injector-enabled";
+pub const SDP_INJECTOR_ANNOTATION_CLIENT_VERSION: &str = "sdp-injector-client-version";
 pub const SDP_INJECTOR_ANNOTATION: &str = "sdp-injector";
 
 #[derive(PartialEq, Debug)]
