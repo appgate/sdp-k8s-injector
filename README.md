@@ -95,6 +95,22 @@ NAME          STATUS   AGE    SDP-INJECTION
 sdp-demo      Active   1m     enabled
 ```
 
+### Default Injection Strategy
+There are two types of strategy for `sdp-injector-strategy`:
+1. `enabledByDefault` - Inject sidecars to all pods created within the namespace.
+2. `disabledByDefault` - Do not inject sidecars to pods automatically.
+
+Annotate the namespace with `sdp-injector-strategy=<STRATEGY>` to set strategy. If the annotation is not set on the namespace, it will use `enabledByDefault` as its default strategy.
+
+```bash
+$ kubectl annotate namespace `sdp-injector-enabled="true"`
+$ kubectl annotate namespace `sdp-injector-strategy="enabledByDefault"`
+```
+
+To disable injection in a namespace annotated with `enabledByDefault`, annotate the deployment with `sdp-injector-enabled="false"`.
+
+To enable injection in a namespace annotated with `disabledByDefault`, annotate each deployment with `sdp-injector-enabled=true`.
+
 ## Parameters
 
 ### SDP parameters
