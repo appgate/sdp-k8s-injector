@@ -34,7 +34,6 @@ sdp:
   host: ""
   adminSecret: ""
   clientVersion: 6.0.1
-  tag: k8s
   clusterId: "dev"
 
   ## @param sdp.selfClient.enabled Whether to set up an SDP client on the Identity Service
