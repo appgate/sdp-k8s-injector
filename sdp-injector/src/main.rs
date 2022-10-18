@@ -751,7 +751,7 @@ async fn patch_deployment(
     if deployment
         .spec
         .as_ref()
-        .and_then(|s| s.template.metadata.as_ref())
+        .and_then(|s| s.template.metadata.as_ref().and_then(|m| m.annotations.as_ref()))
         .is_none()
     {
         patches.push(Add(AddOperation {
@@ -898,22 +898,20 @@ async fn mutate<E: IdentityStore<ServiceIdentity>>(
                 ))?;
 
             let mut admission_response = AdmissionResponse::from(&admission_request).into_review();
-            if admission_request.is_candidate() {
-                let ns = admission_request.namespace().ok_or_else(|| {
-                    format!("Could not get name space name for requested Deployment")
+            let ns = admission_request.namespace().ok_or_else(|| {
+                format!("Could not get name space name for requested Deployment")
+            })?;
+            let ns = sdp_injector_context
+                .ns_api
+                .get_opt(&ns)
+                .await
+                .map_err(|e| {
+                    format!(
+                        "Could not get Namespace object for requested Deployment: {}",
+                        e
+                    )
                 })?;
-                let ns = sdp_injector_context
-                    .ns_api
-                    .get_opt(&ns)
-                    .await
-                    .map_err(|e| {
-                        format!(
-                            "Could not get Namespace object for requested Deployment: {}",
-                            e
-                        )
-                    })?;
-                admission_response = patch_deployment(admission_request, ns).await?;
-            }
+            admission_response = patch_deployment(admission_request, ns).await?;
             Ok(Body::from(
                 serde_json::to_string(&admission_response).map_err(SDPServiceError::from_error(
                     "Unable to serialize body response",
