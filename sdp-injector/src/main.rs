@@ -2305,6 +2305,7 @@ async fn injector_handler<E: IdentityStore<ServiceIdentity>>(
                     }
                 }
                 Err(SDPPatchError::WithResponse(response, e)) => {
+                    error!("Patch failed unexpectely: {}", e);
                     let admission_review = response.into_review();
                     let body = serde_json::to_string(&admission_review);
                     match body {
@@ -2319,6 +2320,7 @@ async fn injector_handler<E: IdentityStore<ServiceIdentity>>(
                     }
                 }
                 Err(SDPPatchError::WithoutResponse(e)) => {
+                    error!("Patch failed unexpectely: {}", e);
                     let admission_review = AdmissionResponse::invalid(e.to_string());
                     let body = serde_json::to_string(&admission_review);
                     match body {
@@ -2326,10 +2328,7 @@ async fn injector_handler<E: IdentityStore<ServiceIdentity>>(
                             .status(StatusCode::UNPROCESSABLE_ENTITY)
                             .body(Body::from(e.to_string()))
                             .unwrap()),
-                        Ok(body) => Ok(Response::builder()
-                            .status(StatusCode::UNPROCESSABLE_ENTITY)
-                            .body(Body::from(body))
-                            .unwrap()),
+                        Ok(body) => Ok(Response::new(Body::from(body))),
                     }
                 }
             }
