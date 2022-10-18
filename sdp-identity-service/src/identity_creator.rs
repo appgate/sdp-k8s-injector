@@ -85,7 +85,7 @@ impl IdentityCreator {
         let cluster_id = std::env::var(SDP_CLUSTER_ID_ENV);
         if cluster_id.is_err() {
             panic!(
-                "Unable to get cluster id, make sure SDP_CLUSTER_ID environemnt variable is set."
+                "Unable to get cluster id, make sure SDP_CLUSTER_ID environment variable is set."
             );
         }
         IdentityCreator {
