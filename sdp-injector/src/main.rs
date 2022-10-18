@@ -50,9 +50,7 @@ use uuid::Uuid;
 
 use crate::deviceid::{DeviceIdProvider, DeviceIdProviderRequestProtocol};
 use crate::watchers::{watch, Watcher};
-use sdp_common::service::{
-    containers, init_containers, is_injection_disabled, volume_names, volumes, ServiceIdentity,
-};
+use sdp_common::service::{containers, init_containers, volume_names, volumes, ServiceIdentity};
 const SDP_K8S_HOST_ENV: &str = "SDP_K8S_HOST";
 const SDP_K8S_HOST_DEFAULT: &str = "kubernetes.default.svc";
 const SDP_K8S_NO_VERIFY_ENV: &str = "SDP_K8S_NO_VERIFY";
@@ -477,7 +475,10 @@ impl Patched for SDPPod {
                 .k8s_dns_service
                 .maybe_ip()
                 .ok_or("Unable to patch POD: K8S DNS service IP is unknown")?;
-            let dns_config = &self.sdp_sidecars.dns_config(&ns);
+            let custom_searches = pod
+                .annotation(SDP_ANNOTATION_DNS_SEARCHES)
+                .map(|s| searches_string_to_vec(s.to_string()));
+            let dns_config = &self.sdp_sidecars.dns_config(&ns, custom_searches);
             patches = vec![
                 Add(AddOperation {
                     path: "/metadata/annotations".to_string(),
@@ -527,13 +528,10 @@ impl Patched for SDPPod {
                     value: serde_json::to_value(&self.sdp_sidecars.volumes)?,
                 }));
             }
-            let custom_searches = pod
-                .annotation(SDP_ANNOTATION_DNS_SEARCHES)
-                .map(|s| searches_string_to_vec(s.to_string()));
             // Patch DNSConfiguration now
             patches.push(Add(AddOperation {
                 path: "/spec/dnsConfig".to_string(),
-                value: serde_json::to_value(&self.sdp_sidecars.dns_config(&ns, custom_searches))?,
+                value: serde_json::to_value(&dns_config)?,
             }));
             patches.push(Add(AddOperation {
                 path: "/spec/dnsPolicy".to_string(),
@@ -1955,6 +1953,7 @@ POD is missing needed volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-de
             dns_config: Box::new(DNSConfig {
                 searches: "svc.cluster.local cluster.local".to_string(),
             }),
+            init_containers: Box::new((Container::default(), Container::default())),
         };
 
         assert_eq!(
@@ -1975,6 +1974,7 @@ POD is missing needed volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-de
             dns_config: Box::new(DNSConfig {
                 searches: "ns1.svc.cluster.local cluster.local".to_string(),
             }),
+            init_containers: Box::new((Container::default(), Container::default())),
         };
 
         assert_eq!(
@@ -1995,6 +1995,7 @@ POD is missing needed volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-de
             dns_config: Box::new(DNSConfig {
                 searches: "ns1.svc.cluster.local cluster.local".to_string(),
             }),
+            init_containers: Box::new((Container::default(), Container::default())),
         };
 
         let custom_searches = vec!["svc.test.local".to_string(), "test.local".to_string()];
@@ -2016,6 +2017,7 @@ POD is missing needed volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-de
             dns_config: Box::new(DNSConfig {
                 searches: "ns1.svc.cluster.local cluster.local".to_string(),
             }),
+            init_containers: Box::new((Container::default(), Container::default())),
         };
 
         let custom_searches = vec!["ns1.svc.test.local".to_string(), "test.local".to_string()];
