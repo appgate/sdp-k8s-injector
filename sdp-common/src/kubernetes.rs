@@ -260,9 +260,7 @@ impl Service for AdmissionRequest<Deployment> {}
 
 impl Candidate for AdmissionRequest<Deployment> {
     fn is_candidate(&self) -> bool {
-        self.object()
-            .map(|deployment| deployment.is_candidate())
-            .unwrap_or(false)
+        true
     }
 }
 
