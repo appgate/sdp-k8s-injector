@@ -111,7 +111,8 @@ jobs:
   helm:
     runs-on: ubuntu-latest
     needs:
-      - docker
+      - docker-rust
+      - docker-client-images
     env:
       HELM_EXPERIMENTAL_OCI: 1
     steps:
