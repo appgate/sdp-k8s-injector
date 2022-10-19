@@ -459,7 +459,7 @@ pub fn is_injection_enabled<A: Annotated>(entity: &A) -> bool {
 }
 
 pub fn needs_injection<A: Annotated>(entity: &A) -> bool {
-    match injection_stragegy(entity) {
+    match injection_strategy(entity) {
         SDPInjectionStrategy::EnabledByDefault => !is_injection_disabled(entity),
         SDPInjectionStrategy::DisabledByDefault => is_injection_enabled(entity),
     }
@@ -503,52 +503,52 @@ mod tests {
         SDP_INJECTOR_ANNOTATION_STRATEGY,
     };
 
-    use super::injection_stragegy;
+    use super::injection_strategy;
 
     #[test]
     fn test_sdp_injection_strategy_0() {
         assert_eq!(
-            injection_stragegy(&pod!(0)),
+            injection_strategy(&pod!(0)),
             SDPInjectionStrategy::DisabledByDefault
         );
         assert_eq!(
-            injection_stragegy(
+            injection_strategy(
                 &pod!(0, annotations => vec![("SDP_INJECTOR_ANNOTATION_STRATEGY", "")])
             ),
             SDPInjectionStrategy::DisabledByDefault
         );
         assert_eq!(
-            injection_stragegy(&pod!(0, annotations => vec![(
+            injection_strategy(&pod!(0, annotations => vec![(
             SDP_INJECTOR_ANNOTATION_STRATEGY, "enabledByDefault")
             ])),
             SDPInjectionStrategy::EnabledByDefault
         );
         assert_eq!(
-            injection_stragegy(&pod!(0, annotations => vec![(
+            injection_strategy(&pod!(0, annotations => vec![(
             SDP_INJECTOR_ANNOTATION_STRATEGY, "enabledbydefault")
             ])),
             SDPInjectionStrategy::EnabledByDefault
         );
         assert_eq!(
-            injection_stragegy(&pod!(0, annotations => vec![(
+            injection_strategy(&pod!(0, annotations => vec![(
             SDP_INJECTOR_ANNOTATION_STRATEGY, "enabled-by-default")
             ])),
             SDPInjectionStrategy::DisabledByDefault
         );
         assert_eq!(
-            injection_stragegy(&pod!(0, annotations => vec![(
+            injection_strategy(&pod!(0, annotations => vec![(
             SDP_INJECTOR_ANNOTATION_STRATEGY, "disabledByDefault")
             ])),
             SDPInjectionStrategy::DisabledByDefault
         );
         assert_eq!(
-            injection_stragegy(&pod!(0, annotations => vec![(
+            injection_strategy(&pod!(0, annotations => vec![(
             SDP_INJECTOR_ANNOTATION_STRATEGY, "disabledbydefault")
             ])),
             SDPInjectionStrategy::DisabledByDefault
         );
         assert_eq!(
-            injection_stragegy(&pod!(0, annotations => vec![(
+            injection_strategy(&pod!(0, annotations => vec![(
             SDP_INJECTOR_ANNOTATION_STRATEGY, "disabled-by-default")
             ])),
             SDPInjectionStrategy::DisabledByDefault
