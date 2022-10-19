@@ -76,6 +76,50 @@ mod deviceid;
 mod errors;
 mod watchers;
 
+macro_rules! admission_request {
+    ($body:ident, $typ:tt) => {{
+        let admission_review: AdmissionReview<$typ> =
+            serde_json::from_str(&$body).map_err(SDPServiceError::from_error(&format!(
+                "Unable to parse AdmissionReview<{}>",
+                stringify!($typ)
+            )))?;
+        let admission_request: AdmissionRequest<$typ> =
+            admission_review
+                .try_into()
+                .map_err(SDPServiceError::from_error(&format!(
+                    "Unable to parse AdmissionReview<{}>",
+                    stringify!($typ)
+                )))?;
+        admission_request
+    }};
+}
+
+macro_rules! attempt_patch {
+    ($admission_request:ident, $patcher:expr, $store:ident, $prefix:literal) => {{
+        let admission_id = format!("{}_{}", $prefix, $admission_request.service_id()?);
+        if $admission_request.is_candidate() {
+            let patched = $patcher.await;
+            match patched {
+                Ok(SDPPatchResponse::Allow(admission_response)) => {
+                    $store.remove(&admission_id);
+                    Ok(SDPPatchResponse::Allow(admission_response))
+                }
+                Ok(r) => Ok(r),
+                Err(SDPPatchError::WithResponse(response, e)) => {
+                    *$store.entry(admission_id.clone()).or_insert(0) += 1;
+                    let attempt = $store.get(&admission_id).unwrap_or(&0);
+                    Ok(SDPPatchResponse::RetryWithError(response, e, *attempt))
+                }
+                Err(e) => Err(e),
+            }
+        } else {
+            Ok(SDPPatchResponse::Allow(Box::new(AdmissionResponse::from(
+                &$admission_request,
+            ))))
+        }
+    }};
+}
+
 macro_rules! admission_response {
     ($body:ident, $response:ident => $expr:expr) => {{
         let admission_review = $response.into_review();
@@ -946,74 +990,30 @@ async fn mutate<'a, E: IdentityStore<ServiceIdentity>>(
         .map(|r| r.resource.resource.as_str())
     {
         Some("pods") => {
-            let admission_review: AdmissionReview<Pod> = serde_json::from_str(&body).map_err(
-                SDPServiceError::from_error("Unable to parse AdmissionReview<Pod>"),
-            )?;
-
-            let admission_request: AdmissionRequest<Pod> =
-                admission_review
-                    .try_into()
-                    .map_err(SDPServiceError::from_error(
-                        "Unable to parse AdmissionRequest<Pod>",
-                    ))?;
-            if admission_request.is_candidate() {
-                let admission_service_id = format!("pods_{}", admission_request.service_id()?);
-                match patch_pod(admission_request, sdp_patch_context).await {
-                    Ok(SDPPatchResponse::Allow(admission_response)) => {
-                        attempts_store.remove(&admission_service_id);
-                        Ok(SDPPatchResponse::Allow(admission_response))
-                    }
-                    Ok(r) => Ok(r),
-                    Err(SDPPatchError::WithResponse(response, e)) => {
-                        *attempts_store
-                            .entry(admission_service_id.clone())
-                            .or_insert(0) += 1;
-                        let attempt = attempts_store.get(&admission_service_id).unwrap_or(&0);
-                        Ok(SDPPatchResponse::RetryWithError(response, e, *attempt))
-                    }
-                    Err(e) => Err(e),
-                }
-            } else {
-                Ok(SDPPatchResponse::Allow(Box::new(AdmissionResponse::from(
-                    &admission_request,
-                ))))
-            }
+            let admission_request = admission_request!(body, Pod);
+            attempt_patch!(
+                admission_request,
+                patch_pod(admission_request, sdp_patch_context),
+                attempts_store,
+                "pods"
+            )
         }
         Some("deployments") => {
-            let admission_review: AdmissionReview<Deployment> = serde_json::from_str(&body)
-                .map_err(SDPServiceError::from_error(
-                    "Unable to parse AdmissionReview<Deployment>",
-                ))?;
-            let admission_request: AdmissionRequest<Deployment> = admission_review
-                .try_into()
-                .map_err(SDPServiceError::from_error(
-                    "Unable to parse AdmissionReview<Deployment>",
-                ))?;
-
+            let admission_request = admission_request!(body, Deployment);
             let ns = admission_request.namespace().ok_or_else(|| {
                 SDPServiceError::from("Could not get name space name for requested Deployment")
             })?;
-            let admission_service_id = format!("deployment_{}", admission_request.service_id()?);
             let ns = sdp_injector_context.ns_api.get_opt(&ns).await.map_err(
                 SDPServiceError::from_error(
                     "Could not get Namespace object for requested Deployment",
                 ),
             )?;
-            match patch_deployment(admission_request, ns).await {
-                Ok(SDPPatchResponse::Allow(admission_response)) => {
-                    attempts_store.remove(&admission_service_id);
-                    Ok(SDPPatchResponse::Allow(admission_response))
-                }
-                Ok(r) => Ok(r),
-                Err(SDPPatchError::WithResponse(response, e)) => {
-                    *attempts_store
-                        .entry(admission_service_id.clone())
-                        .or_insert(0) += 1;
-                    let attempt = attempts_store.get(&admission_service_id).unwrap_or(&0);
-                    Ok(SDPPatchResponse::RetryWithError(response, e, *attempt))
-                }
-                Err(e) => Err(e),
-            }
+            attempt_patch!(
+                admission_request,
+                patch_deployment(admission_request, ns),
+                attempts_store,
+                "deployments"
+            )
         }
         Some(s) => Err(SDPPatchError::WithoutResponse(
             SDPServiceError::from_string(format!("Unknown resource to patch: {}", s)),
