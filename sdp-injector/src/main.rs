@@ -28,7 +28,6 @@ use sdp_common::errors::SDPServiceError;
 use sdp_common::traits::{
     Annotated, Candidate, HasCredentials, Namespaced, ObjectRequest, Service, Validated,
 };
-use sdp_macros::when_ok;
 use serde::Deserialize;
 use std::collections::hash_map::RandomState;
 use std::collections::{HashMap, HashSet};
@@ -858,12 +857,11 @@ async fn patch_pod<'a, E: IdentityStore<ServiceIdentity>>(
         k8s_dns_service: sdp_patch_context.k8s_dns_service,
     };
     let admission_response = Box::new(AdmissionResponse::from(&admission_request));
-    let service_id =
-        admission_request
-            .service_id()
-            .map_err(SDPPatchError::from_admission_response(Box::clone(
-                &admission_response,
-            )))?;
+    admission_request
+        .service_id()
+        .map_err(SDPPatchError::from_admission_response(Box::clone(
+            &admission_response,
+        )))?;
     // Try to get the service environment and use it to patch the POD
     let mut environment =
         ServiceEnvironment::create(&admission_request, sdp_patch_context.identity_store)
@@ -979,6 +977,9 @@ async fn mutate<'a, E: IdentityStore<ServiceIdentity>>(
         Some(s) => Err(SDPPatchError::WithoutResponse(
             SDPServiceError::from_string(format!("Unknown resource to patch: {}", s)),
         )),
+        None => Err(SDPPatchError::WithoutResponse(SDPServiceError::from(
+            "Unknown resource to patch",
+        ))),
     }
 }
 
@@ -1020,7 +1021,7 @@ mod tests {
     use crate::deviceid::{IdentityStore, InMemoryIdentityStore};
     use crate::{
         containers, load_sidecar_containers, patch_pod, volume_names, DNSConfig, Patched,
-        SDPPatchContext, SDPPod, SDPSidecars, ServiceEnvironment, Validated,
+        SDPPatchContext, SDPPatchResponse, SDPPod, SDPSidecars, ServiceEnvironment, Validated,
         SDP_ANNOTATION_CLIENT_CONFIG, SDP_ANNOTATION_CLIENT_DEVICE_ID,
         SDP_ANNOTATION_CLIENT_SECRETS, SDP_ANNOTATION_DNS_SEARCHES, SDP_SERVICE_CONTAINER_NAME,
         SDP_SIDECARS_FILE_ENV,
@@ -1859,10 +1860,10 @@ POD is missing needed volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-de
                 };
                 patch_pod(request, sdp_patch_context)
                     .await
-                    .map_err(|e| format!("Could not generate a response: {}", e.to_string()))
+                    .map_err(|e| format!("Could not generate a response: {:?}", e))
             };
-            match patch_response.map(|r| r.response) {
-                Ok(Some(response)) if !response.allowed => {
+            match patch_response {
+                Ok(SDPPatchResponse::Allow(response)) if !response.allowed => {
                     results.push((
                         false,
                         "Injection Containers Test".to_string(),
@@ -1872,7 +1873,7 @@ POD is missing needed volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-de
                         ),
                     ));
                 }
-                Ok(Some(response)) => {
+                Ok(SDPPatchResponse::Allow(response)) => {
                     if let Some(ps) = response.patch {
                         match (test.needs_patching, ps.len() > 2) {
                             (true, true) | (false, false) => {
@@ -1903,7 +1904,7 @@ POD is missing needed volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-de
                         ));
                     }
                 }
-                Ok(None) => {
+                Ok(SDPPatchResponse::RetryWithError(_, _, _)) => {
                     results.push((
                         false,
                         format!("Could not find a response"),
@@ -2255,7 +2256,7 @@ async fn injector_handler<E: IdentityStore<ServiceIdentity>>(
                 // Object properly patched and allowed
                 Ok(SDPPatchResponse::Allow(response)) => {
                     info!(
-                        "Object properly patched with {} patches",
+                        "Resource properly patched with {} patches",
                         response.patch.as_ref().map(|xs| xs.len()).unwrap_or(0)
                     );
                     let admission_review = response.into_review();
@@ -2271,7 +2272,12 @@ async fn injector_handler<E: IdentityStore<ServiceIdentity>>(
                 Ok(SDPPatchResponse::RetryWithError(mut response, error, attempts))
                     if attempts >= MAX_PATCH_ATTEMPTS =>
                 {
-                    error!("Last patch attempt failed [attempt {}], accepting the object without patchs.", MAX_PATCH_ATTEMPTS);
+                    error!(
+                        "Patch failed [{}/{}]. Accepting resource without patching: {}",
+                        attempts,
+                        MAX_PATCH_ATTEMPTS,
+                        error.to_string()
+                    );
                     let mut status: Status = Default::default();
                     status.code = Some(200);
                     response.allowed = true;
@@ -2288,8 +2294,10 @@ async fn injector_handler<E: IdentityStore<ServiceIdentity>>(
                 }
                 Ok(SDPPatchResponse::RetryWithError(response, error, attempts)) => {
                     error!(
-                        "Patch failed, attempt {} of {}. Retrying.",
-                        attempts, MAX_PATCH_ATTEMPTS
+                        "Patch failed [{}/{}]. Retrying: {}",
+                        attempts,
+                        MAX_PATCH_ATTEMPTS,
+                        error.to_string()
                     );
                     let admission_review = response.into_review();
                     let body = serde_json::to_string(&admission_review);
@@ -2305,7 +2313,7 @@ async fn injector_handler<E: IdentityStore<ServiceIdentity>>(
                     }
                 }
                 Err(SDPPatchError::WithResponse(response, e)) => {
-                    error!("Patch failed unexpectely: {}", e);
+                    error!("Patch failed: {}", e);
                     let admission_review = response.into_review();
                     let body = serde_json::to_string(&admission_review);
                     match body {
@@ -2320,7 +2328,7 @@ async fn injector_handler<E: IdentityStore<ServiceIdentity>>(
                     }
                 }
                 Err(SDPPatchError::WithoutResponse(e)) => {
-                    error!("Patch failed unexpectely: {}", e);
+                    error!("Patch failed: {}", e);
                     let admission_review = AdmissionResponse::invalid(e.to_string());
                     let body = serde_json::to_string(&admission_review);
                     match body {
@@ -2395,6 +2403,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         ns_api: Api::all(k8s_client.clone()),
         services_api: Api::namespaced(k8s_client, "kube-system"),
         identity_store: Mutex::new(store),
+        attempts_store: Mutex::new(HashMap::new()),
     });
 
     let ssl_config = load_ssl()?;
