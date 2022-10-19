@@ -76,6 +76,48 @@ mod deviceid;
 mod errors;
 mod watchers;
 
+macro_rules! admission_response {
+    ($body:ident, $response:ident => $expr:expr) => {{
+        let admission_review = $response.into_review();
+        let body = serde_json::to_string(&admission_review);
+        let r: Result<Response<Body>, hyper::Error> = match body {
+            Err(e) => Ok(Response::builder()
+                .status(StatusCode::UNPROCESSABLE_ENTITY)
+                .body(Body::from(e.to_string()))
+                .unwrap()),
+            Ok($body) => Ok($expr),
+        };
+        r
+    }};
+}
+
+macro_rules! allow_admission_response {
+    (response => $response:ident) => {{
+        let mut status: Status = Default::default();
+        status.code = Some(200);
+        $response.allowed = true;
+        $response.result = status;
+        admission_response!(body, $response => {
+            Response::new(Body::from(body))
+        })
+    }};
+}
+
+macro_rules! fail_admission_response {
+    (response => $response:ident) => {{
+        admission_response!(body, $response => {
+            Response::builder()
+                .status(StatusCode::UNPROCESSABLE_ENTITY)
+                .body(Body::from(body))
+                .unwrap()
+        })
+    }};
+    (error => $e:ident) => {{
+        let response = AdmissionResponse::invalid($e.to_string());
+        fail_admission_response!(response => response)
+    }};
+}
+
 macro_rules! env_var {
     (value :: $env_name:expr => $value:expr) => {{
         let mut env: EnvVar = Default::default();
@@ -951,8 +993,7 @@ async fn mutate<'a, E: IdentityStore<ServiceIdentity>>(
             let ns = admission_request.namespace().ok_or_else(|| {
                 SDPServiceError::from("Could not get name space name for requested Deployment")
             })?;
-            let admission_service_id =
-                format!("deployment_{}", admission_request.service_id()?);
+            let admission_service_id = format!("deployment_{}", admission_request.service_id()?);
             let ns = sdp_injector_context.ns_api.get_opt(&ns).await.map_err(
                 SDPServiceError::from_error(
                     "Could not get Namespace object for requested Deployment",
@@ -2254,20 +2295,13 @@ async fn injector_handler<E: IdentityStore<ServiceIdentity>>(
             let bs = hyper::body::to_bytes(req).await?;
             match mutate(bs, sdp_context).await {
                 // Object properly patched and allowed
-                Ok(SDPPatchResponse::Allow(response)) => {
+                Ok(SDPPatchResponse::Allow(mut response)) => {
                     info!(
                         "Resource properly patched with {} patches",
                         response.patch.as_ref().map(|xs| xs.len()).unwrap_or(0)
                     );
-                    let admission_review = response.into_review();
-                    let body = serde_json::to_string(&admission_review);
-                    match body {
-                        Err(e) => Ok(Response::builder()
-                            .status(StatusCode::UNPROCESSABLE_ENTITY)
-                            .body(Body::from(e.to_string()))
-                            .unwrap()),
-                        Ok(body) => Ok(Response::new(Body::from(body))),
-                    }
+                    // Object properly patched and allowed
+                    allow_admission_response!(response => response)
                 }
                 Ok(SDPPatchResponse::RetryWithError(mut response, error, attempts))
                     if attempts >= MAX_PATCH_ATTEMPTS =>
@@ -2278,19 +2312,8 @@ async fn injector_handler<E: IdentityStore<ServiceIdentity>>(
                         MAX_PATCH_ATTEMPTS,
                         error.to_string()
                     );
-                    let mut status: Status = Default::default();
-                    status.code = Some(200);
-                    response.allowed = true;
-                    response.result = status;
-                    let admission_review = response.into_review();
-                    let body = serde_json::to_string(&admission_review);
-                    match body {
-                        Err(e) => Ok(Response::builder()
-                            .status(StatusCode::UNPROCESSABLE_ENTITY)
-                            .body(Body::from(e.to_string()))
-                            .unwrap()),
-                        Ok(body) => Ok(Response::new(Body::from(body))),
-                    }
+                    // Object patch failed, too many attempts so we accept the resource as it is
+                    allow_admission_response!(response => response)
                 }
                 Ok(SDPPatchResponse::RetryWithError(response, error, attempts)) => {
                     error!(
@@ -2299,45 +2322,18 @@ async fn injector_handler<E: IdentityStore<ServiceIdentity>>(
                         MAX_PATCH_ATTEMPTS,
                         error.to_string()
                     );
-                    let admission_review = response.into_review();
-                    let body = serde_json::to_string(&admission_review);
-                    match body {
-                        Err(e) => Ok(Response::builder()
-                            .status(StatusCode::UNPROCESSABLE_ENTITY)
-                            .body(Body::from(e.to_string()))
-                            .unwrap()),
-                        Ok(body) => Ok(Response::builder()
-                            .status(StatusCode::UNPROCESSABLE_ENTITY)
-                            .body(Body::from(body))
-                            .unwrap()),
-                    }
+                    // Object patch failed, don't accept the resource so k8s can retry
+                    fail_admission_response!(response => response)
                 }
                 Err(SDPPatchError::WithResponse(response, e)) => {
                     error!("Patch failed: {}", e);
-                    let admission_review = response.into_review();
-                    let body = serde_json::to_string(&admission_review);
-                    match body {
-                        Err(e) => Ok(Response::builder()
-                            .status(StatusCode::UNPROCESSABLE_ENTITY)
-                            .body(Body::from(e.to_string()))
-                            .unwrap()),
-                        Ok(body) => Ok(Response::builder()
-                            .status(StatusCode::UNPROCESSABLE_ENTITY)
-                            .body(Body::from(body))
-                            .unwrap()),
-                    }
+                    // We got an error with a reponse, fail with that response
+                    fail_admission_response!(response => response)
                 }
                 Err(SDPPatchError::WithoutResponse(e)) => {
                     error!("Patch failed: {}", e);
-                    let admission_review = AdmissionResponse::invalid(e.to_string());
-                    let body = serde_json::to_string(&admission_review);
-                    match body {
-                        Err(e) => Ok(Response::builder()
-                            .status(StatusCode::UNPROCESSABLE_ENTITY)
-                            .body(Body::from(e.to_string()))
-                            .unwrap()),
-                        Ok(body) => Ok(Response::new(Body::from(body))),
-                    }
+                    // We got an error without a reponse, fail
+                    fail_admission_response!(error => e)
                 }
             }
         }
