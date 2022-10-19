@@ -907,7 +907,6 @@ async fn mutate<E: IdentityStore<ServiceIdentity>>(
                     "Unable to parse AdmissionReview<Deployment>",
                 ))?;
 
-            let mut admission_response = AdmissionResponse::from(&admission_request).into_review();
             let ns = admission_request
                 .namespace()
                 .ok_or_else(|| format!("Could not get name space name for requested Deployment"))?;
@@ -921,7 +920,7 @@ async fn mutate<E: IdentityStore<ServiceIdentity>>(
                         e
                     )
                 })?;
-            admission_response = patch_deployment(admission_request, ns).await?;
+            let admission_response = patch_deployment(admission_request, ns).await?;
             Ok(Body::from(
                 serde_json::to_string(&admission_response).map_err(SDPServiceError::from_error(
                     "Unable to serialize body response",
