@@ -21,14 +21,15 @@ SDP Kubernetes Client requires several configuration on the SDP Controller:
   * Device IDs are only freed when they are unused for some amount of time defined in the IP Pool.
 * User
   * `Service User Management Preset` for its Admin Role, which includes the following privileges:
-    * View all Service Users tagged with `k8s`
-    * Create all Service Users with default tag `k8s`
-    * Edit all Service Users tagged with `k8s`
-    * Delete all Service Users tagged with `k8s`
-    * View all Client Profiles tagged with `k8s`
-    * Create all Client Profiles with default tag `k8s`
-    * Edit all Client Profiles tagged with `k8s`
-    * Delete all Client Profiles tagged with `k8s`
+    * View all Service Users
+    * Create all Service Users
+    * Edit all Service Users
+    * Delete all Service Users
+    * View all Client Profiles
+    * Create all Client Profiles
+    * Edit all Client Profiles
+    * Delete all Client Profiles
+    * Export all Client Profiles
   * If the Admin API is protected behind SDP, the user additionally needs
     * Policy/Entitlement to access the DNS
       * `ALLOW TCP up to <INTERNAL CONTROLLER IP> - port 53`
@@ -95,6 +96,43 @@ NAME          STATUS   AGE    SDP-INJECTION
 sdp-demo      Active   1m     enabled
 ```
 
+### Meta-Client (Sidecar for Injector)
+In the case where the injector itself requires an SDP client to connect to the controller, use the meta-client feature. To use the meta-client, you need the following:
+* Secret with the following keys:
+  * `meta-client-username` - Username of the user
+  * `meta-client-password` - Password of the user
+  * `meta-client-provider` - Provider of the user
+  * `meta-client-profile-url` - Profile URL for the meta-client
+* ConfigMap with the following keys:
+  * `meta-client-log-level` - Log level of the meta-client
+  * `meta-client-device-id` - Device ID (UUID v4) of the meta-client
+
+```bash
+$ kubectl create secret generic sdp-k8s-meta-client-secret --namespace sdp-system \
+	--from-literal=meta-client-username="" \
+	--from-literal=meta-client-password="" \
+	--from-literal=meta-client-provider="" \
+	--from-literal=meta-client-profile-url=""
+```
+
+```bash
+$ kubectl create configmap sdp-k8s-meta-client-config --namespace sdp-system \
+	--from-literal=meta-client-log-level=<LOG_LEVEL> \
+	--from-literal=meta-client-device-id=<UUID>
+```
+
+After creating the secret and configmap, provide the name of these resources to the helm chart and set `sdp.metaClient.enabled=true`. 
+
+```yaml
+sdp:
+  metaClient:
+    enabled: true
+    adminSecret: sdp-k8s-meta-client-secret
+    adminConfig: sdp-k8s-meta-client-config
+```
+
+Upon installation of the chart, this secret and configmap will be passed to the sidecar injected next to the Identity Service.
+
 ### Default Injection Strategy
 There are two types of strategy for `sdp-injector-strategy`:
 1. `enabledByDefault` - Inject sidecars to all pods created within the namespace.
@@ -133,13 +171,12 @@ $ kubectl annotate pod <POD> sdp-injector-client-version="5.5.1"
 | `sdp.host`                             | Hostname of the SDP controller                                                           | `""`                                    |
 | `sdp.adminSecret`                      | Name of the secret for initial authentication                                            | `""`                                    |
 | `sdp.clientVersion`                    | Version of the SDP client to inject as sidecars.                                         | `6.0.1`                                 |
-| `sdp.tag`                              | Tag to use for resources created by the injector                                         | `k8s`                                   |
-| `sdp.clusterId`                        | An identifier to prefix service users and client profiles                                | `dev`                                   |
-| `sdp.selfClient.enabled`               | Whether to set up an SDP client on the Identity Service                                  | `false`                                 |
-| `sdp.selfClient.adminSecret`           | Name of the secret for initial authentication                                            | `""`                                    |
-| `sdp.selfClient.adminConfig`           | Name of the config for initial authentication                                            | `""`                                    |
-| `sdp.selfClient.dnsService`            | IP of the kube-dns service                                                               | `""`                                    |
-| `sdp.selfClient.dnsConfig.searches`    | Search domains to add to the Pod DNS configuration                                       | `["svc.cluster.local","cluster.local"]` |
+| `sdp.clusterID`                        | An identifier to prefix service users and client profiles                                | `""`                                    |
+| `sdp.metaClient.enabled`               | Whether to set up an SDP client on the Identity Service                                  | `false`                                 |
+| `sdp.metaClient.adminSecret`           | Name of the secret for initial authentication                                            | `""`                                    |
+| `sdp.metaClient.adminConfig`           | Name of the config for initial authentication                                            | `""`                                    |
+| `sdp.metaClient.dnsService`            | IP of the kube-dns service                                                               | `""`                                    |
+| `sdp.metaClient.dnsConfig.searches`    | Search domains to add to the Pod DNS configuration                                       | `["svc.cluster.local","cluster.local"]` |
 | `sdp.injector.logLevel`                | SDP Injector log level.                                                                  | `info`                                  |
 | `sdp.injector.replica`                 | Number of Device ID Service replicas to deploy                                           | `1`                                     |
 | `sdp.injector.certDays`                | How many days will be the SDP Injector certificate be valid.                             | `365`                                   |
