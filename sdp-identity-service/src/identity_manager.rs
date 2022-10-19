@@ -331,18 +331,18 @@ pub struct IdentityManagerRunner<From: Service + Send, To: Service + HasCredenti
 /// - IM asks IC to collect current ServiceUser
 /// - IC notifies IM with defined ServiceUser (active and not active)
 /// - DW notifies IM with the current defined ServiceCandidates
-/// - IM cleans up extra ServiceUser (credentials active in system without a ServiceIdentrity)
+/// - IM cleans up extra ServiceUser (credentials active in system without a ServiceIdentity)
 /// - IM cleans up ServiceIdentities that have ServiceUser not active
 /// - IM cleans up ServiceIdentities that don't have a ServiceCandidate attached
 /// - IM asks DW to start
 /// - DW sends the list of all CandidateServices (Deployments)
-/// - IM creates ServiceIDentity for those CandidateServices that need it and dont have one.
+/// - IM creates ServiceIdentity for those CandidateServices that need it and dont have one.
 impl IdentityManagerRunner<ServiceLookup, ServiceIdentity> {
     pub fn kube_runner(client: Client) -> IdentityManagerRunner<ServiceLookup, ServiceIdentity> {
         let cluster_id = std::env::var(SDP_CLUSTER_ID_ENV);
         if cluster_id.is_err() {
             panic!(
-                "Unable to get cluster id, make sure SDP_CLUSTER_ID environemnt variable is set."
+                "Unable to get cluster id, make sure SDP_CLUSTER_ID environment variable is set."
             );
         }
         let service_identity_api: Api<ServiceIdentity> = Api::namespaced(client, "sdp-system");
@@ -439,7 +439,7 @@ impl IdentityManagerRunner<ServiceLookup, ServiceIdentity> {
                             "New ServiceIdentity requested for ServiceCandidate {}",
                             service_id
                         ) => external_queue_tx);
-                        let a = ServiceLookup::try_from_service(&service_candidate).expect("Unable to conver service");
+                        let a = ServiceLookup::try_from_service(&service_candidate).expect("Unable to convert service");
                         match im.next_identity(&a) {
                             Some((service_identity, true)) => match im.create(&service_identity).await {
                                 Ok(service_identity) => {
@@ -604,7 +604,7 @@ impl IdentityManagerRunner<ServiceLookup, ServiceIdentity> {
                 // Identity Creator finished the initialization
                 IdentityManagerProtocol::IdentityManagerReady => {
                     let mut removed_service_identities: HashSet<String> = HashSet::new();
-                    info!("IdentityMAnager is ready");
+                    info!("IdentityManager is ready");
 
                     sdp_info!(IdentityManagerProtocol::<F, ServiceIdentity>::IdentityManagerDebug |("Syncing UserCredentials") => external_queue_tx);
 
@@ -711,7 +711,7 @@ impl IdentityManagerRunner<ServiceLookup, ServiceIdentity> {
                                 };
                             }
                             None => {
-                                error!("Deleted ServiceCandidate {} has not IdentitityService attached, ignoring!",
+                                error!("Deleted ServiceCandidate {} has not IdentityService attached, ignoring!",
                                 candidate_service_id);
                             }
                         }
@@ -749,9 +749,9 @@ impl IdentityManagerRunner<ServiceLookup, ServiceIdentity> {
 
     pub async fn run(
         mut self,
-        identity_manager_prot_rx: Receiver<IdentityManagerProtocol<Deployment, ServiceIdentity>>,
-        identity_manager_prot_tx: Sender<IdentityManagerProtocol<Deployment, ServiceIdentity>>,
-        identity_creater_proto_tx: Sender<IdentityCreatorProtocol>,
+        identity_manager_proto_rx: Receiver<IdentityManagerProtocol<Deployment, ServiceIdentity>>,
+        identity_manager_proto_tx: Sender<IdentityManagerProtocol<Deployment, ServiceIdentity>>,
+        identity_creator_proto_tx: Sender<IdentityCreatorProtocol>,
         deployment_watcher_proto_tx: Sender<DeploymentWatcherProtocol>,
         external_queue_tx: Option<Sender<IdentityManagerProtocol<Deployment, ServiceIdentity>>>,
     ) -> () {
@@ -763,7 +763,7 @@ impl IdentityManagerRunner<ServiceLookup, ServiceIdentity> {
         };
 
         // Ask Identity Creator to awake
-        if let Err(err) = identity_creater_proto_tx
+        if let Err(err) = identity_creator_proto_tx
             .send(IdentityCreatorProtocol::StartService)
             .await
         {
@@ -774,9 +774,9 @@ impl IdentityManagerRunner<ServiceLookup, ServiceIdentity> {
         IdentityManagerRunner::run_identity_manager(
             &mut self.im,
             self.cluster_id,
-            identity_manager_prot_rx,
-            identity_manager_prot_tx,
-            identity_creater_proto_tx,
+            identity_manager_proto_rx,
+            identity_manager_proto_tx,
+            identity_creator_proto_tx,
             deployment_watcher_proto_tx,
             external_queue_tx.as_ref(),
         )
@@ -1455,7 +1455,7 @@ mod tests {
                 // Create it in k8s
                 assert_eq!(counters.lock().unwrap().create_calls, 1);
 
-                // We ask IC to create a new crendential
+                // We ask IC to create a new credential
                 assert_message!(m :: IdentityCreatorProtocol::CreateIdentity in identity_creator_rx);
                 // We add labels and we activate new credential
                 assert_message! {
@@ -1498,7 +1498,7 @@ mod tests {
                 // Create it in k8s
                 assert_eq!(counters.lock().unwrap().create_calls, 2);
 
-                // We ask IC to create a new crendential
+                // We ask IC to create a new credential
                 assert_message!(m :: IdentityCreatorProtocol::CreateIdentity in identity_creator_rx);
 
                 // We add labels and we activate new credential
@@ -1617,7 +1617,7 @@ mod tests {
                 // Create it in k8s
                 assert_eq!(counters.lock().unwrap().create_calls, 1);
 
-                // Note that now we dont ask IC to create a new crendential, since the pool has enough credentials
+                // Note that now we dont ask IC to create a new credential, since the pool has enough credentials
                 // We add labels and we activate new credential
                 assert_message! {
                     (m :: IdentityCreatorProtocol::ActivateServiceUser {..} in identity_creator_rx) => {
@@ -1692,7 +1692,7 @@ mod tests {
                 tx.send(IdentityManagerProtocol::RequestServiceIdentity {
                     service_candidate: deployment!("ns1", "srv1"),
                 }).await.expect("Unable to send RequestServiceIdentity message to IdentityManager");
-                // We ask IC to create a new crendential
+                // We ask IC to create a new credential
                 assert_message!(m :: IdentityCreatorProtocol::CreateIdentity in identity_creator_rx);
                 assert_message!(m :: IdentityCreatorProtocol::ActivateServiceUser{..} in identity_creator_rx);
                 assert_no_message!(identity_creator_rx);
