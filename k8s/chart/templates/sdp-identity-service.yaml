@@ -20,13 +20,13 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       serviceAccountName: {{ include "sdp-k8s-client.serviceAccountName" .}}-identity-service
-      {{ if eq .Values.sdp.selfClient.enabled true }}
+      {{ if .Values.sdp.metaClient.enabled }}
       dnsPolicy: None
       dnsConfig:
         nameservers:
           - 127.0.0.1
         searches:
-          {{ toYaml .Values.sdp.selfClient.dnsConfig.searches | nindent 8 }}
+          {{ toYaml .Values.sdp.metaClient.dnsConfig.searches | nindent 8 }}
       volumes:
         - name: run-sdp-driver
         - name: run-sdp-dnsmasq
@@ -44,7 +44,7 @@ spec:
                   fieldPath: metadata.annotations
       {{ end }}
       containers:
-        {{ if eq .Values.sdp.selfClient.enabled true }}
+        {{ if .Values.sdp.metaClient.enabled }}
         - name: {{ .Chart.Name }}-sdp-service
           image: {{ default .Values.global.image.repository .Values.sdp.headlessService.image.repository }}/sdp-headless-service:{{ default .Values.sdp.clientVersion  .Values.sdp.headlessService.image.tag }}
           imagePullPolicy: {{ .Values.sdp.headlessService.image.pullPolicy }}
@@ -66,28 +66,28 @@ spec:
             - name: APPGATE_LOGLEVEL
               valueFrom:
                 configMapKeyRef:
-                  name: {{ required ".Values.sdp.selfClient.adminConfig is required" .Values.sdp.selfClient.adminConfig }}
-                  key: client-log-level
+                  name: {{ required ".Values.sdp.metaClient.adminConfig is required" .Values.sdp.metaClient.adminConfig }}
+                  key: meta-client-log-level
             - name: APPGATE_DEVICE_ID
               valueFrom:
                 configMapKeyRef:
-                  name: {{ required ".Values.sdp.selfClient.adminConfig is required" .Values.sdp.selfClient.adminConfig }}
-                  key: client-device-id
+                  name: {{ required ".Values.sdp.metaClient.adminConfig is required" .Values.sdp.metaClient.adminConfig }}
+                  key: meta-client-device-id
             - name: APPGATE_USERNAME
               valueFrom:
                 secretKeyRef:
-                  name: {{ required ".Values.sdp.selfClient.adminSecret is required" .Values.sdp.selfClient.adminSecret }}
-                  key: client-username
+                  name: {{ required ".Values.sdp.metaClient.adminSecret is required" .Values.sdp.metaClient.adminSecret }}
+                  key: meta-client-username
             - name: APPGATE_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: {{ required ".Values.sdp.selfClient.adminSecret is required" .Values.sdp.selfClient.adminSecret }}
-                  key: client-password
+                  name: {{ required ".Values.sdp.metaClient.adminSecret is required" .Values.sdp.metaClient.adminSecret }}
+                  key: meta-client-password
             - name: APPGATE_PROFILE_URL
               valueFrom:
                 secretKeyRef:
-                  name: {{ required ".Values.sdp.selfClient.adminSecret is required" .Values.sdp.selfClient.adminSecret }}
-                  key: client-controller-url
+                  name: {{ required ".Values.sdp.metaClient.adminSecret is required" .Values.sdp.metaClient.adminSecret }}
+                  key: meta-client-profile-url
         - name: {{ .Chart.Name }}-sdp-driver
           image: {{ default .Values.global.image.repository .Values.sdp.headlessDriver.image.repository }}/sdp-headless-driver:{{ default .Values.sdp.clientVersion  .Values.sdp.headlessService.image.tag }}
           imagePullPolicy: {{ .Values.sdp.headlessDriver.image.pullPolicy }}
@@ -113,7 +113,7 @@ spec:
             runAsNonRoot: true
           env:
             - name: K8S_DNS_SERVICE
-              value: {{ required ".Values.sdp.selfClient.dnsService is required" .Values.sdp.selfClient.dnsService }}
+              value: {{ required ".Values.sdp.metaClient.dnsService is required" .Values.sdp.metaClient.dnsService }}
           volumeMounts:
               - mountPath: /var/run/sdp-dnsmasq
                 name: run-sdp-dnsmasq

@@ -29,19 +29,18 @@ sdp:
   ## @param sdp.host Hostname of the SDP controller
   ## @param sdp.adminSecret Name of the secret for initial authentication
   ## @param sdp.clientVersion Version of the SDP client to inject as sidecars.
-  ## @param sdp.tag Tag to use for resources created by the injector
   ## @param sdp.clusterId An identifier to prefix service users and client profiles
   host: ""
   adminSecret: ""
   clientVersion: 6.0.1
   clusterId: "dev"
 
-  ## @param sdp.selfClient.enabled Whether to set up an SDP client on the Identity Service
-  ## @param sdp.selfClient.adminSecret Name of the secret for initial authentication
-  ## @param sdp.selfClient.adminConfig Name of the config for initial authentication
-  ## @param sdp.selfClient.dnsService IP of the kube-dns service
-  ## @param sdp.selfClient.dnsConfig.searches Search domains to add to the Pod DNS configuration
-  selfClient:
+  ## @param sdp.metaClient.enabled Whether to set up an SDP client on the Identity Service
+  ## @param sdp.metaClient.adminSecret Name of the secret for initial authentication
+  ## @param sdp.metaClient.adminConfig Name of the config for initial authentication
+  ## @param sdp.metaClient.dnsService IP of the kube-dns service
+  ## @param sdp.metaClient.dnsConfig.searches Search domains to add to the Pod DNS configuration
+  metaClient:
     enabled: false
     adminSecret: ""
     adminConfig: ""
