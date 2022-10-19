@@ -791,17 +791,6 @@ async fn patch_deployment(
                 .unwrap_or(&format!("true")),
         )?,
     }));
-    patches.push(Add(AddOperation {
-        path: format!(
-            "/spec/template/metadata/annotations/{}",
-            SDP_INJECTOR_ANNOTATION_ENABLED
-        ),
-        value: serde_json::to_value(
-            ns.as_ref()
-                .and_then(|ns| ns.annotation(SDP_INJECTOR_ANNOTATION_ENABLED))
-                .unwrap_or(&format!("true")),
-        )?,
-    }));
     let admission_response = admission_response
         .with_patch(Patch(patches))
         .map_err(SDPServiceError::from_error("Unable to patch deployment"))?;
