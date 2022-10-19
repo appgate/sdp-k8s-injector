@@ -21,7 +21,7 @@ use kube::{Api, Client, Config};
 use log::{debug, error, info, warn};
 use rustls::{Certificate, PrivateKey, ServerConfig};
 use rustls_pemfile::{read_one, Item};
-use sdp_common::constants::POD_DEVICE_ID_ANNOTATION;
+use sdp_common::constants::{POD_DEVICE_ID_ANNOTATION, SDP_DEFAULT_CLIENT_VERSION_ENV};
 use sdp_common::crd::DeviceId;
 use sdp_common::errors::SDPServiceError;
 use sdp_common::traits::{
@@ -508,19 +508,21 @@ impl Patched for SDPPod {
                 value: serde_json::to_value(&environment.client_device_id)?,
             }));
 
+            if std::env::var(SDP_DEFAULT_CLIENT_VERSION_ENV).is_err() {
+                panic!("Unable to get default client version, make sure SDP_DEFAULT_CLIENT_VERSION environment variable is set.");
+            }
+            let default_version = std::env::var(SDP_DEFAULT_CLIENT_VERSION_ENV).unwrap();
+            let version = pod
+                .annotation(SDP_INJECTOR_ANNOTATION_CLIENT_VERSION)
+                .unwrap_or(&default_version);
             for c in self.sdp_sidecars.containers.clone().iter_mut() {
                 if let Some(image) = &c.image {
-                    c.image = pod
-                        .annotation(SDP_INJECTOR_ANNOTATION_CLIENT_VERSION)
-                        .map(|version| {
-                            let tag = image.rsplit(":").collect::<Vec<&str>>()[0];
-                            Some(format!(
-                                "{}:{}",
-                                image.trim_end_matches(&format!(":{}", tag)),
-                                version
-                            ))
-                        })
-                        .unwrap_or(Some(image.to_string()));
+                    let tag = image.rsplit(":").collect::<Vec<&str>>()[0];
+                    c.image = Some(format!(
+                        "{}:{}",
+                        image.trim_end_matches(&format!(":{}", tag)),
+                        version
+                    ));
                 }
                 c.env = Some(environment.variables(&c.name));
                 patches.push(Add(AddOperation {
@@ -995,6 +997,7 @@ mod tests {
     };
     use kube::core::admission::AdmissionReview;
     use kube::core::ObjectMeta;
+    use sdp_common::constants::SDP_DEFAULT_CLIENT_VERSION_ENV;
     use sdp_common::crd::{DeviceId, DeviceIdSpec, ServiceIdentity, ServiceIdentitySpec};
     use sdp_common::service::{init_containers, ServiceUser, SDP_INJECTOR_ANNOTATION_ENABLED};
     use sdp_common::traits::{Annotated, Candidate, Named, Namespaced, ObjectRequest, Service};
@@ -1027,6 +1030,7 @@ mod tests {
             SDP_SIDECARS_FILE_ENV,
             format!("{}/../tests/sdp-sidecars.json", manifest_dir),
         );
+        std::env::set_var(SDP_DEFAULT_CLIENT_VERSION_ENV, "6.0.1");
         load_sidecar_containers()
             .map_err(|e| format!("Unable to load the sidecar information {}", e.to_string()))
     }
