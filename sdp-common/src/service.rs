@@ -421,7 +421,7 @@ impl ServiceUser {
     }
 }
 
-pub fn injection_stragegy<A: Annotated>(entity: &A) -> SDPInjectionStrategy {
+pub fn injection_strategy<A: Annotated>(entity: &A) -> SDPInjectionStrategy {
     entity
         .annotation(SDP_INJECTOR_ANNOTATION_STRATEGY)
         .and_then(|s| match s {
