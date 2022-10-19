@@ -51,11 +51,6 @@ data:
             "runAsUser":103,
             "runAsNonRoot": true
           },
-          "args" : [
-            "--tun",
-            "/var/run/sdp-driver/.driver.sock",
-            "--service"
-          ],
           "resources": {},
           "terminationMessagePath": "/dev/termination-log",
           "terminationMessagePolicy": "File",
