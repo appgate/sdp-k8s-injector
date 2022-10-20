@@ -21,9 +21,10 @@ if [ -n "$CLIENT_DEVICE_ID" ]; then
     APPGATE_DEVICE_ID=$CLIENT_DEVICE_ID
 fi
 
-if [ -n "$CLIENT_DEVICE_ID" ]; then
-    echo "Using custom device-id: $CLIENT_DEVICE_ID"
-    echo "$CLIENT_DEVICE_ID" | sed 's|-||g' > /etc/machine-id
+# Set Device ID into /etc/machine-id
+if [ -n "$APPGATE_DEVICE_ID" ]; then
+    echo "Device ID: $APPGATE_DEVICE_ID"
+    echo "$APPGATE_DEVICE_ID" | sed 's|-||g' > /etc/machine-id
 fi
 
 cat > /sdp-service/appgate.conf <<EOF
