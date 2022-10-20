@@ -22,7 +22,9 @@ use kube::{Api, Client, Config};
 use log::{debug, error, info, warn};
 use rustls::{Certificate, PrivateKey, ServerConfig};
 use rustls_pemfile::{read_one, Item};
-use sdp_common::constants::{MAX_PATCH_ATTEMPTS, POD_DEVICE_ID_ANNOTATION, SDP_DEFAULT_CLIENT_VERSION_ENV};
+use sdp_common::constants::{
+    MAX_PATCH_ATTEMPTS, POD_DEVICE_ID_ANNOTATION, SDP_DEFAULT_CLIENT_VERSION_ENV,
+};
 use sdp_common::crd::DeviceId;
 use sdp_common::errors::SDPServiceError;
 use sdp_common::traits::{
@@ -839,7 +841,7 @@ async fn patch_deployment(
         )))?;
 
     // Patch Deployment metadata
-    if deployment.annotations().is_none() {
+    if deployment.annotations().is_none() || deployment.annotations().unwrap().is_empty() {
         patches.push(Add(AddOperation {
             path: "/metadata/annotations".to_string(),
             value: serde_json::to_value(HashMap::<String, String>::new())
@@ -898,11 +900,11 @@ async fn patch_deployment(
     patches.push(Add(AddOperation {
         path: format!(
             "/spec/template/metadata/annotations/{}",
-            SDP_INJECTOR_ANNOTATION_ENABLED
+            SDP_INJECTOR_ANNOTATION_STRATEGY
         ),
         value: serde_json::to_value(
             ns.as_ref()
-                .and_then(|ns| ns.annotation(SDP_INJECTOR_ANNOTATION_ENABLED))
+                .and_then(|ns| ns.annotation(SDP_INJECTOR_ANNOTATION_STRATEGY))
                 .unwrap_or(&format!("true")),
         )
         .map_err(|e| SDPServiceError::from(e))
