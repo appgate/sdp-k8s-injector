@@ -625,7 +625,13 @@ impl Patched for SDPPod {
                     value: serde_json::to_value(&c)?,
                 }));
             }
-            if let Some(xs) = init_containers(pod) {
+            if let Some((xs, true)) = init_containers(pod).map(|cs| {
+                let disable_init_containers = pod
+                    .annotation("sdp-injector-disable-init-containers")
+                    .map(|s| s.eq_ignore_ascii_case("true"))
+                    .unwrap_or(true);
+                (cs, disable_init_containers)
+            }) {
                 let mut init_containers = Vec::new();
                 init_containers.extend(xs.iter().map(|c| c.clone()));
                 let mut c0 = self.sdp_sidecars.init_containers.0.clone();
