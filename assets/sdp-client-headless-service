@@ -1,6 +1,25 @@
 #!/usr/bin/env sh
 
-set +x
+# Backwards compatibility for alpha version
+if [ -n "$CLIENT_LOGLEVEL" ]; then
+    APPGATE_LOGLEVEL=$CLIENT_LOGLEVEL
+fi
+
+if [ -n "$CLIENT_PROFILE_URL" ]; then
+    APPGATE_LOGLEVEL=$CLIENT_PROFILE_URL
+fi
+
+if [ -n "$CLIENT_USERNAME" ]; then
+    APPGATE_LOGLEVEL=$CLIENT_USERNAME
+fi
+
+if [ -n "$CLIENT_PASSWORD" ]; then
+    APPGATE_PASSWORD=$CLIENT_PASSWORD
+fi
+
+if [ -n "$CLIENT_DEVICE_ID" ]; then
+    APPGATE_DEVICE_ID=$CLIENT_DEVICE_ID
+fi
 
 if [ -n "$CLIENT_DEVICE_ID" ]; then
     echo "Using custom device-id: $CLIENT_DEVICE_ID"
