@@ -283,8 +283,8 @@ mod test {
 
     #[test]
     fn test_sdp_injection_enabled() {
-        assert!((!&pod!(0).is_candidate()));
-        assert!(!&pod!(0, annotations => vec![
+        assert!((&pod!(0).is_candidate()));
+        assert!(&pod!(0, annotations => vec![
             (SDP_INJECTOR_ANNOTATION_STRATEGY, ""),
         ])
         .is_candidate());

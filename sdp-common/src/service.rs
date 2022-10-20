@@ -436,10 +436,10 @@ pub fn injection_strategy<A: Annotated>(entity: &A) -> SDPInjectionStrategy {
         })
         .unwrap_or_else(|| {
             let ann = entity.annotation(SDP_INJECTOR_ANNOTATION_ENABLED);
-            if ann.is_some() && ann.unwrap().to_lowercase() == "enabled" {
-                SDPInjectionStrategy::EnabledByDefault
-            } else {
+            if ann.is_some() && ann.unwrap().to_lowercase() == "disabled" {
                 SDPInjectionStrategy::DisabledByDefault
+            } else {
+                SDPInjectionStrategy::EnabledByDefault
             }
         })
 }
@@ -509,13 +509,13 @@ mod tests {
     fn test_sdp_injection_strategy_0() {
         assert_eq!(
             injection_strategy(&pod!(0)),
-            SDPInjectionStrategy::DisabledByDefault
+            SDPInjectionStrategy::EnabledByDefault
         );
         assert_eq!(
             injection_strategy(
                 &pod!(0, annotations => vec![("SDP_INJECTOR_ANNOTATION_STRATEGY", "")])
             ),
-            SDPInjectionStrategy::DisabledByDefault
+            SDPInjectionStrategy::EnabledByDefault
         );
         assert_eq!(
             injection_strategy(&pod!(0, annotations => vec![(
@@ -533,7 +533,7 @@ mod tests {
             injection_strategy(&pod!(0, annotations => vec![(
             SDP_INJECTOR_ANNOTATION_STRATEGY, "enabled-by-default")
             ])),
-            SDPInjectionStrategy::DisabledByDefault
+            SDPInjectionStrategy::EnabledByDefault
         );
         assert_eq!(
             injection_strategy(&pod!(0, annotations => vec![(
@@ -551,14 +551,14 @@ mod tests {
             injection_strategy(&pod!(0, annotations => vec![(
             SDP_INJECTOR_ANNOTATION_STRATEGY, "disabled-by-default")
             ])),
-            SDPInjectionStrategy::DisabledByDefault
+            SDPInjectionStrategy::EnabledByDefault
         );
     }
 
     #[test]
     fn test_sdp_injection_enabled() {
-        assert!(!needs_injection(&pod!(0)));
-        assert!(!needs_injection(&pod!(0, annotations => vec![
+        assert!(needs_injection(&pod!(0)));
+        assert!(needs_injection(&pod!(0, annotations => vec![
             (SDP_INJECTOR_ANNOTATION_STRATEGY, ""),
         ])));
         assert!(needs_injection(&pod!(0, annotations => vec![
