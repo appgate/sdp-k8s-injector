@@ -633,8 +633,13 @@ impl Patched for SDPPod {
                     env_var!(value :: "K8S_DNS_SERVICE" => k8s_dns_ip.clone()),
                     env_var!(value :: "K8S_DNS_SEARCHES" => dns_config.searches.as_ref().unwrap_or(&vec!()).join(" ")),
                 ]);
-                init_containers.insert(0, self.sdp_sidecars.init_containers.0.clone());
-                init_containers.push(self.sdp_sidecars.init_containers.1.clone());
+                let mut c1 = self.sdp_sidecars.init_containers.1.clone();
+                c1.env = Some(vec![
+                    env_var!(value :: "K8S_DNS_SERVICE" => k8s_dns_ip.clone()),
+                    env_var!(value :: "K8S_DNS_SEARCHES" => dns_config.searches.as_ref().unwrap_or(&vec!()).join(" ")),
+                ]);
+                init_containers.insert(0, c0);
+                init_containers.push(c1);
                 patches.push(Add(AddOperation {
                     path: "/spec/initContainers".to_string(),
                     value: serde_json::to_value(&init_containers)?,

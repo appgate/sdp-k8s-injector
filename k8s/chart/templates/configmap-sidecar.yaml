@@ -37,7 +37,7 @@ data:
           "command" : [
             "sh",
             "-c",
-            "echo \"nameserver 127.0.0.1\n$K8S_DNS_SEARCH\"> /etc/resolv.conf"
+            "echo \"nameserver 127.0.0.1\n$K8S_DNS_SEARCHES\"> /etc/resolv.conf"
           ]
         }
       ],
