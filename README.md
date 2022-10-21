@@ -38,6 +38,7 @@ SDP Kubernetes Client requires several configuration on the SDP Controller:
       * `ALLOW TCP up to <HOSTNAME> - port 8443`
 
 ## Getting Started
+### Installation
 > Browse the available versions on [Appgate GitHub Container Registry](https://github.com/appgate/sdp-k8s-client/pkgs/container/charts%2Fsdp-k8s-client)
 
 1. Create `sdp-system` namespace for the SDP Kubernetes Client
@@ -82,6 +83,39 @@ SDP Kubernetes Client requires several configuration on the SDP Controller:
     $ /# ip route | grep tun0
     $ /# ping <IP_ADDRESS>
     ```
+   
+### Configuration
+#### Setting Policy for Deployments 
+SDP Kubernetes Client allows SDP controller to become aware of labels in Kubernetes. By default, the Deployment name and namespace are exposed to SDP as `user.labels.name` and `user.labels.namespace` respectively.
+
+Assume that we have created the deployment `sleep-forever` below in the `sdp-demo` namespace which has injection enabled.
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sleep-forever
+  namespace: sdp-demo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: sleep-forever
+  template:
+    spec:
+      containers:
+      - name: ubuntu
+        image: ubuntu:latest
+        command: [ "/bin/bash", "-c", "--" ]
+        args: [ "while true; do sleep 30; done;" ]
+```
+
+To create a Policy for this deployment, set the following Assignments:
+* Identity Provider is `service`
+* `user.labels.name` === `sleep-forever` (labels - Expression: `name === "sleep-forever"`)
+* `user.labels.namespace` === `sdp-demo` (labels - Expression: `namespace === "sdp-demo"`)
+
+In addition to the name and namespace, the SDP Kubernetes Client is able to expose `metadata.labels` as conditions for Assignment. For example, if we add `metadata.labels.role="sleeper"` to the example above, that label will be available as `users.labels.role` in the Policy. You can additionally set the following Assignment:
+* `users.labels.role` === `sleeper` (labels - Expression: `role === "sleeper"`)
 
 ## Advanced Usage
 ### Namespace Labels
@@ -97,12 +131,14 @@ sdp-demo      Active   1m     enabled
 ```
 
 ### Meta-Client (Sidecar for Injector)
-In the case where the injector itself requires an SDP client to connect to the controller, use the meta-client feature. To use the meta-client, you need the following:
+Because the injector (particularly, Identity Service) requires a connection to the Controller API, you may want to hide the connection via SPA. In that case, you can use the meta-client feature which loads an SDP client next to the Identity Service so the injector can establish a connection to the controller via SPA. 
+
+To use the meta-client, you need the following:
 * Secret with the following keys:
-  * `meta-client-username` - Username of the user
-  * `meta-client-password` - Password of the user
-  * `meta-client-provider` - Provider of the user
-  * `meta-client-profile-url` - Profile URL for the meta-client
+  * `meta-client-username` - Username
+  * `meta-client-password` - Password
+  * `meta-client-provider` - Provider
+  * `meta-client-profile-url` - Profile URL
 * ConfigMap with the following keys:
   * `meta-client-log-level` - Log level of the meta-client
   * `meta-client-device-id` - Device ID (UUID v4) of the meta-client
@@ -121,7 +157,20 @@ $ kubectl create configmap sdp-k8s-meta-client-config --namespace sdp-system \
 	--from-literal=meta-client-device-id=<UUID>
 ```
 
-After creating the secret and configmap, provide the name of these resources to the helm chart and set `sdp.metaClient.enabled=true`. 
+Additionally, you must provide an Entitlement for this user on the controller:
+* Admin Policy/Entitlement to access Admin APi:
+  * `ALLOW TCP up to <HOSTNAME> - port 8443`
+* DNS Policy/Entitlement to resolve Admin API: 
+  * DNS Configuration
+    * Match Domain: `<DOMAIN>`
+    * DNS Servers: `<DNS_SERVER_IP>`
+  * DNS Entitlement
+    * `ALLOW TCP up to <DNS_SERVER_IP> - port 53`
+    * `ALLOW UDP up to <DNS_SERVER_IP> - port 53`
+
+> Note: User for the meta-client can be the same user as the injector user
+
+After creating the secret/configmap and configuring the poliyc/entitlment on SDP, provide the name of these resources to the helm chart and set `sdp.metaClient.enabled=true`. 
 
 ```yaml
 sdp:
@@ -156,6 +205,21 @@ Assuming the default client version is 6.x.x, you can inject a 5.x.x client by a
 ```bash
 $ kubectl annotate pod <POD> sdp-injector-client-version="5.5.1"
 ```
+
+### Init Containers
+When the sidecar injection is enabled and the injector detects a new pod with init-containers, it loads extra containers at the head (`sdp-init-container-0`) and tail (`sdp-init-container-f`) of the init-containers list. 
+
+The initial init-container `sdp-init-container-0` is meant to preserve the original DNS configuration of the pod by setting the nameserver to the kube DNS IP address and the nameservers specified in the helm value `sdp.dnsmasq.dnsConfig.search`. 
+
+The last init-container `sdp-init-container-0` overwrite `/etc/resolv.conf` by setting the nameserver to `127.0.0.1` so the pod can use the DNS server provided by the injector's dnsmasq. 
+
+You can disable the injection of these init-containers by providing the annotation `sdp-injector-disable-init-containers="true"` or by providing the annotation in the deployment's pod template. 
+```bash
+$ kubectl annotate pod <POD> sdp-injector-disable-init-containers="true"
+```
+
+### Multiple Injectors
+You can connect multiple Kubernetes clusters to a single SDP system by installing an injector on each cluster. When installing the injector, set a unique cluster ID in the helm value `sdp.clusterID`. To prevent collision of resources created by the injector, the SDP system will use this ID as a tag or prefix (e.g. client profiles, service users).
 
 ## Parameters
 
