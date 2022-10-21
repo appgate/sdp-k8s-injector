@@ -585,7 +585,11 @@ impl Patched for SDPPod {
                 }));
             }
             let injection_strategy = injection_strategy(pod);
-            let injection_enabled = injection_strategy == SDPInjectionStrategy::EnabledByDefault;
+            let injection_enabled = pod
+                .annotation(SDP_INJECTOR_ANNOTATION_ENABLED)
+                .map(|s| s == "true")
+                .unwrap_or(injection_strategy == SDPInjectionStrategy::EnabledByDefault)
+                .to_string();
             patches.push(Add(AddOperation {
                 path: format!("/metadata/annotations/{}", SDP_INJECTOR_ANNOTATION_STRATEGY),
                 value: serde_json::to_value(injection_strategy.to_string())?,
@@ -594,7 +598,7 @@ impl Patched for SDPPod {
                 path: format!("/metadata/annotations/{}", SDP_INJECTOR_ANNOTATION_ENABLED),
                 value: serde_json::to_value(
                     pod.annotation(SDP_INJECTOR_ANNOTATION_ENABLED)
-                        .unwrap_or(&format!("{}", injection_enabled)),
+                        .unwrap_or(&injection_enabled),
                 )?,
             }));
             patches.push(Add(AddOperation {
@@ -865,7 +869,15 @@ async fn patch_deployment(
         .as_ref()
         .map(|ns| injection_strategy(ns))
         .unwrap_or(SDPInjectionStrategy::EnabledByDefault);
-    let injection_enabled = injection_strategy == SDPInjectionStrategy::EnabledByDefault;
+    let injection_enabled = deployment
+        .annotation(SDP_INJECTOR_ANNOTATION_ENABLED)
+        .or_else(|| {
+            ns.as_ref()
+                .and_then(|ns| ns.annotation(SDP_INJECTOR_ANNOTATION_ENABLED))
+        })
+        .map(|s| s == "true")
+        .unwrap_or(injection_strategy == SDPInjectionStrategy::EnabledByDefault)
+        .to_string();
     patches.push(Add(AddOperation {
         path: format!("/metadata/annotations/{}", SDP_INJECTOR_ANNOTATION_STRATEGY),
         value: serde_json::to_value(injection_strategy.to_string())
@@ -876,15 +888,11 @@ async fn patch_deployment(
     }));
     patches.push(Add(AddOperation {
         path: format!("/metadata/annotations/{}", SDP_INJECTOR_ANNOTATION_ENABLED),
-        value: serde_json::to_value(
-            ns.as_ref()
-                .and_then(|ns| ns.annotation(SDP_INJECTOR_ANNOTATION_ENABLED))
-                .unwrap_or(&format!("{}", &injection_enabled)),
-        )
-        .map_err(|e| SDPServiceError::from(e))
-        .map_err(SDPPatchError::from_admission_response(Box::clone(
-            &admission_response,
-        )))?,
+        value: serde_json::to_value(&injection_enabled)
+            .map_err(|e| SDPServiceError::from(e))
+            .map_err(SDPPatchError::from_admission_response(Box::clone(
+                &admission_response,
+            )))?,
     }));
 
     // Patch Deployment template metadata
@@ -924,15 +932,11 @@ async fn patch_deployment(
             "/spec/template/metadata/annotations/{}",
             SDP_INJECTOR_ANNOTATION_ENABLED
         ),
-        value: serde_json::to_value(
-            ns.as_ref()
-                .and_then(|ns| ns.annotation(SDP_INJECTOR_ANNOTATION_ENABLED))
-                .unwrap_or(&format!("{}", &injection_enabled)),
-        )
-        .map_err(|e| SDPServiceError::from(e))
-        .map_err(SDPPatchError::from_admission_response(Box::clone(
-            &admission_response,
-        )))?,
+        value: serde_json::to_value(injection_enabled)
+            .map_err(|e| SDPServiceError::from(e))
+            .map_err(SDPPatchError::from_admission_response(Box::clone(
+                &admission_response,
+            )))?,
     }));
     let admission_response = Box::clone(&admission_response)
         .with_patch(Patch(patches))
