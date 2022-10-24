@@ -25,16 +25,17 @@ use rustls::{Certificate, PrivateKey, ServerConfig};
 use rustls_pemfile::{read_one, Item};
 use sdp_common::annotations::{
     SDP_ANNOTATION_CLIENT_CONFIG, SDP_ANNOTATION_CLIENT_DEVICE_ID, SDP_ANNOTATION_CLIENT_SECRETS,
-    SDP_ANNOTATION_DNS_SEARCHES,
+    SDP_ANNOTATION_DNS_SEARCHES, SDP_INJECTOR_ANNOTATION_CLIENT_VERSION,
+    SDP_INJECTOR_ANNOTATION_DISABLE_INIT_CONTAINERS, SDP_INJECTOR_ANNOTATION_ENABLED,
+    SDP_INJECTOR_ANNOTATION_STRATEGY,
 };
 use sdp_common::constants::{MAX_PATCH_ATTEMPTS, SDP_DEFAULT_CLIENT_VERSION_ENV};
 use sdp_common::crd::DeviceId;
 use sdp_common::errors::SDPServiceError;
+use sdp_common::patch_annotation;
 use sdp_common::service::{
     containers, init_containers, injection_strategy, volume_names, volumes, SDPInjectionStrategy,
-    ServiceIdentity, SDP_INJECTOR_ANNOTATION_CLIENT_VERSION,
-    SDP_INJECTOR_ANNOTATION_DISABLE_INIT_CONTAINERS, SDP_INJECTOR_ANNOTATION_ENABLED,
-    SDP_INJECTOR_ANNOTATION_STRATEGY,
+    ServiceIdentity,
 };
 use sdp_common::traits::{
     Annotated, Candidate, HasCredentials, MaybeNamespaced, MaybeService, ObjectRequest, Validated,
@@ -595,18 +596,27 @@ impl Patched for SDPPod {
                 .unwrap_or(injection_strategy == SDPInjectionStrategy::EnabledByDefault)
                 .to_string();
             patches.push(Add(AddOperation {
-                path: format!("/metadata/annotations/{}", SDP_INJECTOR_ANNOTATION_STRATEGY),
+                path: format!(
+                    "/metadata/annotations/{}",
+                    patch_annotation!(SDP_INJECTOR_ANNOTATION_STRATEGY)
+                ),
                 value: serde_json::to_value(injection_strategy.to_string())?,
             }));
             patches.push(Add(AddOperation {
-                path: format!("/metadata/annotations/{}", SDP_INJECTOR_ANNOTATION_ENABLED),
+                path: format!(
+                    "/metadata/annotations/{}",
+                    patch_annotation!(SDP_INJECTOR_ANNOTATION_ENABLED)
+                ),
                 value: serde_json::to_value(
                     pod.annotation(SDP_INJECTOR_ANNOTATION_ENABLED)
                         .unwrap_or(&injection_enabled),
                 )?,
             }));
             patches.push(Add(AddOperation {
-                path: format!("/metadata/annotations/{}", SDP_ANNOTATION_CLIENT_DEVICE_ID),
+                path: format!(
+                    "/metadata/annotations/{}",
+                    patch_annotation!(SDP_ANNOTATION_CLIENT_DEVICE_ID)
+                ),
                 value: serde_json::to_value(&environment.client_device_id)?,
             }));
 
@@ -883,7 +893,10 @@ async fn patch_deployment(
         .unwrap_or(injection_strategy == SDPInjectionStrategy::EnabledByDefault)
         .to_string();
     patches.push(Add(AddOperation {
-        path: format!("/metadata/annotations/{}", SDP_INJECTOR_ANNOTATION_STRATEGY),
+        path: format!(
+            "/metadata/annotations/{}",
+            patch_annotation!(SDP_INJECTOR_ANNOTATION_STRATEGY)
+        ),
         value: serde_json::to_value(injection_strategy.to_string())
             .map_err(|e| SDPServiceError::from(e))
             .map_err(SDPPatchError::from_admission_response(Box::clone(
@@ -891,7 +904,10 @@ async fn patch_deployment(
             )))?,
     }));
     patches.push(Add(AddOperation {
-        path: format!("/metadata/annotations/{}", SDP_INJECTOR_ANNOTATION_ENABLED),
+        path: format!(
+            "/metadata/annotations/{}",
+            patch_annotation!(SDP_INJECTOR_ANNOTATION_ENABLED)
+        ),
         value: serde_json::to_value(&injection_enabled)
             .map_err(|e| SDPServiceError::from(e))
             .map_err(SDPPatchError::from_admission_response(Box::clone(
@@ -923,7 +939,7 @@ async fn patch_deployment(
     patches.push(Add(AddOperation {
         path: format!(
             "/spec/template/metadata/annotations/{}",
-            SDP_INJECTOR_ANNOTATION_STRATEGY
+            patch_annotation!(SDP_INJECTOR_ANNOTATION_STRATEGY)
         ),
         value: serde_json::to_value(injection_strategy.to_string())
             .map_err(|e| SDPServiceError::from(e))
@@ -934,7 +950,7 @@ async fn patch_deployment(
     patches.push(Add(AddOperation {
         path: format!(
             "/spec/template/metadata/annotations/{}",
-            SDP_INJECTOR_ANNOTATION_ENABLED
+            patch_annotation!(SDP_INJECTOR_ANNOTATION_ENABLED)
         ),
         value: serde_json::to_value(injection_enabled)
             .map_err(|e| SDPServiceError::from(e))

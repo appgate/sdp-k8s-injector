@@ -6,11 +6,19 @@ const COMPONENT_ANNOTATION: &str = "sdp-injector";
 macro_rules! appgate_annotate {
     ($annotation:literal) => {{
         formatcp!(
-            "{}~1{}.{}",
+            "{}/{}.{}",
             DOMAIN_ANNOTATION,
             COMPONENT_ANNOTATION,
             $annotation
         )
+    }};
+}
+
+#[macro_export]
+// When adding annotation path for json patch, we need to escape "/" into "~1"
+macro_rules! patch_annotation {
+    ($annotation:expr) => {{
+        $annotation.replace("/", "~1")
     }};
 }
 
