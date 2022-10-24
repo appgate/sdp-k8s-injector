@@ -30,6 +30,7 @@ use sdp_common::errors::SDPServiceError;
 use sdp_common::traits::{
     Annotated, Candidate, HasCredentials, Namespaced, ObjectRequest, Service, Validated,
 };
+use sdp_common::watcher::{watch, Watcher};
 use serde::Deserialize;
 use std::collections::hash_map::RandomState;
 use std::collections::{HashMap, HashSet};
@@ -51,7 +52,6 @@ use tokio::time::timeout;
 use uuid::Uuid;
 
 use crate::deviceid::{DeviceIdProvider, DeviceIdProviderRequestProtocol};
-use crate::watchers::{watch, Watcher};
 use sdp_common::service::{
     containers, init_containers, injection_strategy, volume_names, volumes, SDPInjectionStrategy,
     ServiceIdentity, SDP_INJECTOR_ANNOTATION_CLIENT_VERSION, SDP_INJECTOR_ANNOTATION_ENABLED,
@@ -2450,11 +2450,20 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let watcher_tx3 = watcher_tx.clone();
     tokio::spawn(async move {
         info!("Starting ServiceIdentity watcher");
-        let watcher = Watcher {
-            api: service_identity_api,
-            queue_tx: watcher_tx,
-        };
-        watch(watcher).await;
+        let watcher: Watcher<ServiceIdentity, DeviceIdProviderRequestProtocol<ServiceIdentity>> =
+            Watcher {
+                api: service_identity_api,
+                queue_tx: watcher_tx,
+                notification_message: None,
+            };
+        let w = watch::<
+            ServiceIdentity,
+            DeviceIdProviderRequestProtocol<ServiceIdentity>,
+            DeviceIdProviderRequestProtocol<ServiceIdentity>,
+        >(watcher, None);
+        if let Err(e) = w.await {
+            panic!("Unable to start IdentityService Watcher: {}", e);
+        }
     });
 
     // Thread to watch DeviceId entities
@@ -2464,20 +2473,36 @@ async fn main() -> Result<(), Box<dyn Error>> {
         let watcher = Watcher {
             api: device_ids_api,
             queue_tx: watcher_tx2,
+            notification_message: None,
         };
-        watch(watcher).await;
+        let w = watch::<
+            DeviceId,
+            DeviceIdProviderRequestProtocol<ServiceIdentity>,
+            DeviceIdProviderRequestProtocol<ServiceIdentity>,
+        >(watcher, None);
+        if let Err(e) = w.await {
+            panic!("Unable to start DeviceId Watcher: {}", e);
+        }
     });
 
     // Thread to watch Pod entities
     // When a Pod that is a candidate has been deleted, we just return back the device id
     // it was using to the device ids provider.
     tokio::spawn(async move {
-        info!("Starting POD watcher");
+        info!("Starting Pod watcher");
         let watcher = Watcher {
             api: pods_api,
             queue_tx: watcher_tx3,
+            notification_message: None,
         };
-        watch(watcher).await;
+        let w = watch::<
+            Pod,
+            DeviceIdProviderRequestProtocol<ServiceIdentity>,
+            DeviceIdProviderRequestProtocol<ServiceIdentity>,
+        >(watcher, None);
+        if let Err(e) = w.await {
+            panic!("Unable to start Pod Watcher: {}", e);
+        }
     });
 
     // Spawn the main Store

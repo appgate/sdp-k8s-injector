@@ -21,6 +21,7 @@ pub enum DeviceIdProviderRequestProtocol<A: Service + HasCredentials> {
     ReleasedDeviceId(String, Uuid),
 }
 
+#[derive(PartialEq)]
 pub enum DeviceIdProviderResponseProtocol<A: Service + HasCredentials> {
     AssignedDeviceId(A, Uuid),
     NotFound,

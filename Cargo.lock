@@ -1292,6 +1292,7 @@ dependencies = [
 name = "sdp-common"
 version = "0.1.0"
 dependencies = [
+ "futures",
  "http",
  "json-patch",
  "k8s-openapi",
@@ -1302,6 +1303,7 @@ dependencies = [
  "sdp-test-macros",
  "serde",
  "serde_json",
+ "tokio",
  "uuid",
 ]
 
