@@ -10,6 +10,10 @@ pub trait Named {
 }
 
 pub trait Namespaced {
+    fn namespace(&self) -> String;
+}
+
+pub trait MaybeNamespaced {
     fn namespace(&self) -> Option<String>;
 }
 
@@ -32,18 +36,35 @@ pub trait Annotated {
 
 pub trait Service: Named + Namespaced + Sized {
     fn service_name(&self) -> Result<String, SDPServiceError> {
+        Ok(format!(
+            "{}-{}",
+            Namespaced::namespace(self),
+            Named::name(self)
+        ))
+    }
+    fn service_id(&self) -> Result<String, SDPServiceError> {
+        Ok(format!(
+            "{}_{}",
+            Namespaced::namespace(self),
+            Named::name(self)
+        ))
+    }
+}
+
+pub trait MaybeService: Named + MaybeNamespaced + Sized {
+    fn service_name(&self) -> Result<String, SDPServiceError> {
         let namespace =
-            Namespaced::namespace(self).ok_or_else(|| "Namespace not found in resource")?;
+            MaybeNamespaced::namespace(self).ok_or_else(|| "Namespace not found in resource")?;
         Ok(format!("{}-{}", namespace, Named::name(self)))
     }
     fn service_id(&self) -> Result<String, SDPServiceError> {
         let namespace =
-            Namespaced::namespace(self).ok_or_else(|| "Namespace not found in resource")?;
+            MaybeNamespaced::namespace(self).ok_or_else(|| "Namespace not found in resource")?;
         Ok(format!("{}_{}", namespace, Named::name(self)))
     }
 }
 
-pub trait Labeled: Service {
+pub trait Labeled: MaybeService {
     fn labels(&self) -> Result<HashMap<String, String>, SDPServiceError>;
 }
 

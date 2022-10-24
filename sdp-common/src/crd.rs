@@ -5,7 +5,7 @@ use std::collections::HashMap;
 
 use crate::{
     service::ServiceUser,
-    traits::{HasCredentials, Named, Namespaced, Service},
+    traits::{HasCredentials, MaybeNamespaced, MaybeService, Named},
 };
 
 /// ServiceIdentity CRD
@@ -37,7 +37,7 @@ impl Named for ServiceIdentity {
     }
 }
 
-impl Namespaced for ServiceIdentity {
+impl MaybeNamespaced for ServiceIdentity {
     fn namespace(&self) -> Option<String> {
         Some(self.spec().service_namespace.clone())
     }
@@ -49,7 +49,7 @@ impl HasCredentials for ServiceIdentity {
     }
 }
 
-impl Service for ServiceIdentity {}
+impl MaybeService for ServiceIdentity {}
 
 /// DeviceId
 /// DeviceId represents the UUIDs assigned to a ServiceIdentity. There are N uuids stored
@@ -77,10 +77,10 @@ impl Named for DeviceId {
     }
 }
 
-impl Namespaced for DeviceId {
+impl MaybeNamespaced for DeviceId {
     fn namespace(&self) -> Option<String> {
         Some(self.spec().service_namespace.clone())
     }
 }
 
-impl Service for DeviceId {}
+impl MaybeService for DeviceId {}

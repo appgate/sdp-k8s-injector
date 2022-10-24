@@ -6,13 +6,13 @@ use log::{error, info, warn};
 use sdp_common::crd::DeviceId;
 use sdp_common::errors::SDPServiceError;
 use sdp_common::service::ServiceIdentity;
-use sdp_common::traits::{HasCredentials, Service};
+use sdp_common::traits::{HasCredentials, MaybeService};
 use sdp_macros::when_ok;
 use tokio::sync::mpsc::{Receiver, Sender};
 use uuid::Uuid;
 
 #[derive(Debug)]
-pub enum DeviceIdProviderRequestProtocol<A: Service + HasCredentials> {
+pub enum DeviceIdProviderRequestProtocol<A: MaybeService + HasCredentials> {
     FoundServiceIdentity(A),
     FoundDeviceId(DeviceId),
     DeletedServiceIdentity(A),
@@ -22,7 +22,7 @@ pub enum DeviceIdProviderRequestProtocol<A: Service + HasCredentials> {
 }
 
 #[derive(PartialEq)]
-pub enum DeviceIdProviderResponseProtocol<A: Service + HasCredentials> {
+pub enum DeviceIdProviderResponseProtocol<A: MaybeService + HasCredentials> {
     AssignedDeviceId(A, Uuid),
     NotFound,
 }
@@ -30,7 +30,7 @@ pub enum DeviceIdProviderResponseProtocol<A: Service + HasCredentials> {
 #[derive(Debug)]
 pub struct RegisteredDeviceId(usize, HashSet<Uuid>, usize, Vec<Uuid>);
 
-pub trait IdentityStore<A: Service + HasCredentials>: Send + Sync {
+pub trait IdentityStore<A: MaybeService + HasCredentials>: Send + Sync {
     fn pop_device_id<'a>(
         &'a mut self,
         service_id: &'a str,
@@ -77,7 +77,7 @@ pub trait IdentityStore<A: Service + HasCredentials>: Send + Sync {
     >;
 }
 
-pub struct DeviceIdProvider<A: Service + HasCredentials> {
+pub struct DeviceIdProvider<A: MaybeService + HasCredentials> {
     store: Box<dyn IdentityStore<A> + Send>,
 }
 

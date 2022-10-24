@@ -2,7 +2,7 @@ use crate::constants::IDENTITY_MANAGER_SECRET_NAME;
 pub use crate::crd::ServiceIdentity;
 use crate::errors::SDPServiceError;
 use crate::sdp::{auth::SDPUser, system::ClientProfileUrl};
-use crate::traits::{Annotated, Labeled, Named, Namespaced, Service};
+use crate::traits::{Annotated, Labeled, MaybeNamespaced, MaybeService, Named};
 use json_patch::PatchOperation::Remove;
 use json_patch::{Patch, RemoveOperation};
 use k8s_openapi::api::core::v1::{ConfigMap, Container, Pod, Volume};
@@ -51,7 +51,7 @@ impl ServiceLookup {
     }
 
     pub fn try_from_service(
-        f: &(impl Named + Namespaced + Labeled),
+        f: &(impl Named + MaybeNamespaced + Labeled),
     ) -> Result<Self, SDPServiceError> {
         match (f.namespace(), f.labels()) {
             (Some(ns), labels) => Ok(Self::new(
@@ -73,13 +73,13 @@ impl Named for ServiceLookup {
     }
 }
 
-impl Namespaced for ServiceLookup {
+impl MaybeNamespaced for ServiceLookup {
     fn namespace(&self) -> Option<String> {
         Some(self.namespace.clone())
     }
 }
 
-impl Service for ServiceLookup {}
+impl MaybeService for ServiceLookup {}
 
 impl Labeled for ServiceLookup {
     fn labels(

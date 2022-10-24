@@ -6,7 +6,7 @@ use log::{error, info, warn};
 use sdp_common::constants::SDP_CLUSTER_ID_ENV;
 pub use sdp_common::crd::{ServiceIdentity, ServiceIdentitySpec};
 use sdp_common::service::{ServiceLookup, ServiceUser};
-use sdp_common::traits::{HasCredentials, Labeled, Named, Namespaced, Service};
+use sdp_common::traits::{HasCredentials, Labeled, MaybeNamespaced, MaybeService, Named};
 use sdp_macros::{queue_debug, sdp_error, sdp_info, sdp_log, sdp_warn, when_ok};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fmt;
@@ -29,8 +29,8 @@ trait ServiceUsersPool {
 /// Trait for ServiceIdentity provider
 /// This traits provides instances of To from instances of From
 trait ServiceIdentityProvider {
-    type From: Service + Labeled + Send;
-    type To: Service + HasCredentials + Send;
+    type From: MaybeService + Labeled + Send;
+    type To: MaybeService + HasCredentials + Send;
     fn register_identity(&mut self, to: Self::To) -> ();
     fn unregister_identity(&mut self, to: &Self::To) -> Option<Self::To>;
     // true if identity is newly created, false if identity is already registered
@@ -104,7 +104,7 @@ trait ServiceIdentityAPI {
 
 /// Messages exchanged between the the IdentityCreator and IdentityManager
 #[derive(Debug)]
-pub enum IdentityManagerProtocol<From: Service, To: Service + HasCredentials> {
+pub enum IdentityManagerProtocol<From: MaybeService, To: MaybeService + HasCredentials> {
     /// Message used to request a new ServiceIdentity for ServiceCandidate
     RequestServiceIdentity {
         service_candidate: From,
@@ -178,7 +178,7 @@ impl ServiceIdentityProvider for IdentityManagerPool {
                     if let Some(id) = self.pop().map(|service_user| {
                         let service_identity_spec = ServiceIdentitySpec {
                             service_name: Named::name(from),
-                            service_namespace: Namespaced::namespace(from).unwrap(), // Safe since if it has service_name it has namespace
+                            service_namespace: MaybeNamespaced::namespace(from).unwrap(), // Safe since if it has service_name it has namespace
                             service_user,
                             labels: Labeled::labels(from).unwrap(), // Safe since if it has service_name it has labels
                             disabled: false,
@@ -315,12 +315,18 @@ impl ServiceIdentityAPI for KubeIdentityManager {
     }
 }
 
-trait IdentityManager<From: Service + Send + Sync, To: Service + HasCredentials + Send + Sync>:
+trait IdentityManager<
+    From: MaybeService + Send + Sync,
+    To: MaybeService + HasCredentials + Send + Sync,
+>:
     ServiceIdentityAPI + ServiceIdentityProvider<From = ServiceLookup, To = To> + ServiceUsersPool
 {
 }
 
-pub struct IdentityManagerRunner<From: Service + Send, To: Service + HasCredentials + Send> {
+pub struct IdentityManagerRunner<
+    From: MaybeService + Send,
+    To: MaybeService + HasCredentials + Send,
+> {
     im: Box<dyn IdentityManager<From, To> + Send + Sync>,
     cluster_id: String,
 }
@@ -358,7 +364,7 @@ impl IdentityManagerRunner<ServiceLookup, ServiceIdentity> {
         }
     }
 
-    async fn run_identity_manager<F: Service + Labeled + Clone + fmt::Debug + Send>(
+    async fn run_identity_manager<F: MaybeService + Labeled + Clone + fmt::Debug + Send>(
         im: &mut Box<dyn IdentityManager<ServiceLookup, ServiceIdentity> + Send + Sync>,
         cluster_id: String,
         mut identity_manager_rx: Receiver<IdentityManagerProtocol<F, ServiceIdentity>>,
@@ -724,7 +730,7 @@ impl IdentityManagerRunner<ServiceLookup, ServiceIdentity> {
         }
     }
 
-    async fn initialize<F: Service + Labeled + Send>(
+    async fn initialize<F: MaybeService + Labeled + Send>(
         im: &mut Box<dyn IdentityManager<F, ServiceIdentity> + Send + Sync>,
     ) -> () {
         info!("Initializing Identity Manager service");
@@ -798,7 +804,7 @@ mod tests {
     use kube::{core::object::HasSpec, ResourceExt};
     use sdp_common::{
         service::ServiceLookup,
-        traits::{HasCredentials, Service},
+        traits::{HasCredentials, MaybeService},
     };
     use sdp_macros::{deployment, service_identity, service_user};
     use sdp_test_macros::{assert_message, assert_no_message};

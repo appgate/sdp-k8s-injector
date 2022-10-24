@@ -8,7 +8,7 @@ use kube::{Api, Client};
 use log::{error, info, warn};
 use sdp_common::crd::ServiceIdentity;
 use sdp_common::kubernetes::SDP_K8S_NAMESPACE;
-use sdp_common::traits::{HasCredentials, Service};
+use sdp_common::traits::{HasCredentials, MaybeService};
 use sdp_macros::when_ok;
 use tokio::sync::mpsc::{Receiver, Sender};
 
@@ -17,7 +17,7 @@ pub enum ServiceIdentityWatcherProtocol {
     DeviceIdManagerReady,
 }
 
-pub struct ServiceIdentityWatcher<D: Service + HasCredentials> {
+pub struct ServiceIdentityWatcher<D: MaybeService + HasCredentials> {
     service_identity_api: Api<D>,
 }
 

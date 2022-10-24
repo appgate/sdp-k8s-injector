@@ -14,7 +14,7 @@ use log::error;
 use crate::{
     errors::SDPServiceError,
     service::needs_injection,
-    traits::{Annotated, Candidate, Labeled, Named, Namespaced, ObjectRequest, Service},
+    traits::{Annotated, Candidate, Labeled, MaybeNamespaced, MaybeService, Named, ObjectRequest},
 };
 
 pub const SDP_K8S_HOST_ENV: &str = "SDP_K8S_HOST";
@@ -67,7 +67,7 @@ impl Named for Pod {
     }
 }
 
-impl Namespaced for Pod {
+impl MaybeNamespaced for Pod {
     fn namespace(&self) -> Option<String> {
         if let Some(ns) = ResourceExt::namespace(self) {
             Some(ns.clone())
@@ -90,7 +90,7 @@ impl Candidate for Pod {
     }
 }
 
-impl Service for Pod {}
+impl MaybeService for Pod {}
 
 // Implement required traits for Deployment
 
@@ -100,13 +100,13 @@ impl Named for Deployment {
     }
 }
 
-impl Namespaced for Deployment {
+impl MaybeNamespaced for Deployment {
     fn namespace(&self) -> Option<String> {
         ResourceExt::namespace(self)
     }
 }
 
-impl Service for Deployment {}
+impl MaybeService for Deployment {}
 
 impl Annotated for Pod {
     fn annotations(&self) -> Option<&BTreeMap<String, String>> {
@@ -128,7 +128,7 @@ impl Labeled for Deployment {
                 .map(|(k, v)| (k.to_string(), v.to_string())),
         );
         let name = Named::name(self);
-        Namespaced::namespace(self)
+        MaybeNamespaced::namespace(self)
             .map(|ns| {
                 labels.extend([
                     ("namespace".to_string(), ns),
@@ -223,13 +223,13 @@ impl Named for AdmissionRequest<Pod> {
     }
 }
 
-impl Namespaced for AdmissionRequest<Pod> {
+impl MaybeNamespaced for AdmissionRequest<Pod> {
     fn namespace(&self) -> Option<String> {
         admission_request_namespace(self)
     }
 }
 
-impl Service for AdmissionRequest<Pod> {}
+impl MaybeService for AdmissionRequest<Pod> {}
 
 impl Candidate for AdmissionRequest<Pod> {
     fn is_candidate(&self) -> bool {
@@ -250,13 +250,13 @@ impl Named for AdmissionRequest<Deployment> {
     }
 }
 
-impl Namespaced for AdmissionRequest<Deployment> {
+impl MaybeNamespaced for AdmissionRequest<Deployment> {
     fn namespace(&self) -> Option<String> {
         admission_request_namespace(self)
     }
 }
 
-impl Service for AdmissionRequest<Deployment> {}
+impl MaybeService for AdmissionRequest<Deployment> {}
 
 impl Candidate for AdmissionRequest<Deployment> {
     fn is_candidate(&self) -> bool {

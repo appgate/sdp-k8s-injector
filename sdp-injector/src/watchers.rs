@@ -2,7 +2,7 @@ use k8s_openapi::api::core::v1::Pod;
 use log::{error, info};
 use sdp_common::constants::POD_DEVICE_ID_ANNOTATION;
 use sdp_common::crd::{DeviceId, ServiceIdentity};
-use sdp_common::traits::{Annotated, Candidate, Service};
+use sdp_common::traits::{Annotated, Candidate, MaybeService};
 use sdp_common::watcher::SimpleWatchingProtocol;
 use sdp_macros::when_ok;
 

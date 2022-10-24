@@ -6,7 +6,7 @@ use kube::{Api, Client, Resource};
 use log::{error, info, warn};
 use sdp_common::crd::{DeviceId, DeviceIdSpec, ServiceIdentity};
 use sdp_common::kubernetes::SDP_K8S_NAMESPACE;
-use sdp_common::traits::{HasCredentials, Named, Namespaced, Service};
+use sdp_common::traits::{HasCredentials, MaybeNamespaced, MaybeService, Named};
 use sdp_macros::{queue_debug, sdp_error, sdp_info, sdp_log, when_ok};
 use std::collections::HashMap;
 use std::fmt::Debug;
@@ -16,7 +16,7 @@ use tokio::sync::mpsc::{Receiver, Sender};
 use uuid::Uuid;
 
 #[derive(Debug)]
-pub enum DeviceIdManagerProtocol<From: Service + HasCredentials> {
+pub enum DeviceIdManagerProtocol<From: MaybeService + HasCredentials> {
     DeviceIdManagerDebug(String),
     CreateDeviceId { service_identity_ref: From },
     DeviceIdManagerInitialized,
@@ -30,8 +30,8 @@ struct DeviceIdManagerPool {
 }
 
 trait DeviceIdProvider {
-    type From: Service + HasCredentials + Send;
-    type To: Service + Send;
+    type From: MaybeService + HasCredentials + Send;
+    type To: MaybeService + Send;
     fn register(&mut self, to: Self::To) -> ();
     fn unregister(&mut self, to: &Self::To) -> Option<Self::To>;
     fn device_id(&self, from: &Self::From) -> Option<&Self::To>;
@@ -226,12 +226,17 @@ impl DeviceIdAPI for KubeDeviceIdManager {
     }
 }
 
-trait DeviceIdManager<From: Service + HasCredentials + Send + Sync, To: Service + Send + Sync>:
-    DeviceIdAPI + DeviceIdProvider<From = From, To = To>
+trait DeviceIdManager<
+    From: MaybeService + HasCredentials + Send + Sync,
+    To: MaybeService + Send + Sync,
+>: DeviceIdAPI + DeviceIdProvider<From = From, To = To>
 {
 }
 
-pub struct DeviceIdManagerRunner<From: Service + HasCredentials + Send, To: Service + Send> {
+pub struct DeviceIdManagerRunner<
+    From: MaybeService + HasCredentials + Send,
+    To: MaybeService + Send,
+> {
     dm: Box<dyn DeviceIdManager<From, To> + Send + Sync>,
 }
 
@@ -247,7 +252,7 @@ impl DeviceIdManagerRunner<ServiceIdentity, DeviceId> {
         }
     }
 
-    async fn initialize<F: Service + HasCredentials + Send>(
+    async fn initialize<F: MaybeService + HasCredentials + Send>(
         dm: &mut Box<dyn DeviceIdManager<F, DeviceId> + Send + Sync>,
     ) -> () {
         match dm.list().await {
@@ -264,7 +269,7 @@ impl DeviceIdManagerRunner<ServiceIdentity, DeviceId> {
         }
     }
 
-    async fn run_device_id_manager<F: Service + HasCredentials + Send + Debug>(
+    async fn run_device_id_manager<F: MaybeService + HasCredentials + Send + Debug>(
         dm: &mut Box<dyn DeviceIdManager<F, DeviceId> + Send + Sync>,
         mut manager_proto_rx: Receiver<DeviceIdManagerProtocol<F>>,
         manager_proto_tx: Sender<DeviceIdManagerProtocol<F>>,

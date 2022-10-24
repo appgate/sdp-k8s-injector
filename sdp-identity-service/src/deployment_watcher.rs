@@ -1,7 +1,7 @@
 use k8s_openapi::api::apps::v1::Deployment;
 use log::{error, info};
 use sdp_common::watcher::SimpleWatchingProtocol;
-use sdp_common::{crd::ServiceIdentity, traits::Candidate, traits::Service};
+use sdp_common::{crd::ServiceIdentity, traits::Candidate, traits::MaybeService};
 use sdp_macros::when_ok;
 use std::fmt::Debug;
 

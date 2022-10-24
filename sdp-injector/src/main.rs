@@ -28,7 +28,7 @@ use sdp_common::constants::{
 use sdp_common::crd::DeviceId;
 use sdp_common::errors::SDPServiceError;
 use sdp_common::traits::{
-    Annotated, Candidate, HasCredentials, Namespaced, ObjectRequest, Service, Validated,
+    Annotated, Candidate, HasCredentials, MaybeNamespaced, MaybeService, ObjectRequest, Validated,
 };
 use sdp_common::watcher::{watch, Watcher};
 use serde::Deserialize;
@@ -378,7 +378,7 @@ impl K8SDNSService for Option<KubeService> {
     }
 }
 trait Patched {
-    fn patch<R: ObjectRequest<Pod> + Namespaced>(
+    fn patch<R: ObjectRequest<Pod> + MaybeNamespaced>(
         &self,
         environment: &mut ServiceEnvironment,
         request: R,
@@ -405,7 +405,7 @@ impl ServiceEnvironment {
     ) -> Result<Self, SDPServiceError>
     where
         E: IdentityStore<ServiceIdentity>,
-        R: ObjectRequest<Pod> + Service + Annotated,
+        R: ObjectRequest<Pod> + MaybeService + Annotated,
     {
         if let Some(e) = ServiceEnvironment::from_pod(request)? {
             Ok(e)
@@ -417,7 +417,7 @@ impl ServiceEnvironment {
     async fn from_identity_store<
         'a,
         E: IdentityStore<ServiceIdentity>,
-        R: ObjectRequest<Pod> + Service + Annotated,
+        R: ObjectRequest<Pod> + MaybeService + Annotated,
     >(
         request: &R,
         mut store: MutexGuard<'a, E>,
@@ -448,7 +448,7 @@ impl ServiceEnvironment {
 
     // TODO: should we check that the service_id is registered?
     // We dont want to inject pods that are not registered
-    fn from_pod<R: ObjectRequest<Pod> + Service + Annotated>(
+    fn from_pod<R: ObjectRequest<Pod> + MaybeService + Annotated>(
         request: &R,
     ) -> Result<Option<Self>, SDPServiceError> {
         let pod = request
@@ -556,7 +556,7 @@ impl SDPPod {
 }
 
 impl Patched for SDPPod {
-    fn patch<R: ObjectRequest<Pod> + Namespaced>(
+    fn patch<R: ObjectRequest<Pod> + MaybeNamespaced>(
         &self,
         environment: &mut ServiceEnvironment,
         request: R,
@@ -1095,7 +1095,9 @@ mod tests {
     use sdp_common::constants::SDP_DEFAULT_CLIENT_VERSION_ENV;
     use sdp_common::crd::{DeviceId, DeviceIdSpec, ServiceIdentity, ServiceIdentitySpec};
     use sdp_common::service::{init_containers, ServiceUser, SDP_INJECTOR_ANNOTATION_ENABLED};
-    use sdp_common::traits::{Annotated, Candidate, Named, Namespaced, ObjectRequest, Service};
+    use sdp_common::traits::{
+        Annotated, Candidate, MaybeNamespaced, MaybeService, Named, ObjectRequest,
+    };
     use sdp_macros::{service_device_ids, service_identity, service_user};
     use sdp_test_macros::{pod, set_pod_field};
     use serde_json::json;
@@ -1561,13 +1563,13 @@ POD is missing needed volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-de
         }
     }
 
-    impl Namespaced for TestObjectRequest {
+    impl MaybeNamespaced for TestObjectRequest {
         fn namespace(&self) -> Option<String> {
             self.pod.namespace()
         }
     }
 
-    impl Service for TestObjectRequest {}
+    impl MaybeService for TestObjectRequest {}
 
     impl Annotated for TestObjectRequest {
         fn annotations(&self) -> Option<&BTreeMap<String, String>> {
