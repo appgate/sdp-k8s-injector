@@ -1,6 +1,6 @@
 use k8s_openapi::api::core::v1::{Namespace, Pod};
 use log::{error, info};
-use sdp_common::constants::POD_DEVICE_ID_ANNOTATION;
+use sdp_common::annotations::SDP_ANNOTATION_CLIENT_DEVICE_ID;
 use sdp_common::crd::{DeviceId, ServiceIdentity};
 use sdp_common::traits::{Annotated, Candidate, MaybeService, Service};
 use sdp_common::watcher::SimpleWatchingProtocol;
@@ -113,7 +113,7 @@ impl SimpleWatchingProtocol<DeviceIdProviderRequestProtocol<ServiceIdentity>> fo
             let msg = self
                 .is_candidate()
                 .then_some(true)
-                .and_then(|_| self.annotation(POD_DEVICE_ID_ANNOTATION))
+                .and_then(|_| self.annotation(SDP_ANNOTATION_CLIENT_DEVICE_ID))
                 .and_then(|uuid_str| {
                     let uuid = uuid::Uuid::parse_str(uuid_str);
                     match uuid {

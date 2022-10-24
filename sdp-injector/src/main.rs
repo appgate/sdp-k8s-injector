@@ -27,9 +27,7 @@ use sdp_common::annotations::{
     SDP_ANNOTATION_CLIENT_CONFIG, SDP_ANNOTATION_CLIENT_DEVICE_ID, SDP_ANNOTATION_CLIENT_SECRETS,
     SDP_ANNOTATION_DNS_SEARCHES,
 };
-use sdp_common::constants::{
-    MAX_PATCH_ATTEMPTS, POD_DEVICE_ID_ANNOTATION, SDP_DEFAULT_CLIENT_VERSION_ENV,
-};
+use sdp_common::constants::{MAX_PATCH_ATTEMPTS, SDP_DEFAULT_CLIENT_VERSION_ENV};
 use sdp_common::crd::DeviceId;
 use sdp_common::errors::SDPServiceError;
 use sdp_common::service::{
@@ -608,7 +606,7 @@ impl Patched for SDPPod {
                 )?,
             }));
             patches.push(Add(AddOperation {
-                path: format!("/metadata/annotations/{}", POD_DEVICE_ID_ANNOTATION),
+                path: format!("/metadata/annotations/{}", SDP_ANNOTATION_CLIENT_DEVICE_ID),
                 value: serde_json::to_value(&environment.client_device_id)?,
             }));
 
