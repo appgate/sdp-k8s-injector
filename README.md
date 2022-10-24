@@ -88,7 +88,7 @@ SDP Kubernetes Client requires several configuration on the SDP Controller:
 #### Setting Policy for Deployments 
 SDP Kubernetes Client allows SDP controller to become aware of labels in Kubernetes. By default, the Deployment name and namespace are exposed to SDP as `user.labels.name` and `user.labels.namespace` respectively.
 
-Assume that we have created the deployment `sleep-forever` below in the `sdp-demo` namespace which has injection enabled.
+Assume that we have an injector installed in the cluster with clusterID=`demo` and we have also created deployment `sleep-forever` below in the `sdp-demo` namespace 
 ```yaml
 apiVersion: apps/v1
 kind: Deployment
@@ -113,6 +113,7 @@ To create a Policy for this deployment, set the following Assignments:
 * Identity Provider is `service`
 * `user.labels.name` === `sleep-forever` (labels - Expression: `name === "sleep-forever"`)
 * `user.labels.namespace` === `sdp-demo` (labels - Expression: `namespace === "sdp-demo"`)
+* `The array tags has item matching demo` (tags - Operator: `match` Value: `demo`)
 
 In addition to the name and namespace, the SDP Kubernetes Client is able to expose `metadata.labels` as conditions for Assignment. For example, if we add `metadata.labels.role="sleeper"` to the example above, that label will be available as `users.labels.role` in the Policy. You can additionally set the following Assignment:
 * `users.labels.role` === `sleeper` (labels - Expression: `role === "sleeper"`)
@@ -219,7 +220,7 @@ $ kubectl annotate pod <POD> sdp-injector-disable-init-containers="true"
 ```
 
 ### Multiple Injectors
-You can connect multiple Kubernetes clusters to a single SDP system by installing an injector on each cluster. When installing the injector, set a unique cluster ID in the helm value `sdp.clusterID`. To prevent collision of resources created by the injector, the SDP system will use this ID as a tag or prefix (e.g. client profiles, service users).
+You can connect multiple Kubernetes clusters to a single SDP system by installing an injector on each cluster. When installing the injector, set a unique cluster ID in the helm value `sdp.clusterID`. To prevent collision of resources created by the injector, the SDP system will use this ID as a tag or prefix (e.g. client profiles, service users). It is advised to tag your admin users for each injector with the cluster ID.
 
 ## Parameters
 
