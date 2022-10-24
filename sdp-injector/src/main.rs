@@ -110,7 +110,12 @@ macro_rules! attempt_patch {
                 Err(SDPPatchError::WithResponse(response, e)) => {
                     *$store.entry(admission_id.clone()).or_insert(0) += 1;
                     let attempt = $store.get(&admission_id).unwrap_or(&0);
-                    Ok(SDPPatchResponse::RetryWithError(response, e, *attempt))
+                    if attempt > &MAX_PATCH_ATTEMPTS {
+                        $store.remove(&admission_id);
+                        Ok(SDPPatchResponse::MaxRetryExceeded(response, e))
+                    } else {
+                        Ok(SDPPatchResponse::RetryWithError(response, e, *attempt))
+                    }
                 }
                 Err(e) => Err(e),
             }
@@ -217,6 +222,7 @@ macro_rules! env_var {
 
 pub enum SDPPatchResponse {
     RetryWithError(Box<AdmissionResponse>, SDPServiceError, u8),
+    MaxRetryExceeded(Box<AdmissionResponse>, SDPServiceError),
     Allow(Box<AdmissionResponse>),
 }
 
@@ -1958,7 +1964,8 @@ POD is missing needed volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-de
                         ));
                     }
                 }
-                Ok(SDPPatchResponse::RetryWithError(_, _, _)) => {
+                Ok(SDPPatchResponse::RetryWithError(_, _, _))
+                | Ok(SDPPatchResponse::MaxRetryExceeded(_, _)) => {
                     results.push((
                         false,
                         format!("Could not find a response"),
@@ -2316,12 +2323,9 @@ async fn injector_handler<E: IdentityStore<ServiceIdentity>>(
                     // Object properly patched and allowed
                     allow_admission_response!(response => response)
                 }
-                Ok(SDPPatchResponse::RetryWithError(mut response, error, attempts))
-                    if attempts >= MAX_PATCH_ATTEMPTS =>
-                {
+                Ok(SDPPatchResponse::MaxRetryExceeded(mut response, error)) => {
                     error!(
-                        "Patch failed [{}/{}]. Accepting resource without patching: {}",
-                        attempts,
+                        "Patch failed. Max retry exceeded [{}]. Accepting resource without patching: {}",
                         MAX_PATCH_ATTEMPTS,
                         error.to_string()
                     );
