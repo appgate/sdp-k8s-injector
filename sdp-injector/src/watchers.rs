@@ -10,7 +10,12 @@ use crate::deviceid::DeviceIdProviderRequestProtocol;
 
 impl SimpleWatchingProtocol<DeviceIdProviderRequestProtocol<ServiceIdentity>> for ServiceIdentity {
     fn initialized(&self) -> Option<DeviceIdProviderRequestProtocol<ServiceIdentity>> {
-        None
+        when_ok!((service_id:DeviceIdProviderRequestProtocol<ServiceIdentity> = self.service_id()) {
+            info!("Recovered ServiceIdentity {}", service_id);
+            Some(DeviceIdProviderRequestProtocol::FoundServiceIdentity(
+                self.clone(),
+            ))
+        })
     }
 
     fn applied(&self) -> Option<DeviceIdProviderRequestProtocol<ServiceIdentity>> {
@@ -34,7 +39,10 @@ impl SimpleWatchingProtocol<DeviceIdProviderRequestProtocol<ServiceIdentity>> fo
 
 impl SimpleWatchingProtocol<DeviceIdProviderRequestProtocol<ServiceIdentity>> for DeviceId {
     fn initialized(&self) -> Option<DeviceIdProviderRequestProtocol<ServiceIdentity>> {
-        None
+        when_ok!((service_id:DeviceIdProviderRequestProtocol<ServiceIdentity> = self.service_id()) {
+            info!("Recovered DeviceId {}", service_id);
+            Some(DeviceIdProviderRequestProtocol::FoundDevideId(self.clone()))
+        })
     }
 
     fn applied(&self) -> Option<DeviceIdProviderRequestProtocol<ServiceIdentity>> {
