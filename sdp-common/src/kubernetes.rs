@@ -277,7 +277,7 @@ mod test {
     use std::collections::BTreeMap;
 
     use crate::{
-        service::{SDP_INJECTOR_ANNOTATION_ENABLED, SDP_INJECTOR_ANNOTATION_STRATEGY},
+        annotations::{SDP_INJECTOR_ANNOTATION_ENABLED, SDP_INJECTOR_ANNOTATION_STRATEGY},
         traits::Candidate,
     };
 

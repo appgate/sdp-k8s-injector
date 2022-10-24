@@ -1,3 +1,4 @@
+pub mod annotations;
 pub mod constants;
 pub mod crd;
 pub mod errors;

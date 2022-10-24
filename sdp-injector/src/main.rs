@@ -1,3 +1,4 @@
+use crate::deviceid::{DeviceIdProvider, DeviceIdProviderRequestProtocol};
 use deviceid::{DeviceIdProviderResponseProtocol, IdentityStore, RegisteredDeviceId};
 use errors::SDPPatchError;
 use futures_util::stream::StreamExt;
@@ -22,11 +23,21 @@ use kube::{Api, Client, Config};
 use log::{debug, error, info, warn};
 use rustls::{Certificate, PrivateKey, ServerConfig};
 use rustls_pemfile::{read_one, Item};
+use sdp_common::annotations::{
+    SDP_ANNOTATION_CLIENT_CONFIG, SDP_ANNOTATION_CLIENT_DEVICE_ID, SDP_ANNOTATION_CLIENT_SECRETS,
+    SDP_ANNOTATION_DNS_SEARCHES,
+};
 use sdp_common::constants::{
     MAX_PATCH_ATTEMPTS, POD_DEVICE_ID_ANNOTATION, SDP_DEFAULT_CLIENT_VERSION_ENV,
 };
 use sdp_common::crd::DeviceId;
 use sdp_common::errors::SDPServiceError;
+use sdp_common::service::{
+    containers, init_containers, injection_strategy, volume_names, volumes, SDPInjectionStrategy,
+    ServiceIdentity, SDP_INJECTOR_ANNOTATION_CLIENT_VERSION,
+    SDP_INJECTOR_ANNOTATION_DISABLE_INIT_CONTAINERS, SDP_INJECTOR_ANNOTATION_ENABLED,
+    SDP_INJECTOR_ANNOTATION_STRATEGY,
+};
 use sdp_common::traits::{
     Annotated, Candidate, HasCredentials, MaybeNamespaced, MaybeService, ObjectRequest, Validated,
 };
@@ -51,14 +62,6 @@ use tokio::sync::{mpsc, Mutex, MutexGuard};
 use tokio::time::timeout;
 use uuid::Uuid;
 
-use crate::deviceid::{DeviceIdProvider, DeviceIdProviderRequestProtocol};
-use sdp_common::service::{
-    containers, init_containers, injection_strategy, volume_names, volumes, SDPInjectionStrategy,
-    ServiceIdentity, SDP_INJECTOR_ANNOTATION_CLIENT_VERSION,
-    SDP_INJECTOR_ANNOTATION_DISABLE_INIT_CONTAINERS, SDP_INJECTOR_ANNOTATION_ENABLED,
-    SDP_INJECTOR_ANNOTATION_STRATEGY,
-};
-
 const SDP_K8S_HOST_ENV: &str = "SDP_K8S_HOST";
 const SDP_K8S_HOST_DEFAULT: &str = "kubernetes.default.svc";
 const SDP_K8S_NO_VERIFY_ENV: &str = "SDP_K8S_NO_VERIFY";
@@ -69,10 +72,6 @@ const SDP_KEY_FILE_ENV: &str = "SDP_KEY_FILE";
 const SDP_CERT_FILE: &str = "/opt/sdp-injector/k8s/sdp-injector-crt.pem";
 const SDP_KEY_FILE: &str = "/opt/sdp-injector/k8s/sdp-injector-key.pem";
 const SDP_SERVICE_CONTAINER_NAME: &str = "sdp-service";
-const SDP_ANNOTATION_CLIENT_CONFIG: &str = "sdp-injector-client-config";
-const SDP_ANNOTATION_CLIENT_SECRETS: &str = "sdp-injector-client-secrets";
-const SDP_ANNOTATION_CLIENT_DEVICE_ID: &str = "sdp-injector-client-device-id";
-const SDP_ANNOTATION_DNS_SEARCHES: &str = "sdp-injector-dns-searches";
 const SDP_DNS_SERVICE_NAMES: [&str; 2] = ["kube-dns", "coredns"];
 
 mod deviceid;
@@ -1093,6 +1092,7 @@ mod tests {
     };
     use kube::core::admission::AdmissionReview;
     use kube::core::ObjectMeta;
+    use sdp_common::annotations::SDP_INJECTOR_ANNOTATION_ENABLED;
     use sdp_common::constants::SDP_DEFAULT_CLIENT_VERSION_ENV;
     use sdp_common::crd::{DeviceId, DeviceIdSpec, ServiceIdentity, ServiceIdentitySpec};
     use sdp_common::service::{init_containers, ServiceUser, SDP_INJECTOR_ANNOTATION_ENABLED};
