@@ -54,7 +54,8 @@ use uuid::Uuid;
 use crate::deviceid::{DeviceIdProvider, DeviceIdProviderRequestProtocol};
 use sdp_common::service::{
     containers, init_containers, injection_strategy, volume_names, volumes, SDPInjectionStrategy,
-    ServiceIdentity, SDP_INJECTOR_ANNOTATION_CLIENT_VERSION, SDP_INJECTOR_ANNOTATION_ENABLED,
+    ServiceIdentity, SDP_INJECTOR_ANNOTATION_CLIENT_VERSION,
+    SDP_INJECTOR_ANNOTATION_DISABLE_INIT_CONTAINERS, SDP_INJECTOR_ANNOTATION_ENABLED,
     SDP_INJECTOR_ANNOTATION_STRATEGY,
 };
 
@@ -636,7 +637,7 @@ impl Patched for SDPPod {
             }
             if let Some((xs, false)) = init_containers(pod).map(|cs| {
                 let disable_init_containers = pod
-                    .annotation("sdp-injector-disable-init-containers")
+                    .annotation(SDP_INJECTOR_ANNOTATION_DISABLE_INIT_CONTAINERS)
                     .map(|s| s.eq_ignore_ascii_case("true"))
                     .unwrap_or(false);
                 (cs, disable_init_containers)
