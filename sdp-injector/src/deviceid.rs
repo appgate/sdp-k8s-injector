@@ -14,9 +14,9 @@ use uuid::Uuid;
 #[derive(Debug)]
 pub enum DeviceIdProviderRequestProtocol<A: Service + HasCredentials> {
     FoundServiceIdentity(A),
-    FoundDevideId(DeviceId),
+    FoundDeviceId(DeviceId),
     DeletedServiceIdentity(A),
-    DeletedDevideId(DeviceId),
+    DeletedDeviceId(DeviceId),
     RequestDeviceId(Sender<DeviceIdProviderResponseProtocol<A>>, String),
     ReleasedDeviceId(String, Uuid),
 }
@@ -324,7 +324,7 @@ impl DeviceIdProvider<ServiceIdentity> {
                                 };
                             });
                         },
-                        Some(DeviceIdProviderRequestProtocol::FoundDevideId(id)) => {
+                        Some(DeviceIdProviderRequestProtocol::FoundDeviceId(id)) => {
                             when_ok!((service_id = id.service_id()) {
                                 info!("Registering new device ids for service {}", service_id);
                                 if let Err(err) = self.store.register_device_ids(id).await {
@@ -332,7 +332,7 @@ impl DeviceIdProvider<ServiceIdentity> {
                                 }
                             });
                         },
-                        Some(DeviceIdProviderRequestProtocol::DeletedDevideId(id)) => {
+                        Some(DeviceIdProviderRequestProtocol::DeletedDeviceId(id)) => {
                             when_ok!((service_id = id.service_id()) {
                                 info!("Unregistering device ids for service {}", service_id);
                                 if let Err(err) = self.store.unregister_device_ids(&service_id).await {

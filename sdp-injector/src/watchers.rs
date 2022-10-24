@@ -41,21 +41,21 @@ impl SimpleWatchingProtocol<DeviceIdProviderRequestProtocol<ServiceIdentity>> fo
     fn initialized(&self) -> Option<DeviceIdProviderRequestProtocol<ServiceIdentity>> {
         when_ok!((service_id:DeviceIdProviderRequestProtocol<ServiceIdentity> = self.service_id()) {
             info!("Recovered DeviceId {}", service_id);
-            Some(DeviceIdProviderRequestProtocol::FoundDevideId(self.clone()))
+            Some(DeviceIdProviderRequestProtocol::FoundDeviceId(self.clone()))
         })
     }
 
     fn applied(&self) -> Option<DeviceIdProviderRequestProtocol<ServiceIdentity>> {
         when_ok!((service_id:DeviceIdProviderRequestProtocol<ServiceIdentity> = self.service_id()) {
             info!("Applied DeviceId {}", service_id);
-            Some(DeviceIdProviderRequestProtocol::FoundDevideId(self.clone()))
+            Some(DeviceIdProviderRequestProtocol::FoundDeviceId(self.clone()))
         })
     }
 
     fn deleted(&self) -> Option<DeviceIdProviderRequestProtocol<ServiceIdentity>> {
         when_ok!((service_id:DeviceIdProviderRequestProtocol<ServiceIdentity> = self.service_id()) {
             info!("Deleted DeviceId {}", service_id);
-            Some(DeviceIdProviderRequestProtocol::DeletedDevideId(
+            Some(DeviceIdProviderRequestProtocol::DeletedDeviceId(
                 self.clone(),
             ))
         })
