@@ -101,22 +101,21 @@ impl DeviceIdAPI for KubeDeviceIdManager {
             let device_id_api: Api<DeviceId> =
                 Api::namespaced(self.client.clone(), SDP_K8S_NAMESPACE);
             let service_id = device_id.service_id();
+            let service_name = device_id.service_name();
             match device_id_api
-                .get_opt(&service_id)
+                .get_opt(&service_name)
                 .await
                 .map_err(|e| e.to_string())
             {
                 Ok(None) => {
-                    info!("DeviceIds {} does not exist, creating it.", service_id);
-                    let service_name = &device_id.spec.service_name;
-                    let service_namespace = &device_id.spec.service_namespace;
-
+                    info!("DeviceIds {} does not exist, creating it.", service_name);
+                    let owner_name = &device_id.spec.service_name;
+                    let owner_namespace = &device_id.spec.service_namespace;
                     let mut uuids: Vec<String> = vec![];
                     let mut owner_ref = OwnerReference::default();
-                    let device_id_name = &format!("{}-{}", service_namespace, service_name);
 
                     let replicaset_api: Api<ReplicaSet> =
-                        Api::namespaced(self.client.clone(), service_namespace);
+                        Api::namespaced(self.client.clone(), owner_namespace);
                     let replicasets = replicaset_api
                         .list(&ListParams::default())
                         .await
@@ -126,13 +125,11 @@ impl DeviceIdAPI for KubeDeviceIdManager {
                             &replicaset.meta().owner_references.as_ref()
                         {
                             let owner = &replicaset_owners[0];
-                            if owner.name == *service_name {
+                            if owner.name == *owner_name {
                                 let service_identity_api: Api<ServiceIdentity> =
                                     Api::namespaced(self.client.clone(), SDP_K8S_NAMESPACE);
-                                let service_identity = service_identity_api
-                                    .get(device_id_name)
-                                    .await
-                                    .map_err(|e| {
+                                let service_identity =
+                                    service_identity_api.get(&service_name).await.map_err(|e| {
                                         format!("Unable to get service identity: {}", e.to_string())
                                     })?;
                                 owner_ref.controller = Default::default();
@@ -146,10 +143,7 @@ impl DeviceIdAPI for KubeDeviceIdManager {
                                 if let Some(num_replicas) = replicaset.spec.unwrap().replicas {
                                     for _ in 0..(2 * num_replicas) {
                                         let uuid = Uuid::new_v4().to_string();
-                                        info!(
-                                            "Assigning uuid {} to DeviceID {}",
-                                            uuid, device_id_name
-                                        );
+                                        info!("Assigning uuid {} to DeviceID {}", uuid, service_id);
                                         uuids.push(uuid);
                                     }
                                 }
@@ -157,11 +151,11 @@ impl DeviceIdAPI for KubeDeviceIdManager {
                         }
                     }
                     let mut device_id = DeviceId::new(
-                        device_id_name,
+                        &service_name,
                         DeviceIdSpec {
                             uuids,
-                            service_name: service_name.to_string(),
-                            service_namespace: service_namespace.to_string(),
+                            service_name: owner_name.to_string(),
+                            service_namespace: owner_namespace.to_string(),
                         },
                     );
                     device_id.metadata.owner_references = Some(vec![owner_ref]);
@@ -172,18 +166,25 @@ impl DeviceIdAPI for KubeDeviceIdManager {
                             .create(&PostParams::default(), &device_id)
                             .await
                             .map_err(|e| {
-                                format!("Error creatring DeviceIds entity: {}", e.to_string())
+                                format!(
+                                    "Error creatring DeviceIds for service {}: {}",
+                                    service_id,
+                                    e.to_string()
+                                )
                             }),
                     )
                 }
                 Ok(_) => {
-                    info!("DeviceIds {} already exists.", service_id);
+                    info!("DeviceIds for service {} already exists.", service_id);
                     Some(Ok(device_id.clone()))
                 }
                 Err(e) => {
-                    error!("Error checking if device ids {} exists.", service_id);
+                    error!(
+                        "Error checking if device ids for service {} exists.",
+                        service_id
+                    );
                     Some(Err(format!(
-                        "Error checking if device ids {} exists: {}",
+                        "Error checking if device ids for service {} exists: {}",
                         service_id,
                         e.to_string()
                     )))
@@ -251,10 +252,10 @@ impl DeviceIdManagerRunner<ServiceIdentity, DeviceId> {
         match dm.list().await {
             Ok(device_ids) => {
                 device_ids.iter().for_each(|d| {
-                    info!("Restoring Device ID");
+                    info!("Restoring DeviceIds for service: {}", d.service_id());
                     dm.register(d.clone());
                 });
-                info!("Restored {} Device IDs", device_ids.len())
+                info!("Restored {} DeviceIds", device_ids.len())
             }
             Err(err) => {
                 panic!("Error fetching the list of DeviceIds: {}", err)
