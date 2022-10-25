@@ -29,6 +29,14 @@ impl SimpleWatchingProtocol<DeviceIdProviderRequestProtocol<ServiceIdentity>> fo
             self.clone(),
         ))
     }
+
+    fn reapplied(&self) -> Option<DeviceIdProviderRequestProtocol<ServiceIdentity>> {
+        None
+    }
+
+    fn key(&self) -> Option<String> {
+        Some(self.service_id())
+    }
 }
 
 impl SimpleWatchingProtocol<DeviceIdProviderRequestProtocol<ServiceIdentity>> for DeviceId {
@@ -47,6 +55,14 @@ impl SimpleWatchingProtocol<DeviceIdProviderRequestProtocol<ServiceIdentity>> fo
         Some(DeviceIdProviderRequestProtocol::DeletedDeviceId(
             self.clone(),
         ))
+    }
+
+    fn reapplied(&self) -> Option<DeviceIdProviderRequestProtocol<ServiceIdentity>> {
+        None
+    }
+
+    fn key(&self) -> Option<String> {
+        Some(self.service_id())
     }
 }
 
@@ -90,5 +106,13 @@ impl SimpleWatchingProtocol<DeviceIdProviderRequestProtocol<ServiceIdentity>> fo
             }
             msg
         })
+    }
+
+    fn reapplied(&self) -> Option<DeviceIdProviderRequestProtocol<ServiceIdentity>> {
+        None
+    }
+
+    fn key(&self) -> Option<String> {
+        self.service_id().ok()
     }
 }

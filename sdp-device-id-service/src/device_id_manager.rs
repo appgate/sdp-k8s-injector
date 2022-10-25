@@ -18,10 +18,10 @@ use uuid::Uuid;
 #[derive(Debug)]
 pub enum DeviceIdManagerProtocol<From: Service + HasCredentials> {
     DeviceIdManagerDebug(String),
-    CreateDeviceId { service_identity_ref: From },
+    CreateDeviceId(From),
     DeviceIdManagerInitialized,
     DeviceIdManagerStarted,
-    FoundServiceIdentity { service_identity_ref: From },
+    FoundServiceIdentity(From),
 }
 
 #[derive(Default)]
@@ -276,9 +276,7 @@ impl DeviceIdManagerRunner<ServiceIdentity, DeviceId> {
             match message {
                 DeviceIdManagerProtocol::DeviceIdManagerStarted => {}
 
-                DeviceIdManagerProtocol::CreateDeviceId {
-                    service_identity_ref,
-                } => {
+                DeviceIdManagerProtocol::CreateDeviceId(service_identity_ref) => {
                     let service_id = service_identity_ref.service_id();
                     sdp_info!(DeviceIdManagerProtocol::<F>::DeviceIdManagerDebug | (
                         "Received request for new DeviceId for ServiceIdentity {}", service_id
@@ -301,18 +299,16 @@ impl DeviceIdManagerRunner<ServiceIdentity, DeviceId> {
                     }
                 }
 
-                DeviceIdManagerProtocol::FoundServiceIdentity {
-                    service_identity_ref,
-                } => {
+                DeviceIdManagerProtocol::FoundServiceIdentity(service_identity_ref) => {
                     sdp_info!(DeviceIdManagerProtocol::<F>::DeviceIdManagerDebug | (
                         "Found ServiceIdentity {}",
                         service_identity_ref.service_id()
                     ) => queue_tx);
 
                     manager_proto_tx
-                        .send(DeviceIdManagerProtocol::CreateDeviceId {
+                        .send(DeviceIdManagerProtocol::CreateDeviceId(
                             service_identity_ref,
-                        })
+                        ))
                         .await
                         .expect("Unable to send CreateDeviceId message");
                 }
@@ -477,9 +473,7 @@ mod tests {
                 let tx = manager_tx.clone();
 
                 // Watcher notifies the manager about a new inactive ServiceIdentity
-                tx.send(DeviceIdManagerProtocol::FoundServiceIdentity {
-                    service_identity_ref: service_identity!(1),
-                }).await.expect("Unable to send FoundServiceIdentity message");
+                tx.send(DeviceIdManagerProtocol::FoundServiceIdentity(service_identity!(1))).await.expect("Unable to send FoundServiceIdentity message");
 
                 assert_message! {
                     (m :: DeviceIdManagerProtocol::DeviceIdManagerDebug(_) in queue_rx) => {

@@ -1,10 +1,10 @@
 use crate::device_id_manager::{DeviceIdManagerProtocol, DeviceIdManagerRunner};
 use crate::service_identity_watcher::ServiceIdentityWatcherProtocol;
 use clap::{Parser, Subcommand};
-use kube::CustomResourceExt;
+use kube::{Api, CustomResourceExt};
 use sdp_common::crd::{DeviceId, ServiceIdentity};
-use sdp_common::kubernetes;
-use service_identity_watcher::ServiceIdentityWatcher;
+use sdp_common::kubernetes::{self, SDP_K8S_NAMESPACE};
+use sdp_common::watcher::{watch, Watcher, WatcherWaitReady};
 use tokio::sync::mpsc::channel;
 
 mod device_id_errors;
@@ -39,13 +39,20 @@ async fn run() {
     let manager_proto_tx_2 = manager_proto_tx_1.clone();
     let device_id_manager = DeviceIdManagerRunner::kube_runner(manager_client);
 
-    let watcher_client = kubernetes::get_k8s_client().await;
+    let client = kubernetes::get_k8s_client().await;
     let (watcher_proto_tx, watcher_proto_rx) = channel::<ServiceIdentityWatcherProtocol>(50);
-    tokio::spawn(async {
-        let watcher = ServiceIdentityWatcher::new(watcher_client);
-        watcher.run(watcher_proto_rx, manager_proto_tx_1).await;
+    let api: Api<ServiceIdentity> = Api::namespaced(client, SDP_K8S_NAMESPACE);
+    tokio::spawn(async move {
+        let watcher = Watcher {
+            api: api,
+            queue_tx: manager_proto_tx_1.clone(),
+            notification_message: None,
+        };
+        let watcher_ready = WatcherWaitReady(watcher_proto_rx, |_| true);
+        if let Err(e) = watch(watcher, Some(watcher_ready)).await {
+            panic!("Error deploying Deployment Watcher: {}", e);
+        }
     });
-
     device_id_manager
         .run(manager_proto_rx, manager_proto_tx_2, watcher_proto_tx, None)
         .await;

@@ -45,4 +45,12 @@ impl SimpleWatchingProtocol<IdentityManagerProtocol<Deployment, ServiceIdentity>
             }
         })
     }
+
+    fn reapplied(&self) -> Option<IdentityManagerProtocol<Deployment, ServiceIdentity>> {
+        None
+    }
+
+    fn key(&self) -> Option<String> {
+        self.service_id().ok()
+    }
 }
