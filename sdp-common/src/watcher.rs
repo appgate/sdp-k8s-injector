@@ -7,7 +7,7 @@ use kube::{
     runtime::watcher::{self, Event},
     Api, Resource, ResourceExt,
 };
-use log::{error, info};
+use log::{error, info, warn};
 use serde::de::DeserializeOwned;
 use tokio::sync::mpsc::{Receiver, Sender};
 
@@ -67,9 +67,11 @@ where
                     }
                 }
             } else {
+                error!("Namespace not found!");
                 None
             }
         } else {
+            warn!("NS api not defined");
             None
         };
         // Register as applied if possible
