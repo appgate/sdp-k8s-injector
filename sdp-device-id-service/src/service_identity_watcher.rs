@@ -25,7 +25,10 @@ impl SimpleWatchingProtocol<DeviceIdManagerProtocol<ServiceIdentity>> for Servic
         None
     }
 
-    fn reapplied(&self) -> Option<DeviceIdManagerProtocol<ServiceIdentity>> {
+    fn reapplied(
+        &self,
+        _ns: Option<Namespace>,
+    ) -> Option<DeviceIdManagerProtocol<ServiceIdentity>> {
         None
     }
 

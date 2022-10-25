@@ -13,10 +13,16 @@ use tokio::sync::mpsc::{Receiver, Sender};
 
 use crate::errors::SDPServiceError;
 
+#[derive(PartialEq)]
+pub enum WatcherOperation {
+    Apply,
+    ReApply,
+}
+
 pub trait SimpleWatchingProtocol<P> {
     fn initialized(&self, ns: Option<Namespace>) -> Option<P>;
     fn applied(&self, ns: Option<Namespace>) -> Option<P>;
-    fn reapplied(&self) -> Option<P>;
+    fn reapplied(&self, ns: Option<Namespace>) -> Option<P>;
     fn deleted(&self, ns: Option<Namespace>) -> Option<P>;
     fn key(&self) -> Option<String>;
 }
@@ -111,25 +117,34 @@ where
         match xs.try_next().await {
             Ok(Some(Event::Applied(e))) => {
                 let key = e.key();
-                let needs_apply = match &key {
-                    Some(key) if applied.contains(key) => false,
-                    _ => true,
+
+                let ns = get_ns(e.namespace())
+                    .await
+                    .map_err(|err| {
+                        error!("Error getting namespace for resource {}", e.name_any());
+                        err
+                    })
+                    .unwrap_or(None);
+                let op = match &key {
+                    Some(key) if applied.contains(key) => WatcherOperation::ReApply,
+                    _ => WatcherOperation::Apply,
                 };
-                if needs_apply {
-                    let ns = get_ns(e.namespace())
-                        .await
-                        .map_err(|err| {
-                            error!("Error getting namespace for resource {}", e.name_any());
-                            err
-                        })
-                        .unwrap_or(None);
-                    if let Some(msg) = e.applied(ns) {
-                        if let Err(e) = watcher.queue_tx.send(msg).await {
-                            error!("Error sending Applied message: {}", e.to_string())
-                        } else {
-                            if let Some(key) = key {
-                                applied.insert(key);
-                            }
+                let msg = match op {
+                    WatcherOperation::Apply => {
+                        info!("Applying message");
+                        e.applied(ns)
+                    }
+                    WatcherOperation::ReApply => {
+                        info!("ReApplying message");
+                        e.reapplied(ns)
+                    }
+                };
+                if let Some(msg) = msg {
+                    if let Err(err) = watcher.queue_tx.send(msg).await {
+                        error!("Error sending Applied/Reapplied message: {}", err);
+                    } else {
+                        if op == WatcherOperation::Apply && key.is_some() {
+                            applied.insert(key.unwrap());
                         }
                     }
                 }

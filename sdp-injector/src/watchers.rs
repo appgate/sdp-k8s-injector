@@ -39,7 +39,10 @@ impl SimpleWatchingProtocol<DeviceIdProviderRequestProtocol<ServiceIdentity>> fo
         ))
     }
 
-    fn reapplied(&self) -> Option<DeviceIdProviderRequestProtocol<ServiceIdentity>> {
+    fn reapplied(
+        &self,
+        _ns: Option<Namespace>,
+    ) -> Option<DeviceIdProviderRequestProtocol<ServiceIdentity>> {
         None
     }
 
@@ -75,7 +78,10 @@ impl SimpleWatchingProtocol<DeviceIdProviderRequestProtocol<ServiceIdentity>> fo
         ))
     }
 
-    fn reapplied(&self) -> Option<DeviceIdProviderRequestProtocol<ServiceIdentity>> {
+    fn reapplied(
+        &self,
+        _ns: Option<Namespace>,
+    ) -> Option<DeviceIdProviderRequestProtocol<ServiceIdentity>> {
         None
     }
 
@@ -135,7 +141,10 @@ impl SimpleWatchingProtocol<DeviceIdProviderRequestProtocol<ServiceIdentity>> fo
         })
     }
 
-    fn reapplied(&self) -> Option<DeviceIdProviderRequestProtocol<ServiceIdentity>> {
+    fn reapplied(
+        &self,
+        _ns: Option<Namespace>,
+    ) -> Option<DeviceIdProviderRequestProtocol<ServiceIdentity>> {
         None
     }
 

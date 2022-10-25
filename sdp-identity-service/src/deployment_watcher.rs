@@ -66,7 +66,10 @@ impl SimpleWatchingProtocol<IdentityManagerProtocol<Deployment, ServiceIdentity>
         })
     }
 
-    fn reapplied(&self) -> Option<IdentityManagerProtocol<Deployment, ServiceIdentity>> {
+    fn reapplied(
+        &self,
+        _ns: Option<Namespace>,
+    ) -> Option<IdentityManagerProtocol<Deployment, ServiceIdentity>> {
         when_ok!((service_id:IdentityManagerProtocol<Deployment, ServiceIdentity> = self.service_id()) {
             if self.is_candidate() {
                 info!("Ignoring reapplied Deployment {}", service_id);
