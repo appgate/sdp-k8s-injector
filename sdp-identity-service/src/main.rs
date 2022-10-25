@@ -4,7 +4,7 @@ use crate::{
     identity_manager::{IdentityManagerProtocol, IdentityManagerRunner},
 };
 use clap::{Parser, Subcommand};
-use k8s_openapi::api::apps::v1::Deployment;
+use k8s_openapi::api::{apps::v1::Deployment, core::v1::Namespace};
 use kube::{Api, CustomResourceExt};
 use log::{error, info};
 use sdp_common::kubernetes::get_k8s_client;
@@ -75,7 +75,9 @@ async fn main() -> () {
                 channel::<DeploymentWatcherProtocol>(50);
             tokio::spawn(async move {
                 let deployment_api: Api<Deployment> = Api::all(deployment_watcher_client.clone());
+                let ns_api: Api<Namespace> = Api::all(deployment_watcher_client);
                 let watcher = Watcher {
+                    api_ns: Some(ns_api),
                     api: deployment_api,
                     queue_tx: identity_manager_proto_tx.clone(),
                     notification_message: None,

@@ -2454,6 +2454,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         info!("Starting ServiceIdentity watcher");
         let watcher: Watcher<ServiceIdentity, DeviceIdProviderRequestProtocol<ServiceIdentity>> =
             Watcher {
+                api_ns: None,
                 api: service_identity_api,
                 queue_tx: watcher_tx,
                 notification_message: None,
@@ -2473,6 +2474,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     tokio::spawn(async move {
         info!("Starting DeviceId watcher");
         let watcher = Watcher {
+            api_ns: None,
             api: device_ids_api,
             queue_tx: watcher_tx2,
             notification_message: None,
@@ -2493,6 +2495,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     tokio::spawn(async move {
         info!("Starting Pod watcher");
         let watcher = Watcher {
+            api_ns: None,
             api: pods_api,
             queue_tx: watcher_tx3,
             notification_message: None,

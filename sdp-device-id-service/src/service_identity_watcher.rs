@@ -1,4 +1,5 @@
 use crate::device_id_manager::DeviceIdManagerProtocol;
+use k8s_openapi::api::core::v1::Namespace;
 use sdp_common::crd::ServiceIdentity;
 use sdp_common::traits::Service;
 use sdp_common::watcher::SimpleWatchingProtocol;
@@ -9,7 +10,10 @@ pub enum ServiceIdentityWatcherProtocol {
 }
 
 impl SimpleWatchingProtocol<DeviceIdManagerProtocol<ServiceIdentity>> for ServiceIdentity {
-    fn initialized(&self) -> Option<DeviceIdManagerProtocol<ServiceIdentity>> {
+    fn initialized(
+        &self,
+        _ns: Option<Namespace>,
+    ) -> Option<DeviceIdManagerProtocol<ServiceIdentity>> {
         Some(DeviceIdManagerProtocol::FoundServiceIdentity(self.clone()))
     }
 

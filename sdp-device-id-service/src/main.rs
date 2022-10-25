@@ -44,6 +44,7 @@ async fn run() {
     let api: Api<ServiceIdentity> = Api::namespaced(client, SDP_K8S_NAMESPACE);
     tokio::spawn(async move {
         let watcher = Watcher {
+            api_ns: None,
             api: api,
             queue_tx: manager_proto_tx_1.clone(),
             notification_message: None,

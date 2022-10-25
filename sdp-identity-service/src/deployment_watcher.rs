@@ -1,5 +1,8 @@
 use k8s_openapi::api::apps::v1::Deployment;
+use k8s_openapi::api::core::v1::Namespace;
+use kube::ResourceExt;
 use log::{error, info};
+use sdp_common::service::SDP_INJECTOR_ANNOTATION;
 use sdp_common::watcher::SimpleWatchingProtocol;
 use sdp_common::{crd::ServiceIdentity, traits::Candidate, traits::MaybeService};
 use sdp_macros::when_ok;
@@ -13,9 +16,13 @@ pub enum DeploymentWatcherProtocol {
 }
 
 impl SimpleWatchingProtocol<IdentityManagerProtocol<Deployment, ServiceIdentity>> for Deployment {
-    fn initialized(&self) -> Option<IdentityManagerProtocol<Deployment, ServiceIdentity>> {
+    fn initialized(
+        &self,
+        ns: Option<Namespace>,
+    ) -> Option<IdentityManagerProtocol<Deployment, ServiceIdentity>> {
         when_ok!((service_id:IdentityManagerProtocol<Deployment, ServiceIdentity> = self.service_id()) {
-            if self.is_candidate() {
+            let ns_candidate = ns.as_ref().and_then(|ns| ns.labels().get(SDP_INJECTOR_ANNOTATION)).map(|s| s == "true").unwrap_or(false);
+            if ns_candidate && self.is_candidate() {
                 info!("Found service candidate: {}", service_id);
                 Some(IdentityManagerProtocol::FoundServiceCandidate(self.clone()))
             } else {

@@ -1,4 +1,4 @@
-use k8s_openapi::api::core::v1::Pod;
+use k8s_openapi::api::core::v1::{Namespace, Pod};
 use log::{error, info};
 use sdp_common::constants::POD_DEVICE_ID_ANNOTATION;
 use sdp_common::crd::{DeviceId, ServiceIdentity};
@@ -9,7 +9,10 @@ use sdp_macros::when_ok;
 use crate::deviceid::DeviceIdProviderRequestProtocol;
 
 impl SimpleWatchingProtocol<DeviceIdProviderRequestProtocol<ServiceIdentity>> for ServiceIdentity {
-    fn initialized(&self) -> Option<DeviceIdProviderRequestProtocol<ServiceIdentity>> {
+    fn initialized(
+        &self,
+        _ns: Option<Namespace>,
+    ) -> Option<DeviceIdProviderRequestProtocol<ServiceIdentity>> {
         info!("Recovered ServiceIdentity {}", self.service_id());
         Some(DeviceIdProviderRequestProtocol::FoundServiceIdentity(
             self.clone(),
@@ -40,7 +43,10 @@ impl SimpleWatchingProtocol<DeviceIdProviderRequestProtocol<ServiceIdentity>> fo
 }
 
 impl SimpleWatchingProtocol<DeviceIdProviderRequestProtocol<ServiceIdentity>> for DeviceId {
-    fn initialized(&self) -> Option<DeviceIdProviderRequestProtocol<ServiceIdentity>> {
+    fn initialized(
+        &self,
+        _ns: Option<Namespace>,
+    ) -> Option<DeviceIdProviderRequestProtocol<ServiceIdentity>> {
         info!("Recovered DeviceId {}", self.service_id());
         Some(DeviceIdProviderRequestProtocol::FoundDeviceId(self.clone()))
     }
@@ -67,7 +73,10 @@ impl SimpleWatchingProtocol<DeviceIdProviderRequestProtocol<ServiceIdentity>> fo
 }
 
 impl SimpleWatchingProtocol<DeviceIdProviderRequestProtocol<ServiceIdentity>> for Pod {
-    fn initialized(&self) -> Option<DeviceIdProviderRequestProtocol<ServiceIdentity>> {
+    fn initialized(
+        &self,
+        _ns: Option<Namespace>,
+    ) -> Option<DeviceIdProviderRequestProtocol<ServiceIdentity>> {
         None
     }
 
