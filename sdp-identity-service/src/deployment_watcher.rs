@@ -15,8 +15,12 @@ pub enum DeploymentWatcherProtocol {
 impl SimpleWatchingProtocol<IdentityManagerProtocol<Deployment, ServiceIdentity>> for Deployment {
     fn initialized(&self) -> Option<IdentityManagerProtocol<Deployment, ServiceIdentity>> {
         when_ok!((service_id:IdentityManagerProtocol<Deployment, ServiceIdentity> = self.service_id()) {
-            info!("Found service candidate: {}", service_id);
-            Some(IdentityManagerProtocol::FoundServiceCandidate(self.clone()))
+            if self.is_candidate() {
+                info!("Found service candidate: {}", service_id);
+                Some(IdentityManagerProtocol::FoundServiceCandidate(self.clone()))
+            } else {
+                None
+            }
         })
     }
 
@@ -47,7 +51,12 @@ impl SimpleWatchingProtocol<IdentityManagerProtocol<Deployment, ServiceIdentity>
     }
 
     fn reapplied(&self) -> Option<IdentityManagerProtocol<Deployment, ServiceIdentity>> {
-        None
+        when_ok!((service_id:IdentityManagerProtocol<Deployment, ServiceIdentity> = self.service_id()) {
+            if self.is_candidate() {
+                info!("Ignoring reapplied Deployment {}", service_id);
+            }
+            None
+        })
     }
 
     fn key(&self) -> Option<String> {
