@@ -367,6 +367,7 @@ impl IdentityManagerRunner<ServiceLookup, ServiceIdentity> {
         let mut deployment_watcher_ready = false;
         let mut identity_creator_ready = false;
         let mut existing_service_candidates: HashSet<String> = HashSet::new();
+        let mut missing_service_candidates: HashMap<String, F> = HashMap::new();
         let mut existing_activated_credentials: HashSet<String> = HashSet::new();
         let mut existing_deactivated_credentials: HashSet<String> = HashSet::new();
 
@@ -492,20 +493,14 @@ impl IdentityManagerRunner<ServiceLookup, ServiceIdentity> {
                                 "Found registered ServiceCandidate {}",
                                 service_identity.service_id()
                             ) => external_queue_tx);
+                            existing_service_candidates.insert(candidate_service_id.clone());
                         } else {
                                 sdp_info!(IdentityManagerProtocol::<F, ServiceIdentity>::IdentityManagerDebug |(
-                                    "Found unregistered ServiceCandidate {}, registering it",
+                                    "Found unregistered ServiceCandidate {}",
                                     candidate_service_id
                                 ) => external_queue_tx);
-
-                                identity_manager_tx
-                                    .send(IdentityManagerProtocol::RequestServiceIdentity {
-                                        service_candidate: service_candidate.clone(),
-                                    })
-                                    .await
-                                    .expect("Error requesting new ServiceIdentity");
-                        }
-                        existing_service_candidates.insert(candidate_service_id);
+                                missing_service_candidates.insert(candidate_service_id, service_candidate);
+                            }
                     });
                 }
                 // Identity Creator notifies about fresh, unactivated User Credentials
@@ -666,6 +661,19 @@ impl IdentityManagerRunner<ServiceLookup, ServiceIdentity> {
                                 removed_service_identities.insert(service_id.clone());
                             }
                         }
+                    }
+
+                    for (service_candidate_id, service_candidate) in &missing_service_candidates {
+                        info!(
+                            "Requesting missing ServiceCandidate {}",
+                            service_candidate_id
+                        );
+                        identity_manager_tx
+                            .send(IdentityManagerProtocol::RequestServiceIdentity {
+                                service_candidate: service_candidate.clone(),
+                            })
+                            .await
+                            .expect("Error requesting new ServiceIdentity");
                     }
 
                     deployment_watcher_proto_tx
