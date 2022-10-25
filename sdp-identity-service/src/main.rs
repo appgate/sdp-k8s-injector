@@ -80,7 +80,7 @@ async fn main() -> () {
                     api_ns: Some(ns_api),
                     api: deployment_api,
                     queue_tx: identity_manager_proto_tx.clone(),
-                    notification_message: None,
+                    notification_message: Some(IdentityManagerProtocol::DeploymentWatcherReady),
                 };
                 let watcher_ready = WatcherWaitReady(deployment_watcher_proto_rx, |_| true);
                 if let Err(e) = watch(watcher, Some(watcher_ready)).await {
