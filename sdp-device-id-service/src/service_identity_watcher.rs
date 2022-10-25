@@ -8,8 +8,7 @@ use kube::{Api, Client};
 use log::{error, info, warn};
 use sdp_common::crd::ServiceIdentity;
 use sdp_common::kubernetes::SDP_K8S_NAMESPACE;
-use sdp_common::traits::{HasCredentials, MaybeService};
-use sdp_macros::when_ok;
+use sdp_common::traits::{HasCredentials, Service};
 use tokio::sync::mpsc::{Receiver, Sender};
 
 #[derive(Debug)]
@@ -17,7 +16,7 @@ pub enum ServiceIdentityWatcherProtocol {
     DeviceIdManagerReady,
 }
 
-pub struct ServiceIdentityWatcher<D: MaybeService + HasCredentials> {
+pub struct ServiceIdentityWatcher<D: Service + HasCredentials> {
     service_identity_api: Api<D>,
 }
 
@@ -50,24 +49,21 @@ impl<'a> ServiceIdentityWatcher<ServiceIdentity> {
                 .expect("Error watching for service identity events")
             {
                 Some(Event::Applied(service_identity)) => {
-                    when_ok!((service_id = service_identity.service_id()) {
-                        if !applied.contains(&service_id) {
-                            if let Err(err) = tx
-                                .send(DeviceIdManagerProtocol::FoundServiceIdentity {
-                                    service_identity_ref: service_identity,
-                                })
-                                .await
-                            {
-                                error!("Error requesting new DeviceId: {}", err);
-                            }
-                            applied.insert(service_id);
+                    let service_id = service_identity.service_id();
+                    if !applied.contains(&service_id) {
+                        if let Err(err) = tx
+                            .send(DeviceIdManagerProtocol::FoundServiceIdentity {
+                                service_identity_ref: service_identity,
+                            })
+                            .await
+                        {
+                            error!("Error requesting new DeviceId: {}", err);
                         }
-                    });
+                        applied.insert(service_id);
+                    }
                 }
                 Some(Event::Deleted(service_identity)) => {
-                    when_ok!((service_id = service_identity.service_id()) {
-                        applied.remove(&service_id);
-                    });
+                    applied.remove(&service_identity.service_id());
                 }
                 // TODO: Use this event
                 Some(Event::Restarted(_)) => {

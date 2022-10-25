@@ -2,7 +2,7 @@ use k8s_openapi::api::core::v1::Pod;
 use log::{error, info};
 use sdp_common::constants::POD_DEVICE_ID_ANNOTATION;
 use sdp_common::crd::{DeviceId, ServiceIdentity};
-use sdp_common::traits::{Annotated, Candidate, MaybeService};
+use sdp_common::traits::{Annotated, Candidate, MaybeService, Service};
 use sdp_common::watcher::SimpleWatchingProtocol;
 use sdp_macros::when_ok;
 
@@ -10,55 +10,43 @@ use crate::deviceid::DeviceIdProviderRequestProtocol;
 
 impl SimpleWatchingProtocol<DeviceIdProviderRequestProtocol<ServiceIdentity>> for ServiceIdentity {
     fn initialized(&self) -> Option<DeviceIdProviderRequestProtocol<ServiceIdentity>> {
-        when_ok!((service_id:DeviceIdProviderRequestProtocol<ServiceIdentity> = self.service_id()) {
-            info!("Recovered ServiceIdentity {}", service_id);
-            Some(DeviceIdProviderRequestProtocol::FoundServiceIdentity(
-                self.clone(),
-            ))
-        })
+        info!("Recovered ServiceIdentity {}", self.service_id());
+        Some(DeviceIdProviderRequestProtocol::FoundServiceIdentity(
+            self.clone(),
+        ))
     }
 
     fn applied(&self) -> Option<DeviceIdProviderRequestProtocol<ServiceIdentity>> {
-        when_ok!((service_id:DeviceIdProviderRequestProtocol<ServiceIdentity> = self.service_id()) {
-            info!("Applied ServiceIdentity {}", service_id);
-            Some(DeviceIdProviderRequestProtocol::FoundServiceIdentity(
-                self.clone(),
-            ))
-        })
+        info!("Applied ServiceIdentity {}", self.service_id());
+        Some(DeviceIdProviderRequestProtocol::FoundServiceIdentity(
+            self.clone(),
+        ))
     }
 
     fn deleted(&self) -> Option<DeviceIdProviderRequestProtocol<ServiceIdentity>> {
-        when_ok!((service_id:DeviceIdProviderRequestProtocol<ServiceIdentity> = self.service_id()) {
-            info!("Deleted ServiceIdentity {}", service_id);
-            Some(DeviceIdProviderRequestProtocol::DeletedServiceIdentity(
-                self.clone(),
-            ))
-        })
+        info!("Deleted ServiceIdentity {}", self.service_id());
+        Some(DeviceIdProviderRequestProtocol::DeletedServiceIdentity(
+            self.clone(),
+        ))
     }
 }
 
 impl SimpleWatchingProtocol<DeviceIdProviderRequestProtocol<ServiceIdentity>> for DeviceId {
     fn initialized(&self) -> Option<DeviceIdProviderRequestProtocol<ServiceIdentity>> {
-        when_ok!((service_id:DeviceIdProviderRequestProtocol<ServiceIdentity> = self.service_id()) {
-            info!("Recovered DeviceId {}", service_id);
-            Some(DeviceIdProviderRequestProtocol::FoundDeviceId(self.clone()))
-        })
+        info!("Recovered DeviceId {}", self.service_id());
+        Some(DeviceIdProviderRequestProtocol::FoundDeviceId(self.clone()))
     }
 
     fn applied(&self) -> Option<DeviceIdProviderRequestProtocol<ServiceIdentity>> {
-        when_ok!((service_id:DeviceIdProviderRequestProtocol<ServiceIdentity> = self.service_id()) {
-            info!("Applied DeviceId {}", service_id);
-            Some(DeviceIdProviderRequestProtocol::FoundDeviceId(self.clone()))
-        })
+        info!("Applied DeviceId {}", self.service_id());
+        Some(DeviceIdProviderRequestProtocol::FoundDeviceId(self.clone()))
     }
 
     fn deleted(&self) -> Option<DeviceIdProviderRequestProtocol<ServiceIdentity>> {
-        when_ok!((service_id:DeviceIdProviderRequestProtocol<ServiceIdentity> = self.service_id()) {
-            info!("Deleted DeviceId {}", service_id);
-            Some(DeviceIdProviderRequestProtocol::DeletedDeviceId(
-                self.clone(),
-            ))
-        })
+        info!("Deleted DeviceId {}", self.service_id());
+        Some(DeviceIdProviderRequestProtocol::DeletedDeviceId(
+            self.clone(),
+        ))
     }
 }
 

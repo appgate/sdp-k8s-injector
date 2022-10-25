@@ -35,19 +35,11 @@ pub trait Annotated {
 }
 
 pub trait Service: Named + Namespaced + Sized {
-    fn service_name(&self) -> Result<String, SDPServiceError> {
-        Ok(format!(
-            "{}-{}",
-            Namespaced::namespace(self),
-            Named::name(self)
-        ))
+    fn service_name(&self) -> String {
+        format!("{}-{}", Namespaced::namespace(self), Named::name(self))
     }
-    fn service_id(&self) -> Result<String, SDPServiceError> {
-        Ok(format!(
-            "{}_{}",
-            Namespaced::namespace(self),
-            Named::name(self)
-        ))
+    fn service_id(&self) -> String {
+        format!("{}_{}", Namespaced::namespace(self), Named::name(self))
     }
 }
 
