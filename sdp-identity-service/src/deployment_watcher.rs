@@ -21,11 +21,12 @@ impl SimpleWatchingProtocol<IdentityManagerProtocol<Deployment, ServiceIdentity>
         ns: Option<Namespace>,
     ) -> Option<IdentityManagerProtocol<Deployment, ServiceIdentity>> {
         when_ok!((service_id:IdentityManagerProtocol<Deployment, ServiceIdentity> = self.service_id()) {
-            let ns_candidate = ns.as_ref().and_then(|ns| ns.labels().get(SDP_INJECTOR_ANNOTATION)).map(|s| s == "true").unwrap_or(false);
+            let ns_candidate = ns.as_ref().and_then(|ns| ns.labels().get(SDP_INJECTOR_ANNOTATION)).map(|s| s.eq_ignore_ascii_case("enabled")).unwrap_or(false);
             if ns_candidate && self.is_candidate() {
                 info!("Found service candidate: {}", service_id);
                 Some(IdentityManagerProtocol::FoundServiceCandidate(self.clone()))
             } else {
+                info!("Ignored service candidate: {}", service_id);
                 None
             }
         })
