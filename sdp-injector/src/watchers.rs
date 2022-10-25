@@ -19,14 +19,20 @@ impl SimpleWatchingProtocol<DeviceIdProviderRequestProtocol<ServiceIdentity>> fo
         ))
     }
 
-    fn applied(&self) -> Option<DeviceIdProviderRequestProtocol<ServiceIdentity>> {
+    fn applied(
+        &self,
+        _ns: Option<Namespace>,
+    ) -> Option<DeviceIdProviderRequestProtocol<ServiceIdentity>> {
         info!("Applied ServiceIdentity {}", self.service_id());
         Some(DeviceIdProviderRequestProtocol::FoundServiceIdentity(
             self.clone(),
         ))
     }
 
-    fn deleted(&self) -> Option<DeviceIdProviderRequestProtocol<ServiceIdentity>> {
+    fn deleted(
+        &self,
+        _ns: Option<Namespace>,
+    ) -> Option<DeviceIdProviderRequestProtocol<ServiceIdentity>> {
         info!("Deleted ServiceIdentity {}", self.service_id());
         Some(DeviceIdProviderRequestProtocol::DeletedServiceIdentity(
             self.clone(),
@@ -51,12 +57,18 @@ impl SimpleWatchingProtocol<DeviceIdProviderRequestProtocol<ServiceIdentity>> fo
         Some(DeviceIdProviderRequestProtocol::FoundDeviceId(self.clone()))
     }
 
-    fn applied(&self) -> Option<DeviceIdProviderRequestProtocol<ServiceIdentity>> {
+    fn applied(
+        &self,
+        _ns: Option<Namespace>,
+    ) -> Option<DeviceIdProviderRequestProtocol<ServiceIdentity>> {
         info!("Applied DeviceId {}", self.service_id());
         Some(DeviceIdProviderRequestProtocol::FoundDeviceId(self.clone()))
     }
 
-    fn deleted(&self) -> Option<DeviceIdProviderRequestProtocol<ServiceIdentity>> {
+    fn deleted(
+        &self,
+        _ns: Option<Namespace>,
+    ) -> Option<DeviceIdProviderRequestProtocol<ServiceIdentity>> {
         info!("Deleted DeviceId {}", self.service_id());
         Some(DeviceIdProviderRequestProtocol::DeletedDeviceId(
             self.clone(),
@@ -80,11 +92,17 @@ impl SimpleWatchingProtocol<DeviceIdProviderRequestProtocol<ServiceIdentity>> fo
         None
     }
 
-    fn applied(&self) -> Option<DeviceIdProviderRequestProtocol<ServiceIdentity>> {
+    fn applied(
+        &self,
+        _ns: Option<Namespace>,
+    ) -> Option<DeviceIdProviderRequestProtocol<ServiceIdentity>> {
         None
     }
 
-    fn deleted(&self) -> Option<DeviceIdProviderRequestProtocol<ServiceIdentity>> {
+    fn deleted(
+        &self,
+        _ns: Option<Namespace>,
+    ) -> Option<DeviceIdProviderRequestProtocol<ServiceIdentity>> {
         when_ok!((service_id:DeviceIdProviderRequestProtocol<ServiceIdentity> = self.service_id()) {
             let msg = self
                 .is_candidate()

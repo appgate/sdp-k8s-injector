@@ -7,7 +7,7 @@ use kube::{
     runtime::watcher::{self, Event},
     Api, Resource, ResourceExt,
 };
-use log::{error, info, warn};
+use log::{error, info};
 use serde::de::DeserializeOwned;
 use tokio::sync::mpsc::{Receiver, Sender};
 
@@ -15,9 +15,9 @@ use crate::errors::SDPServiceError;
 
 pub trait SimpleWatchingProtocol<P> {
     fn initialized(&self, ns: Option<Namespace>) -> Option<P>;
-    fn applied(&self) -> Option<P>;
+    fn applied(&self, ns: Option<Namespace>) -> Option<P>;
     fn reapplied(&self) -> Option<P>;
-    fn deleted(&self) -> Option<P>;
+    fn deleted(&self, ns: Option<Namespace>) -> Option<P>;
     fn key(&self) -> Option<String>;
 }
 
@@ -40,6 +40,21 @@ where
 {
     let mut applied = HashSet::<String>::new();
 
+    let get_ns = |ns_name: Option<String>| async {
+        if watcher.api_ns.is_some() {
+            if let Some(ns) = ns_name {
+                match watcher.api_ns.as_ref().unwrap().get_opt(&ns).await {
+                    Ok(ns) => Ok(ns),
+                    Err(err) => Err(format!("Error getting namespace {}:", err)),
+                }
+            } else {
+                Err(format!("Namespace not found!"))
+            }
+        } else {
+            Ok(None)
+        }
+    };
+
     info!("Initializing watcher");
     let xs = watcher
         .api
@@ -52,28 +67,13 @@ where
     for (key, e) in init_msgs {
         // Get namespace annotations to be make is_candidate to work properly
         // We want to check the labels in the namespace of the entity
-        let ns = if watcher.api_ns.is_some() {
-            if let Some(ns) = e.namespace() {
-                match watcher.api_ns.as_ref().unwrap().get_opt(&ns).await {
-                    Ok(ns) => ns,
-                    Err(err) => {
-                        error!(
-                            "Unable to get Namespace for resource {}/ {}: {}",
-                            e.name_any(),
-                            e.namespace().unwrap_or(format!("Unknown")),
-                            err
-                        );
-                        None
-                    }
-                }
-            } else {
-                error!("Namespace not found!");
-                None
-            }
-        } else {
-            warn!("NS api not defined");
-            None
-        };
+        let ns = get_ns(e.namespace())
+            .await
+            .map_err(|err| {
+                error!("Error getting namespace for resource {}", e.name_any());
+                err
+            })
+            .unwrap_or(None);
         // Register as applied if possible
         if let Some(msg) = e.initialized(ns) {
             if let Err(e) = watcher.queue_tx.send(msg).await {
@@ -116,7 +116,14 @@ where
                     _ => true,
                 };
                 if needs_apply {
-                    if let Some(msg) = e.applied() {
+                    let ns = get_ns(e.namespace())
+                        .await
+                        .map_err(|err| {
+                            error!("Error getting namespace for resource {}", e.name_any());
+                            err
+                        })
+                        .unwrap_or(None);
+                    if let Some(msg) = e.applied(ns) {
                         if let Err(e) = watcher.queue_tx.send(msg).await {
                             error!("Error sending Applied message: {}", e.to_string())
                         } else {
@@ -128,7 +135,14 @@ where
                 }
             }
             Ok(Some(Event::Deleted(e))) => {
-                if let Some(msg) = e.deleted() {
+                let ns = get_ns(e.namespace())
+                    .await
+                    .map_err(|err| {
+                        error!("Error getting namespace for resource {}", e.name_any());
+                        err
+                    })
+                    .unwrap_or(None);
+                if let Some(msg) = e.deleted(ns) {
                     if let Err(e) = watcher.queue_tx.send(msg).await {
                         error!("Error sending Deleted message: {}", e.to_string())
                     } else {

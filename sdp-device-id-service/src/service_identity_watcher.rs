@@ -17,11 +17,11 @@ impl SimpleWatchingProtocol<DeviceIdManagerProtocol<ServiceIdentity>> for Servic
         Some(DeviceIdManagerProtocol::FoundServiceIdentity(self.clone()))
     }
 
-    fn applied(&self) -> Option<DeviceIdManagerProtocol<ServiceIdentity>> {
+    fn applied(&self, _ns: Option<Namespace>) -> Option<DeviceIdManagerProtocol<ServiceIdentity>> {
         Some(DeviceIdManagerProtocol::FoundServiceIdentity(self.clone()))
     }
 
-    fn deleted(&self) -> Option<DeviceIdManagerProtocol<ServiceIdentity>> {
+    fn deleted(&self, _ns: Option<Namespace>) -> Option<DeviceIdManagerProtocol<ServiceIdentity>> {
         None
     }
 

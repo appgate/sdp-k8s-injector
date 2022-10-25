@@ -32,9 +32,13 @@ impl SimpleWatchingProtocol<IdentityManagerProtocol<Deployment, ServiceIdentity>
         })
     }
 
-    fn applied(&self) -> Option<IdentityManagerProtocol<Deployment, ServiceIdentity>> {
+    fn applied(
+        &self,
+        ns: Option<Namespace>,
+    ) -> Option<IdentityManagerProtocol<Deployment, ServiceIdentity>> {
         when_ok!((service_id:IdentityManagerProtocol<Deployment, ServiceIdentity> = self.service_id()) {
-            if self.is_candidate() {
+            let ns_candidate = ns.as_ref().and_then(|ns| ns.labels().get(SDP_INJECTOR_ANNOTATION)).map(|s| s.eq_ignore_ascii_case("enabled")).unwrap_or(false);
+            if ns_candidate && self.is_candidate() {
                 info!("Applied candidate Deployment {}", service_id);
                 Some(IdentityManagerProtocol::RequestServiceIdentity {
                     service_candidate: self.clone(),
@@ -46,9 +50,13 @@ impl SimpleWatchingProtocol<IdentityManagerProtocol<Deployment, ServiceIdentity>
         })
     }
 
-    fn deleted(&self) -> Option<IdentityManagerProtocol<Deployment, ServiceIdentity>> {
+    fn deleted(
+        &self,
+        ns: Option<Namespace>,
+    ) -> Option<IdentityManagerProtocol<Deployment, ServiceIdentity>> {
         when_ok!((service_id:IdentityManagerProtocol<Deployment, ServiceIdentity> = self.service_id()) {
-            if self.is_candidate() {
+            let ns_candidate = ns.as_ref().and_then(|ns| ns.labels().get(SDP_INJECTOR_ANNOTATION)).map(|s| s.eq_ignore_ascii_case("enabled")).unwrap_or(false);
+            if ns_candidate && self.is_candidate() {
                 info!("Deleted candidate Deployment {}", service_id);
                 Some(IdentityManagerProtocol::DeletedServiceCandidate(self.clone()))
             } else {
