@@ -4,13 +4,13 @@ appenders:
   stdout:
     kind: console
     encoder:
-      pattern: "{d} {l} - {m}{n}"
+      pattern: "{h({d(%Y-%m-%d %H:%M:%S %Z)} {l} {m}{n})}"
 
   file:
     kind: file
     path: "sdp-identity-service.log"
     encoder:
-      pattern: "{d} {l} - {m}{n}"
+      pattern: "{d(%Y-%m-%d %H:%M:%S %Z)} {l} {m}{n}"
 
 root:
   level: info
