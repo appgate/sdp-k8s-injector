@@ -20,7 +20,7 @@ use crate::identity_manager::{IdentityManagerProtocol, ServiceIdentity};
 
 macro_rules! creator_info {
     ($target:expr $(, $arg:expr)*) => {
-        sdp_info!("IdentityCreator" | $target $(, $arg)*)
+        sdp_info!("IdentityCreator" | ($target $(, $arg)*))
     };
 }
 

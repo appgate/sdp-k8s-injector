@@ -29,8 +29,8 @@ macro_rules! sdp_log {
         $logger!($target $(, $arg)*);
     };
 
-    ($logger:ident | $($arg:tt)+) => {
-        $logger!("{}", $($arg)+);
+    ($logger:ident | ($target:expr $(, $arg:expr)*)) => {
+        $logger!($target $(, $arg)*);
     };
 }
 
@@ -44,7 +44,6 @@ macro_rules! sdp_info {
         sdp_log!(info | $protocol | ($target $(, $arg)*) => None);
     };
 
-
     ($component:literal, $protocol:path | ($target:expr $(, $arg:expr)*) => $q:ident) => {
         let t = format!($target $(, $arg)*);
         sdp_log!(info | $protocol | $component | ("{}", t) => $q);
@@ -55,9 +54,9 @@ macro_rules! sdp_info {
         sdp_log!(info | $protocol | ("[{}] {}", $component, t) => None);
     };
 
-    ($component:literal | $target:expr $(, $arg:expr)*) => {
+    ($component:literal | ($target:expr $(, $arg:expr)*)) => {
         let t = format!($target $(, $arg)*);
-        sdp_log!(info | format!("[{}] {}", $component, t));
+        sdp_log!(info | ("[{}] {}", $component, t));
     };
 }
 

@@ -26,7 +26,7 @@ macro_rules! manager_info {
     };
 
     ($target:expr $(, $arg:expr)*) => {
-        sdp_info!("IdentityManager" | $target $(, $arg)*)
+        sdp_info!("IdentityManager" | ($target $(, $arg)*))
     };
 }
 

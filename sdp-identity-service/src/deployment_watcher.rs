@@ -13,7 +13,7 @@ pub const SDP_INJECTOR_LABEL: &str = "sdp-injection";
 
 macro_rules! watcher_info {
     ($target:expr $(, $arg:expr)*) => {
-        sdp_info!("DeploymentWatcher" | $target $(, $arg)*)
+        sdp_info!("DeploymentWatcher" | ($target $(, $arg)*))
     };
 }
 
