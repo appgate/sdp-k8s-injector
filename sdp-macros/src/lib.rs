@@ -20,6 +20,10 @@ macro_rules! sdp_log {
         }
         $logger!($target $(, $arg)*);
     };
+
+    ($logger:ident | $($arg:tt)+) => {
+        $logger!("{}", $($arg)+);
+    };
 }
 
 #[macro_export]
@@ -30,6 +34,11 @@ macro_rules! sdp_info {
 
     ($protocol:path | $target:expr $(, $arg:expr)*) => {
         sdp_log!(info | $protocol | ($target $(, $arg)*) => None);
+    };
+
+    ($component:literal | $target:expr $(, $arg:expr)*) => {
+        let t = format!($target $(, $arg)*);
+        sdp_log!(info | format!("[{}] {}", $component, t));
     };
 }
 
