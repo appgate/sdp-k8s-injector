@@ -13,6 +13,14 @@ macro_rules! queue_debug {
 
 #[macro_export]
 macro_rules! sdp_log {
+    ($logger:ident | $protocol:path | $component:literal | ($target:expr $(, $arg:expr)*) => $q:ident) => {
+        let t = format!($target $(, $arg)*);
+        if cfg!(debug_assertions) {
+            queue_debug!($protocol(t.to_string()) => $q);
+        }
+        $logger!("[{}] {}", $component, t);
+    };
+
     ($logger:ident | $protocol:path | ($target:expr $(, $arg:expr)*) => $q:ident) => {
         if cfg!(debug_assertions) {
             let t = format!($target $(, $arg)*);
@@ -34,6 +42,17 @@ macro_rules! sdp_info {
 
     ($protocol:path | $target:expr $(, $arg:expr)*) => {
         sdp_log!(info | $protocol | ($target $(, $arg)*) => None);
+    };
+
+
+    ($component:literal, $protocol:path | ($target:expr $(, $arg:expr)*) => $q:ident) => {
+        let t = format!($target $(, $arg)*);
+        sdp_log!(info | $protocol | $component | ("{}", t) => $q);
+    };
+
+    ($component:literal, $protocol:path | ($target:expr $(, $arg:expr)*)) => {
+        let t = format!($target $(, $arg)*);
+        sdp_log!(info | $protocol | ("[{}] {}", $component, t) => None);
     };
 
     ($component:literal | $target:expr $(, $arg:expr)*) => {
