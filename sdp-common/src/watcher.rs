@@ -61,7 +61,15 @@ where
         }
     };
 
-    info!("Initializing watcher");
+    macro_rules! watcher_info {
+        ($target:expr $(, $arg:expr)*) => {
+            let msg = format!($target $(, $arg)*);
+            let ty = std::any::type_name::<E>().rsplit("::").collect::<Vec<&str>>()[0];
+            info!("[{}Watcher] {}", ty, msg)
+        }
+    }
+
+    watcher_info!("Initializing watcher");
     let xs = watcher
         .api
         .list(&ListParams::default())
@@ -93,17 +101,17 @@ where
 
     // Notify if needed
     if let Some(msg) = watcher.notification_message {
-        info!("Notifying other services that we are ready");
+        watcher_info!("Notifying other services that we are ready");
         if let Err(err) = watcher.queue_tx.send(msg).await {
             error!("Error sending notification message: {}", err);
         }
     }
 
     if let Some(WatcherWaitReady(mut queue_rx, continue_f)) = wait_ready {
-        info!("Waiting for other services to be ready");
+        watcher_info!("Waiting for other services to be ready");
         while let Some(msg) = queue_rx.recv().await {
             if continue_f(&msg) {
-                info!("Got message {:?}, watcher is ready to continue:", msg);
+                watcher_info!("Got message {:?}, watcher is ready to continue:", msg);
                 break;
             }
         }
@@ -112,7 +120,7 @@ where
     // Run the watcher
     let xs = watcher::watcher(watcher.api, ListParams::default());
     let mut xs = xs.boxed();
-    info!("Starting watcher loop");
+    watcher_info!("Starting watcher loop");
     loop {
         match xs.try_next().await {
             Ok(Some(Event::Applied(e))) => {
@@ -131,11 +139,11 @@ where
                 };
                 let msg = match op {
                     WatcherOperation::Apply => {
-                        info!("Applying message");
+                        watcher_info!("Applying message");
                         e.applied(ns)
                     }
                     WatcherOperation::ReApply => {
-                        info!("ReApplying message");
+                        watcher_info!("ReApplying message");
                         e.reapplied(ns)
                     }
                 };
