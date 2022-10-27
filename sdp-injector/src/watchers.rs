@@ -4,16 +4,18 @@ use sdp_common::annotations::SDP_ANNOTATION_CLIENT_DEVICE_ID;
 use sdp_common::crd::{DeviceId, ServiceIdentity};
 use sdp_common::traits::{Annotated, Candidate, MaybeService, Service};
 use sdp_common::watcher::SimpleWatchingProtocol;
-use sdp_macros::when_ok;
+use sdp_macros::{logger, sdp_info, sdp_log, when_ok, with_dollar_sign};
 
 use crate::deviceid::DeviceIdProviderRequestProtocol;
+
+logger!("ServiceIdentityWatcher", siw_info);
 
 impl SimpleWatchingProtocol<DeviceIdProviderRequestProtocol<ServiceIdentity>> for ServiceIdentity {
     fn initialized(
         &self,
         _ns: Option<Namespace>,
     ) -> Option<DeviceIdProviderRequestProtocol<ServiceIdentity>> {
-        info!("Recovered ServiceIdentity {}", self.service_id());
+        siw_info!("Recovered ServiceIdentity {}", self.service_id());
         Some(DeviceIdProviderRequestProtocol::FoundServiceIdentity(
             self.clone(),
         ))
@@ -23,7 +25,7 @@ impl SimpleWatchingProtocol<DeviceIdProviderRequestProtocol<ServiceIdentity>> fo
         &self,
         _ns: Option<Namespace>,
     ) -> Option<DeviceIdProviderRequestProtocol<ServiceIdentity>> {
-        info!("Applied ServiceIdentity {}", self.service_id());
+        siw_info!("Applied ServiceIdentity {}", self.service_id());
         Some(DeviceIdProviderRequestProtocol::FoundServiceIdentity(
             self.clone(),
         ))
@@ -33,7 +35,7 @@ impl SimpleWatchingProtocol<DeviceIdProviderRequestProtocol<ServiceIdentity>> fo
         &self,
         _ns: Option<Namespace>,
     ) -> Option<DeviceIdProviderRequestProtocol<ServiceIdentity>> {
-        info!("Deleted ServiceIdentity {}", self.service_id());
+        siw_info!("Deleted ServiceIdentity {}", self.service_id());
         Some(DeviceIdProviderRequestProtocol::DeletedServiceIdentity(
             self.clone(),
         ))
@@ -51,12 +53,14 @@ impl SimpleWatchingProtocol<DeviceIdProviderRequestProtocol<ServiceIdentity>> fo
     }
 }
 
+logger!("DeviceIDWatcher", diw_info);
+
 impl SimpleWatchingProtocol<DeviceIdProviderRequestProtocol<ServiceIdentity>> for DeviceId {
     fn initialized(
         &self,
         _ns: Option<Namespace>,
     ) -> Option<DeviceIdProviderRequestProtocol<ServiceIdentity>> {
-        info!("Recovered DeviceId {}", self.service_id());
+        diw_info!("Recovered DeviceId {}", self.service_id());
         Some(DeviceIdProviderRequestProtocol::FoundDeviceId(self.clone()))
     }
 
@@ -64,7 +68,7 @@ impl SimpleWatchingProtocol<DeviceIdProviderRequestProtocol<ServiceIdentity>> fo
         &self,
         _ns: Option<Namespace>,
     ) -> Option<DeviceIdProviderRequestProtocol<ServiceIdentity>> {
-        info!("Applied DeviceId {}", self.service_id());
+        diw_info!("Applied DeviceId {}", self.service_id());
         Some(DeviceIdProviderRequestProtocol::FoundDeviceId(self.clone()))
     }
 
@@ -72,7 +76,7 @@ impl SimpleWatchingProtocol<DeviceIdProviderRequestProtocol<ServiceIdentity>> fo
         &self,
         _ns: Option<Namespace>,
     ) -> Option<DeviceIdProviderRequestProtocol<ServiceIdentity>> {
-        info!("Deleted DeviceId {}", self.service_id());
+        diw_info!("Deleted DeviceId {}", self.service_id());
         Some(DeviceIdProviderRequestProtocol::DeletedDeviceId(
             self.clone(),
         ))
@@ -89,6 +93,8 @@ impl SimpleWatchingProtocol<DeviceIdProviderRequestProtocol<ServiceIdentity>> fo
         Some(self.service_id())
     }
 }
+
+logger!("PodWatcher", pw_info);
 
 impl SimpleWatchingProtocol<DeviceIdProviderRequestProtocol<ServiceIdentity>> for Pod {
     fn initialized(
@@ -126,7 +132,7 @@ impl SimpleWatchingProtocol<DeviceIdProviderRequestProtocol<ServiceIdentity>> fo
                             None
                         }
                         Ok(uuid) => {
-                            info!("Deleted POD with device id assigned {}", &service_id);
+                            pw_info!("Deleted POD with device id assigned {}", &service_id);
                             Some(DeviceIdProviderRequestProtocol::ReleasedDeviceId(
                                 service_id.clone(),
                                 uuid,
@@ -135,7 +141,7 @@ impl SimpleWatchingProtocol<DeviceIdProviderRequestProtocol<ServiceIdentity>> fo
                     }
                 });
             if msg.is_none() {
-                info!("Ignoring POD {}", service_id);
+                pw_info!("Ignoring POD {}", service_id);
             }
             msg
         })
