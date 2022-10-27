@@ -12,9 +12,15 @@ use kube::api::{DeleteParams, Patch as KubePatch, PatchParams, PostParams};
 use kube::Api;
 use log::{error, info, warn};
 use schemars::JsonSchema;
+use sdp_macros::{logger, sdp_info, sdp_log, with_dollar_sign};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::{collections::BTreeMap, error::Error};
+
+pub const SDP_INJECTOR_ANNOTATION_CLIENT_VERSION: &str = "sdp-injector-client-version";
+pub const SDP_INJECTOR_ANNOTATION: &str = "sdp-injection";
+
+logger!("ServiceIdentityProvider", sip_info);
 
 #[derive(PartialEq, Debug)]
 pub enum SDPInjectionStrategy {
@@ -227,12 +233,16 @@ impl ServiceUser {
         if let Some(_) = api.get_opt(&secret_name).await? {
             api.delete(&secret_name, &DeleteParams::default())
                 .await?
-                .map_left(|_| info!("Deleted secret {} [{}]", secret_name, service_ns))
+                .map_left(|_| {
+                    sip_info!("Deleted secret {} [{}]", secret_name, service_ns);
+                })
                 .map_right(|s| {
-                    info!(
+                    sip_info!(
                         "Deleting secret {} [{}]: {}",
-                        secret_name, service_ns, s.status
-                    )
+                        secret_name,
+                        service_ns,
+                        s.status
+                    );
                 });
             Ok(())
         } else {
@@ -255,12 +265,16 @@ impl ServiceUser {
         if let Some(_) = api.get_opt(&config_map_name).await? {
             api.delete(&config_map_name, &DeleteParams::default())
                 .await?
-                .map_left(|_| info!("Deleted secret {} [{}]", config_map_name, service_ns))
+                .map_left(|_| {
+                    sip_info!("Deleted secret {} [{}]", config_map_name, service_ns);
+                })
                 .map_right(|s| {
-                    info!(
+                    sip_info!(
                         "Deleting config {} [{}]: {}",
-                        config_map_name, service_ns, s.status
-                    )
+                        config_map_name,
+                        service_ns,
+                        s.status
+                    );
                 });
             Ok(())
         } else {
@@ -283,27 +297,30 @@ impl ServiceUser {
         let mut patches = vec![];
         if let Some(data) = secret.data {
             if data.contains_key(&user_field) {
-                info!(
+                sip_info!(
                     "Deleting user field entry for ServiceUser {} in {}",
-                    &self.name, secrets_name
+                    &self.name,
+                    secrets_name
                 );
                 patches.push(Remove(RemoveOperation {
                     path: format!("/data/{}", user_field),
                 }));
             }
             if data.contains_key(&pw_field) {
-                info!(
+                sip_info!(
                     "Deleting user field entry for ServiceUser {} in {}",
-                    &self.name, secrets_name
+                    &self.name,
+                    secrets_name
                 );
                 patches.push(Remove(RemoveOperation {
                     path: format!("/data/{}", pw_field),
                 }));
             }
             if data.contains_key(&url_field) {
-                info!(
+                sip_info!(
                     "Deleting user field entry for ServiceUser {} in {}",
-                    &self.name, secrets_name
+                    &self.name,
+                    secrets_name
                 );
                 patches.push(Remove(RemoveOperation {
                     path: format!("/data/{}", url_field),
@@ -328,21 +345,21 @@ impl ServiceUser {
         let mut secret = Secret::default();
         let mut data = BTreeMap::new();
         if !user_field_exists {
-            info!(
+            sip_info!(
                 "Username entry update for ServiceUser {} is required",
                 &self.name
             );
             data.insert(user_field, ByteString(self.name.as_bytes().to_vec()));
         }
         if !passwd_field_exists {
-            info!(
+            sip_info!(
                 "Password entry update for ServiceUser {} is required",
                 &self.name
             );
             data.insert(pw_field, ByteString(self.password.as_bytes().to_vec()));
         }
         if !url_field_exists {
-            info!(
+            sip_info!(
                 "Client profile url entry update for ServiceUser {} is required",
                 &self.name
             );
@@ -350,7 +367,7 @@ impl ServiceUser {
         }
         if data.len() > 0 {
             secret.data = Some(data);
-            info!("Creating secrets in K8S for ServiceUer: {}", self.name);
+            sip_info!("Creating secrets in K8S for ServiceUer: {}", self.name);
             let patch = KubePatch::Merge(secret);
             api.patch(&secrets_name, &PatchParams::default(), &patch)
                 .await?;
