@@ -1399,6 +1399,7 @@ dependencies = [
  "k8s-openapi",
  "kube",
  "log",
+ "log4rs",
  "schemars",
  "sdp-common",
  "sdp-macros",

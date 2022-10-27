@@ -3,6 +3,9 @@ use k8s_openapi::api::core::v1::Namespace;
 use sdp_common::crd::ServiceIdentity;
 use sdp_common::traits::Service;
 use sdp_common::watcher::SimpleWatchingProtocol;
+use sdp_macros::{logger, with_dollar_sign};
+
+logger!("ServiceIdentityWatcher", _siw_info);
 
 #[derive(Debug)]
 pub enum ServiceIdentityWatcherProtocol {
