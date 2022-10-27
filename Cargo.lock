@@ -1381,6 +1381,7 @@ dependencies = [
  "log",
  "reqwest",
  "schemars",
+ "sdp-macros",
  "sdp-test-macros",
  "serde",
  "serde_json",

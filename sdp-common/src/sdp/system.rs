@@ -5,6 +5,7 @@ use http::{HeaderValue, StatusCode};
 use log::info;
 use reqwest::header::HeaderMap;
 use reqwest::{Client, Url};
+use sdp_macros::{sdp_info, sdp_log};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
@@ -18,6 +19,12 @@ const SDP_SYSTEM_PASSWORD_ENV: &str = "SDP_K8S_PASSWORD";
 const SDP_SYSTEM_PASSWORD_DEFAULT: &str = "admin";
 const SDP_SYSTEM_PROVIDER_ENV: &str = "SDP_K8S_PROVIDER";
 const SDP_SYSTEM_PROVIDER_DEFAULT: &str = "local";
+
+macro_rules! system_info {
+    ($target:expr $(, $arg:expr)*) => {
+        sdp_info!("SDPSystem" | ($target $(, $arg)*))
+    };
+}
 
 pub fn get_sdp_system() -> System {
     let hosts = std::env::var(SDP_SYSTEM_HOSTS)
@@ -175,7 +182,7 @@ impl System {
             .is_some()
             || self.login.is_none()
         {
-            info!("Getting a new token!");
+            system_info!("Getting a new token");
             let login = self.login().await?;
             self.login = Some(login);
         }
@@ -261,7 +268,7 @@ impl System {
 
     /// GET /service-users
     pub async fn get_users(&mut self) -> Result<Vec<SDPUser>, SDPClientError> {
-        info!("Getting users");
+        system_info!("Getting users");
         let mut url = Url::from(self.hosts[0].clone());
         url.set_path("/admin/service-users");
         let service_users = self.get::<SDPUsers>(url).await?;
@@ -270,7 +277,7 @@ impl System {
 
     /// GET /service-users/id
     pub async fn get_user(&mut self, service_user_id: String) -> Result<SDPUser, SDPClientError> {
-        info!("Getting user");
+        system_info!("Getting user: {}", service_user_id);
         let _ = self.maybe_refresh_login().await?;
         let mut url = Url::from(self.hosts[0].clone());
         url.set_path(&format!("/admin/service-users-id/{}", service_user_id));
@@ -281,7 +288,7 @@ impl System {
     pub async fn create_user(&mut self, sdp_user: &SDPUser) -> Result<SDPUser, SDPClientError> {
         let mut url = Url::from(self.hosts[0].clone());
         url.set_path(&format!("/admin/service-users"));
-        info!("Creating new ServiceUser in SDP system: {}", sdp_user.id);
+        system_info!("Creating new ServiceUser in SDP system: {}", sdp_user.id);
         let mut created_sdp_user = self.post::<SDPUser>(url, sdp_user).await?;
         created_sdp_user.password = sdp_user.password.clone();
         Ok(created_sdp_user)
@@ -291,9 +298,10 @@ impl System {
     pub async fn modify_user(&mut self, service_user: &SDPUser) -> Result<SDPUser, SDPClientError> {
         let mut url = Url::from(self.hosts[0].clone());
         url.set_path(&format!("/admin/service-users"));
-        info!(
+        system_info!(
             "Modifying new ServiceUser in SDP system: [{}] {}",
-            service_user.name, service_user.id
+            service_user.name,
+            service_user.id
         );
         self.put::<SDPUser>(url, service_user).await
     }
@@ -311,7 +319,7 @@ impl System {
         &mut self,
         tag: Option<&str>,
     ) -> Result<Vec<ClientProfile>, SDPClientError> {
-        info!("Getting client profile");
+        system_info!("Getting client profiles");
         let _ = self.maybe_refresh_login().await?;
         let mut url = Url::from(self.hosts[0].clone());
         url.set_path(&format!("/admin/client-profiles"));
@@ -336,9 +344,10 @@ impl System {
     ) -> Result<ClientProfile, SDPClientError> {
         let mut url = Url::from(self.hosts[0].clone());
         url.set_path(&format!("/admin/client-profiles"));
-        info!(
+        system_info!(
             "Creating new ClientProfile in SDP system: {} [{}]",
-            client_profile.name, client_profile.identity_provider_name
+            client_profile.name,
+            client_profile.identity_provider_name
         );
         self.post::<ClientProfile>(url, &client_profile).await
     }
@@ -348,7 +357,7 @@ impl System {
         &mut self,
         client_profile_id: &str,
     ) -> Result<ClientProfileUrl, SDPClientError> {
-        info!("Getting profile client url");
+        system_info!("Getting client profile url for {}", client_profile_id);
         let _ = self.maybe_refresh_login().await?;
         let mut url = Url::from(self.hosts[0].clone());
         url.set_path(&format!("/admin/client-profiles/{}/url", client_profile_id));
