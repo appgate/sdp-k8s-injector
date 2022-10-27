@@ -58,7 +58,6 @@ async fn main() -> () {
             show_crds();
         }
         IdentityServiceCommands::Run => {
-            info!("Starting sdp identity service ...");
             let client = get_k8s_client().await;
             let identity_manager_client = client.clone();
             let deployment_watcher_client = client.clone();
