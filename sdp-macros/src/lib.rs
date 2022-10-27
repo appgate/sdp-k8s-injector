@@ -11,6 +11,34 @@ macro_rules! queue_debug {
     };
 }
 
+// Generates log methods for modules
+#[macro_export]
+macro_rules! logger {
+    ($module:literal, $logger:ident) => {
+        with_dollar_sign! {
+            ($d:tt) => {
+                macro_rules! $logger {
+                    ($d target:expr $d(, $d arg:expr)*) => {
+                        sdp_info!($module | ($d target $d(, $d arg)*))
+                    };
+
+                    ($d protocol:path | ($d target:expr $d(, $d arg:expr)*) => $d q:ident) => {
+                        sdp_info!($module, $d protocol | ($d target $d(, $d arg)*) => $d q)
+                    };
+                }
+            }
+        }
+    };
+}
+
+#[macro_export]
+macro_rules! with_dollar_sign {
+    ($($body:tt)*) => {
+        macro_rules! __with_dollar_sign { $($body)* }
+        __with_dollar_sign!($);
+    }
+}
+
 #[macro_export]
 macro_rules! sdp_log {
     ($logger:ident | $protocol:path | $component:literal | ($target:expr $(, $arg:expr)*) => $q:ident) => {
@@ -36,14 +64,6 @@ macro_rules! sdp_log {
 
 #[macro_export]
 macro_rules! sdp_info {
-    ($protocol:path | ($target:expr $(, $arg:expr)*) => $q:ident) => {
-        sdp_log!(info | $protocol | ($target $(, $arg)*) => $q);
-    };
-
-    ($protocol:path | $target:expr $(, $arg:expr)*) => {
-        sdp_log!(info | $protocol | ($target $(, $arg)*) => None);
-    };
-
     ($component:literal, $protocol:path | ($target:expr $(, $arg:expr)*) => $q:ident) => {
         let t = format!($target $(, $arg)*);
         sdp_log!(info | $protocol | $component | ("{}", t) => $q);
@@ -57,6 +77,14 @@ macro_rules! sdp_info {
     ($component:literal | ($target:expr $(, $arg:expr)*)) => {
         let t = format!($target $(, $arg)*);
         sdp_log!(info | ("[{}] {}", $component, t));
+    };
+
+    ($protocol:path | ($target:expr $(, $arg:expr)*) => $q:ident) => {
+        sdp_log!(info | $protocol | ($target $(, $arg)*) => $q);
+    };
+
+    ($protocol:path | $target:expr $(, $arg:expr)*) => {
+        sdp_log!(info | $protocol | ($target $(, $arg)*) => None);
     };
 }
 

@@ -9,7 +9,9 @@ use sdp_common::service::{ServiceLookup, ServiceUser};
 use sdp_common::traits::{
     HasCredentials, Labeled, MaybeNamespaced, MaybeService, Named, Namespaced, Service,
 };
-use sdp_macros::{queue_debug, sdp_error, sdp_info, sdp_log, sdp_warn, when_ok};
+use sdp_macros::{
+    logger, queue_debug, sdp_error, sdp_info, sdp_log, sdp_warn, when_ok, with_dollar_sign,
+};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fmt;
 use std::iter::FromIterator;
@@ -20,15 +22,7 @@ use crate::deployment_watcher::DeploymentWatcherProtocol;
 use crate::errors::IdentityServiceError;
 use crate::identity_creator::IdentityCreatorProtocol;
 
-macro_rules! manager_info {
-    ($protocol:path | ($target:expr $(, $arg:expr)*) => $q:ident) => {
-        sdp_info!("IdentityManager", $protocol | ($target $(, $arg)*) => $q)
-    };
-
-    ($target:expr $(, $arg:expr)*) => {
-        sdp_info!("IdentityManager" | ($target $(, $arg)*))
-    };
-}
+logger!("IdentityManager", manager_info);
 
 /// Trait that represents the pool of ServiceUser entities
 /// We can pop and push ServiceUser entities
