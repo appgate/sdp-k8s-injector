@@ -12,17 +12,13 @@ use sdp_common::kubernetes::SDP_K8S_NAMESPACE;
 use sdp_common::sdp::auth::SDPUser;
 use sdp_common::sdp::system::{ClientProfile, ClientProfileUrl, System};
 use sdp_common::service::{get_profile_client_url_name, get_service_username, ServiceUser};
-use sdp_macros::{sdp_info, sdp_log};
+use sdp_macros::{logger, sdp_info, sdp_log, with_dollar_sign};
 use tokio::sync::mpsc::{Receiver, Sender};
 
 use crate::errors::IdentityServiceError;
 use crate::identity_manager::{IdentityManagerProtocol, ServiceIdentity};
 
-macro_rules! creator_info {
-    ($target:expr $(, $arg:expr)*) => {
-        sdp_info!("IdentityCreator" | ($target $(, $arg)*))
-    };
-}
+logger!("IdentityCreator", ic_info);
 
 #[derive(Debug)]
 pub enum IdentityCreatorProtocol {
@@ -117,7 +113,7 @@ impl IdentityCreator {
         let service_user = SDPUser::new();
         let profile_url =
             get_or_create_client_profile_url(&mut self.system, &self.cluster_id).await?;
-        creator_info!("Creating ServiceUser with id {}", service_user.id);
+        ic_info!("Creating ServiceUser with id {}", service_user.id);
         if let Some(service_user) = self
             .system
             .create_user(&service_user)
@@ -140,7 +136,7 @@ impl IdentityCreator {
     }
 
     async fn delete_sdp_user(&mut self, sdp_user_id: &str) -> Result<(), IdentityServiceError> {
-        creator_info!("Deleting SDPUser with name {}", &sdp_user_id);
+        ic_info!("Deleting SDPUser with name {}", &sdp_user_id);
         // Create a default SDPUser with the name of the one we want to delete
         let sdp_user = SDPUser::from_name(sdp_user_id.to_string());
         // Derive a ServiceUser that we can use to delete the secret fields
@@ -190,7 +186,7 @@ impl IdentityCreator {
         if let Some(data) = secret.data {
             for (field, _) in data {
                 if !known_fields.contains(&field) {
-                    creator_info!("Secret entry for SDPUser {} marked for deletion", field);
+                    ic_info!("Secret entry for SDPUser {} marked for deletion", field);
                     patches.push(Remove(RemoveOperation {
                         path: format!("/data/{}", field),
                     }));
@@ -198,7 +194,7 @@ impl IdentityCreator {
                 }
             }
             if !patches.is_empty() {
-                creator_info!(
+                ic_info!(
                     "Removing {} old entries from glocal secret {}",
                     n,
                     IDENTITY_MANAGER_SECRET_NAME
@@ -296,10 +292,10 @@ impl IdentityCreator {
         self.cleanup_secret_entries(known_service_users).await?;
 
         // Create needed credentials until we reach the desired number of credentials pool
-        creator_info!("Creating {} ServiceUsers in system", n_missing_users);
+        ic_info!("Creating {} ServiceUsers in system", n_missing_users);
         for _i in 0..n_missing_users {
             let service_user = self.create_user().await?;
-            creator_info!(
+            ic_info!(
                 "New ServiceUser with name {} created, notifying IdentityManager",
                 service_user.name
             );
@@ -319,11 +315,11 @@ impl IdentityCreator {
         mut identity_creator_proto_rx: Receiver<IdentityCreatorProtocol>,
         identity_manager_proto_tx: Sender<IdentityManagerProtocol<Deployment, ServiceIdentity>>,
     ) -> () {
-        creator_info!("Starting dormant Identity Creator service, waiting commands from Identity Manager service");
+        ic_info!("Starting dormant Identity Creator service, waiting commands from Identity Manager service");
         while let Some(msg) = identity_creator_proto_rx.recv().await {
             match msg {
                 IdentityCreatorProtocol::StartService => {
-                    creator_info!("Identity Creator awake! Ready to process messages");
+                    ic_info!("Identity Creator awake! Ready to process messages");
                     break;
                 }
                 msg => warn!(
@@ -332,7 +328,7 @@ impl IdentityCreator {
                 ),
             }
         }
-        creator_info!("Intializing IdentityCreator");
+        ic_info!("Intializing IdentityCreator");
         if let Err(e) = self
             .initialize(system, identity_manager_proto_tx.clone())
             .await
@@ -354,7 +350,7 @@ impl IdentityCreator {
                 IdentityCreatorProtocol::CreateIdentity => {
                     match self.create_user().await {
                         Ok(service_user) => {
-                            creator_info!(
+                            ic_info!(
                                 "New ServiceUser with name {} created, notifying IdentityManager",
                                 service_user.name
                             );
@@ -375,7 +371,7 @@ impl IdentityCreator {
                     service_ns,
                     service_name,
                 ) => {
-                    creator_info!(
+                    ic_info!(
                         "Deleting ServiceUser with name {} [{}/{}]",
                         service_user.name,
                         service_ns,
@@ -406,7 +402,7 @@ impl IdentityCreator {
                     let mut service_user = service_user.clone();
                     service_user.name = sdp_user.name.clone();
 
-                    creator_info!(
+                    ic_info!(
                         "Activating ServiceUser with name {} [{}/{}]",
                         sdp_user.name,
                         service_ns,
@@ -434,7 +430,7 @@ impl IdentityCreator {
                     }
 
                     // Create secrets now
-                    creator_info!(
+                    ic_info!(
                         "Creating secrets for ServiceUser with name {} [{}/{}]",
                         service_user.name,
                         service_ns,
@@ -453,7 +449,7 @@ impl IdentityCreator {
                         );
                     }
 
-                    creator_info!(
+                    ic_info!(
                         "Creating config for ServiceUser with name {} [{}/{}]",
                         service_user.name,
                         service_ns,
