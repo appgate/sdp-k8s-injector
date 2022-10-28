@@ -7,7 +7,7 @@ use kube::{
     runtime::watcher::{self, Event},
     Api, Resource, ResourceExt,
 };
-use log::{error, info};
+use sdp_macros::{logger, sdp_error, sdp_info, sdp_log, with_dollar_sign};
 use serde::de::DeserializeOwned;
 use tokio::sync::mpsc::{Receiver, Sender};
 
@@ -61,15 +61,15 @@ where
         }
     };
 
-    macro_rules! watcher_info {
-        ($target:expr $(, $arg:expr)*) => {
-            let msg = format!($target $(, $arg)*);
-            let ty = std::any::type_name::<E>().rsplit("::").collect::<Vec<&str>>()[0];
-            info!("[{}Watcher] {}", ty, msg)
-        }
-    }
+    let module = format!(
+        "{}Watcher",
+        std::any::type_name::<E>()
+            .rsplit("::")
+            .collect::<Vec<&str>>()[0]
+    );
+    logger!(module);
 
-    watcher_info!("Initializing watcher");
+    info!("Initializing watcher");
     let xs = watcher
         .api
         .list(&ListParams::default())
@@ -101,17 +101,17 @@ where
 
     // Notify if needed
     if let Some(msg) = watcher.notification_message {
-        watcher_info!("Notifying other services that we are ready");
+        info!("Notifying other services that we are ready");
         if let Err(err) = watcher.queue_tx.send(msg).await {
             error!("Error sending notification message: {}", err);
         }
     }
 
     if let Some(WatcherWaitReady(mut queue_rx, continue_f)) = wait_ready {
-        watcher_info!("Waiting for other services to be ready");
+        info!("Waiting for other services to be ready");
         while let Some(msg) = queue_rx.recv().await {
             if continue_f(&msg) {
-                watcher_info!("Got message {:?}, watcher is ready to continue:", msg);
+                info!("Got message {:?}, watcher is ready to continue:", msg);
                 break;
             }
         }
@@ -120,7 +120,7 @@ where
     // Run the watcher
     let xs = watcher::watcher(watcher.api, ListParams::default());
     let mut xs = xs.boxed();
-    watcher_info!("Starting watcher loop");
+    info!("Starting watcher loop");
     loop {
         match xs.try_next().await {
             Ok(Some(Event::Applied(e))) => {
@@ -139,11 +139,11 @@ where
                 };
                 let msg = match op {
                     WatcherOperation::Apply => {
-                        watcher_info!("Applying message");
+                        info!("Applying message");
                         e.applied(ns)
                     }
                     WatcherOperation::ReApply => {
-                        watcher_info!("ReApplying message");
+                        info!("Reapplying message");
                         e.reapplied(ns)
                     }
                 };
@@ -167,7 +167,7 @@ where
                     .unwrap_or(None);
                 if let Some(msg) = e.deleted(ns) {
                     if let Err(e) = watcher.queue_tx.send(msg).await {
-                        error!("Error sending Deleted message: {}", e.to_string())
+                        error!("Error sending Deleted message: {}", e.to_string());
                     } else {
                         if let Some(key) = e.key() {
                             applied.remove(&key);
