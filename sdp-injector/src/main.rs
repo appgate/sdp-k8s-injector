@@ -73,9 +73,11 @@ const SDP_KEY_FILE: &str = "/opt/sdp-injector/k8s/sdp-injector-key.pem";
 const SDP_SERVICE_CONTAINER_NAME: &str = "sdp-service";
 const SDP_DNS_SERVICE_NAMES: [&str; 2] = ["kube-dns", "coredns"];
 
+mod device_id_watcher;
 mod deviceid;
 mod errors;
-mod watchers;
+mod pod_watcher;
+mod service_identity_watcher;
 
 macro_rules! admission_request {
     ($body:ident, $typ:tt) => {{

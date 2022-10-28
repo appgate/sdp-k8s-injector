@@ -14,10 +14,11 @@ macro_rules! queue_debug {
 // Generates log methods for modules
 #[macro_export]
 macro_rules! logger {
-    ($module:literal, $logger:ident) => {
+    ($module:literal) => {
         with_dollar_sign! {
             ($d:tt) => {
-                macro_rules! $logger {
+                #[allow(unused_macros)]
+                macro_rules! info {
                     ($d target:expr $d(, $d arg:expr)*) => {
                         sdp_info!($module | ($d target $d(, $d arg)*))
                     };
@@ -46,7 +47,7 @@ macro_rules! sdp_log {
         if cfg!(debug_assertions) {
             queue_debug!($protocol(t.to_string()) => $q);
         }
-        $logger!("[{}] {}", $component, t);
+        log::$logger!("[{}] {}", $component, t);
     };
 
     ($logger:ident | $protocol:path | ($target:expr $(, $arg:expr)*) => $q:ident) => {
@@ -54,11 +55,11 @@ macro_rules! sdp_log {
             let t = format!($target $(, $arg)*);
             queue_debug!($protocol(t.to_string()) => $q);
         }
-        $logger!($target $(, $arg)*);
+        log::$logger!($target $(, $arg)*);
     };
 
     ($logger:ident | ($target:expr $(, $arg:expr)*)) => {
-        $logger!($target $(, $arg)*);
+        log::$logger!($target $(, $arg)*);
     };
 }
 

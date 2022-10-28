@@ -2,7 +2,7 @@ use futures::Future;
 use k8s_openapi::api::apps::v1::Deployment;
 use kube::api::{DeleteParams, ListParams, PostParams};
 use kube::{Api, Client};
-use log::{error, info, warn};
+use log::{error, warn};
 use sdp_common::constants::SDP_CLUSTER_ID_ENV;
 pub use sdp_common::crd::{ServiceIdentity, ServiceIdentitySpec};
 use sdp_common::service::{ServiceLookup, ServiceUser};
@@ -22,7 +22,7 @@ use crate::deployment_watcher::DeploymentWatcherProtocol;
 use crate::errors::IdentityServiceError;
 use crate::identity_creator::IdentityCreatorProtocol;
 
-logger!("IdentityManager", manager_info);
+logger!("IdentityManager");
 
 /// Trait that represents the pool of ServiceUser entities
 /// We can pop and push ServiceUser entities
@@ -184,7 +184,7 @@ impl ServiceIdentityProvider for IdentityManagerPool {
                         };
                         ServiceIdentity::new(&service_name, service_identity_spec)
                     }) {
-                        manager_info!(
+                        info!(
                             "ServiceCandidate {} has not ServiceIdentities registered, registering one for it",
                             service_id
                         );
@@ -250,7 +250,7 @@ impl ServiceIdentityAPI for KubeIdentityManager {
                 .map_err(IdentityServiceError::from)
             {
                 Ok(None) => {
-                    manager_info!(
+                    info!(
                         "ServiceIdentity {} does not exist, creating it.",
                         service_id
                     );
@@ -262,7 +262,7 @@ impl ServiceIdentityAPI for KubeIdentityManager {
                     )
                 }
                 Ok(_) => {
-                    manager_info!("ServiceIdentity {} already exists.", service_id);
+                    info!("ServiceIdentity {} already exists.", service_id);
                     Some(Ok(identity.clone()))
                 }
                 Err(e) => {
@@ -367,7 +367,7 @@ impl IdentityManagerRunner<ServiceLookup, ServiceIdentity> {
         deployment_watcher_proto_tx: Sender<DeploymentWatcherProtocol>,
         external_queue_tx: Option<&Sender<IdentityManagerProtocol<F, ServiceIdentity>>>,
     ) -> () {
-        manager_info!("Running Identity Manager");
+        info!("Running Identity Manager");
         let mut deployment_watcher_ready = false;
         let mut identity_creator_ready = false;
         let mut existing_service_candidates: HashSet<String> = HashSet::new();
@@ -384,14 +384,14 @@ impl IdentityManagerRunner<ServiceLookup, ServiceIdentity> {
                 IdentityManagerProtocol::DeleteServiceIdentity(service_identity) => {
                     let service_id = service_identity.service_id();
                     let service_name = service_identity.service_name();
-                    manager_info!("Deleting ServiceIdentity with id {}", service_id);
+                    info!("Deleting ServiceIdentity with id {}", service_id);
                     match im.delete(&service_name).await {
                         Ok(_) => {
-                            manager_info!("Deregistering ServiceIdentity with id {}", service_id);
+                            info!("Deregistering ServiceIdentity with id {}", service_id);
 
                             // Unregister the identity
                             if let Some(s) = im.unregister_identity(&service_identity) {
-                                manager_info!(IdentityManagerProtocol::<F, ServiceIdentity>::IdentityManagerDebug |
+                                info!(IdentityManagerProtocol::<F, ServiceIdentity>::IdentityManagerDebug |
                                     ("ServiceIdentity with id {} unregistered", s.service_id()) => external_queue_tx);
                             } else {
                                 sdp_warn!(IdentityManagerProtocol::<F, ServiceIdentity>::IdentityManagerDebug | (
@@ -400,7 +400,7 @@ impl IdentityManagerRunner<ServiceLookup, ServiceIdentity> {
                             }
 
                             // Ask IdentityCreator to remove the IdentityCredential
-                            manager_info!(
+                            info!(
                                 "Asking for deletion of IdentityCredential {} from SDP system",
                                 service_identity.credentials().name
                             );
@@ -428,7 +428,7 @@ impl IdentityManagerRunner<ServiceLookup, ServiceIdentity> {
                 }
                 IdentityManagerProtocol::RequestServiceIdentity { service_candidate } => {
                     when_ok!((service_id = service_candidate.service_id()) {
-                        manager_info!(IdentityManagerProtocol::<F, ServiceIdentity>::IdentityManagerDebug |(
+                        info!(IdentityManagerProtocol::<F, ServiceIdentity>::IdentityManagerDebug |(
                             "New ServiceIdentity requested for ServiceCandidate {}",
                             service_id
                         ) => external_queue_tx);
@@ -436,13 +436,13 @@ impl IdentityManagerRunner<ServiceLookup, ServiceIdentity> {
                         match im.next_identity(&a) {
                             Some((service_identity, true)) => match im.create(&service_identity).await {
                                 Ok(service_identity) => {
-                                    manager_info!(IdentityManagerProtocol::<F, ServiceIdentity>::IdentityManagerDebug |(
+                                    info!(IdentityManagerProtocol::<F, ServiceIdentity>::IdentityManagerDebug |(
                                         "ServiceIdentity created for service {}",
                                         service_id
                                     ) => external_queue_tx);
 
                                     if im.needs_new_credentials() {
-                                        manager_info!("Requesting new UserCredentials to add to the pool");
+                                        info!("Requesting new UserCredentials to add to the pool");
                                         if let Err(err) = identity_creator_tx
                                             .send(IdentityCreatorProtocol::CreateIdentity)
                                             .await
@@ -475,7 +475,7 @@ impl IdentityManagerRunner<ServiceLookup, ServiceIdentity> {
                                 }
                             },
                             Some((_, false)) => {
-                                manager_info!(IdentityManagerProtocol::<F, ServiceIdentity>::IdentityManagerDebug |(
+                                info!(IdentityManagerProtocol::<F, ServiceIdentity>::IdentityManagerDebug |(
                                     "ServiceIdentity already exists for service {}",
                                     service_id
                                 ) => external_queue_tx);
@@ -493,13 +493,13 @@ impl IdentityManagerRunner<ServiceLookup, ServiceIdentity> {
                     when_ok!((candidate_service_id = service_candidate.service_id()) {
                         let service_lookup = ServiceLookup::try_from_service(&service_candidate).unwrap();
                         if let Some(service_identity) = im.identity(&service_lookup) {
-                            manager_info!(IdentityManagerProtocol::<F, ServiceIdentity>::IdentityManagerDebug |(
+                            info!(IdentityManagerProtocol::<F, ServiceIdentity>::IdentityManagerDebug |(
                                 "Found registered ServiceCandidate {}",
                                 service_identity.service_id()
                             ) => external_queue_tx);
                             existing_service_candidates.insert(candidate_service_id.clone());
                         } else {
-                                manager_info!(IdentityManagerProtocol::<F, ServiceIdentity>::IdentityManagerDebug |(
+                                info!(IdentityManagerProtocol::<F, ServiceIdentity>::IdentityManagerDebug |(
                                     "Found unregistered ServiceCandidate {}",
                                     candidate_service_id
                                 ) => external_queue_tx);
@@ -511,14 +511,14 @@ impl IdentityManagerRunner<ServiceLookup, ServiceIdentity> {
                 IdentityManagerProtocol::FoundServiceUser(service_user, activated)
                     if !activated =>
                 {
-                    manager_info!(IdentityManagerProtocol::<F, ServiceIdentity>::IdentityManagerDebug | ("Found deactivated ServiceUser with name {}", service_user.name) => external_queue_tx);
+                    info!(IdentityManagerProtocol::<F, ServiceIdentity>::IdentityManagerDebug | ("Found deactivated ServiceUser with name {}", service_user.name) => external_queue_tx);
                     existing_deactivated_credentials.insert(service_user.name.clone());
                     im.push(service_user);
                 }
                 // Identity Creator notifies about already activated User Credentials
                 IdentityManagerProtocol::FoundServiceUser(service_user, activated) if activated => {
                     existing_activated_credentials.insert(service_user.name.clone());
-                    manager_info!(IdentityManagerProtocol::<F, ServiceIdentity>::IdentityManagerDebug |(
+                    info!(IdentityManagerProtocol::<F, ServiceIdentity>::IdentityManagerDebug |(
                         "Found activated ServiceUser with name {}",
                         service_user.name
                     ) => external_queue_tx);
@@ -529,11 +529,9 @@ impl IdentityManagerRunner<ServiceLookup, ServiceIdentity> {
                     service_ns,
                     service_name,
                 ) => {
-                    manager_info!(
+                    info!(
                         "ServiceUser {} has been activated [{}/{}], updating ServiceIdentity",
-                        &service_user.name,
-                        service_ns,
-                        service_name
+                        &service_user.name, service_ns, service_name
                     );
                     if let Some(service_identity) =
                         im.identity(&ServiceLookup::new(&service_ns, &service_name, None))
@@ -550,10 +548,10 @@ impl IdentityManagerRunner<ServiceLookup, ServiceIdentity> {
                     }
                 }
                 IdentityManagerProtocol::IdentityCreatorReady => {
-                    manager_info!("IdentityCreator is ready");
+                    info!("IdentityCreator is ready");
                     identity_creator_ready = true;
                     if deployment_watcher_ready {
-                        manager_info!("IdentityManager is ready");
+                        info!("IdentityManager is ready");
                         if let Err(e) = identity_manager_tx
                             .send(IdentityManagerProtocol::IdentityManagerReady)
                             .await
@@ -568,7 +566,7 @@ impl IdentityManagerRunner<ServiceLookup, ServiceIdentity> {
                     }
                 }
                 IdentityManagerProtocol::DeploymentWatcherReady => {
-                    manager_info!("DeploymentWatcher is ready");
+                    info!("DeploymentWatcher is ready");
                     deployment_watcher_ready = true;
                     if identity_creator_ready {
                         if let Err(e) = identity_manager_tx
@@ -588,9 +586,9 @@ impl IdentityManagerRunner<ServiceLookup, ServiceIdentity> {
                 // Identity Creator finished the initialization
                 IdentityManagerProtocol::IdentityManagerReady => {
                     let mut removed_service_identities: HashSet<String> = HashSet::new();
-                    manager_info!("IdentityManager is ready");
+                    info!("IdentityManager is ready");
 
-                    manager_info!(IdentityManagerProtocol::<F, ServiceIdentity>::IdentityManagerDebug |("Syncing UserCredentials") => external_queue_tx);
+                    info!(IdentityManagerProtocol::<F, ServiceIdentity>::IdentityManagerDebug |("Syncing UserCredentials") => external_queue_tx);
 
                     // Here we do a basic cleanup of the current state
                     // 1. First we ask for deletion for all the ServiceIdentity instances that don't have a known
@@ -598,14 +596,14 @@ impl IdentityManagerRunner<ServiceLookup, ServiceIdentity> {
                     // 2. Now we remove all the known active ServiceUser instances that don't belong to any ServiceIdentity
                     // 3. Finally we delete any ServiceIdentity instance that does not have a ServiceUser activated
 
-                    manager_info!(IdentityManagerProtocol::<F, ServiceIdentity>::IdentityManagerDebug |("Syncing ServiceIdentity instances") => external_queue_tx);
+                    info!(IdentityManagerProtocol::<F, ServiceIdentity>::IdentityManagerDebug |("Syncing ServiceIdentity instances") => external_queue_tx);
 
                     // 1. Delete IdentityService instances with not known ServiceCandidate
                     for service_identity in
                         im.extra_service_identities(&existing_service_candidates)
                     {
                         let service_id = service_identity.service_id();
-                        manager_info!(
+                        info!(
                             "Found ServiceIdentity {} with not known ServiceCandidate. Deleting it.",
                             service_id
                         );
@@ -628,7 +626,7 @@ impl IdentityManagerRunner<ServiceLookup, ServiceIdentity> {
 
                     // 2. Delete ServiceUser instances that don't belong to any ServiceIdentity
                     for sdp_user_name in im.orphan_service_users(&existing_activated_credentials) {
-                        manager_info!(
+                        info!(
                             "SDPUser {} is active but not used by any ServiceIdentity, deleting it",
                             sdp_user_name
                         );
@@ -644,7 +642,7 @@ impl IdentityManagerRunner<ServiceLookup, ServiceIdentity> {
                     {
                         let service_id = service_identity.service_id();
                         if !removed_service_identities.contains(&service_id) {
-                            manager_info!(
+                            info!(
                                 "ServiceIdentity {} has deactivated ServiceUser. Deleting it.",
                                 service_id
                             );
@@ -667,7 +665,7 @@ impl IdentityManagerRunner<ServiceLookup, ServiceIdentity> {
                     }
 
                     for (service_candidate_id, service_candidate) in &missing_service_candidates {
-                        manager_info!(
+                        info!(
                             "Requesting missing ServiceCandidate {}",
                             service_candidate_id
                         );
@@ -720,19 +718,19 @@ impl IdentityManagerRunner<ServiceLookup, ServiceIdentity> {
     async fn initialize<F: MaybeService + Labeled + Send>(
         im: &mut Box<dyn IdentityManager<F, ServiceIdentity> + Send + Sync>,
     ) -> () {
-        manager_info!("Initializing Identity Manager service");
+        info!("Initializing Identity Manager service");
         match im.list().await {
             Ok(xs) => {
-                manager_info!("Restoring previous Service Identity instances");
+                info!("Restoring previous Service Identity instances");
                 let n: u32 = xs
                     .iter()
                     .map(|s| {
-                        manager_info!("Restoring Service Identity {}", s.service_id());
+                        info!("Restoring Service Identity {}", s.service_id());
                         im.register_identity(s.clone());
                         1
                     })
                     .sum();
-                manager_info!("Restored {} previous service identities", n);
+                info!("Restored {} previous service identities", n);
             }
             Err(err) => {
                 panic!("Error fetching list of current ServiceIdentity: {}", err);
@@ -748,7 +746,7 @@ impl IdentityManagerRunner<ServiceLookup, ServiceIdentity> {
         deployment_watcher_proto_tx: Sender<DeploymentWatcherProtocol>,
         external_queue_tx: Option<Sender<IdentityManagerProtocol<Deployment, ServiceIdentity>>>,
     ) -> () {
-        manager_info!("Starting Identity Manager service");
+        info!("Starting Identity Manager service");
         IdentityManagerRunner::initialize(&mut self.im).await;
 
         queue_debug! {

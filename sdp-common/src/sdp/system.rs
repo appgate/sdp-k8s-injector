@@ -2,7 +2,6 @@ use crate::sdp::auth::{Credentials, Login, SDPUser, SDPUsers};
 use crate::sdp::errors::{error_for_status, SDPClientError};
 use http::header::{InvalidHeaderValue, ACCEPT};
 use http::{HeaderValue, StatusCode};
-use log::info;
 use reqwest::header::HeaderMap;
 use reqwest::{Client, Url};
 use sdp_macros::{sdp_info, sdp_log};

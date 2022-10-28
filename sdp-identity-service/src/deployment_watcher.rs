@@ -1,7 +1,8 @@
 use k8s_openapi::api::apps::v1::Deployment;
 use k8s_openapi::api::core::v1::Namespace;
 use kube::ResourceExt;
-use log::{error, info};
+use log::error;
+use sdp_common::service::SDP_INJECTOR_ANNOTATION;
 use sdp_common::watcher::SimpleWatchingProtocol;
 use sdp_common::{crd::ServiceIdentity, traits::Candidate, traits::MaybeService};
 use sdp_macros::{logger, sdp_info, sdp_log, when_ok, with_dollar_sign};
@@ -11,7 +12,7 @@ use crate::identity_manager::IdentityManagerProtocol;
 
 pub const SDP_INJECTOR_LABEL: &str = "sdp-injection";
 
-logger!("DeploymentWatcher", w_info);
+logger!("DeploymentWatcher");
 
 #[derive(Debug)]
 pub enum DeploymentWatcherProtocol {
@@ -26,10 +27,10 @@ impl SimpleWatchingProtocol<IdentityManagerProtocol<Deployment, ServiceIdentity>
         when_ok!((service_id:IdentityManagerProtocol<Deployment, ServiceIdentity> = self.service_id()) {
             let ns_candidate = ns.as_ref().and_then(|ns| ns.labels().get(SDP_INJECTOR_LABEL)).map(|s| s.eq_ignore_ascii_case("enabled")).unwrap_or(false);
             if ns_candidate && self.is_candidate() {
-                w_info!("Found service candidate: {}", service_id);
+                info!("Found service candidate: {}", service_id);
                 Some(IdentityManagerProtocol::FoundServiceCandidate(self.clone()))
             } else {
-                w_info!("Ignored service candidate: {}", service_id);
+                info!("Ignored service candidate: {}", service_id);
                 None
             }
         })
@@ -42,12 +43,12 @@ impl SimpleWatchingProtocol<IdentityManagerProtocol<Deployment, ServiceIdentity>
         when_ok!((service_id:IdentityManagerProtocol<Deployment, ServiceIdentity> = self.service_id()) {
             let ns_candidate = ns.as_ref().and_then(|ns| ns.labels().get(SDP_INJECTOR_LABEL)).map(|s| s.eq_ignore_ascii_case("enabled")).unwrap_or(false);
             if ns_candidate && self.is_candidate() {
-                w_info!("Applied candidate Deployment {}", service_id);
+                info!("Applied candidate Deployment {}", service_id);
                 Some(IdentityManagerProtocol::RequestServiceIdentity {
                     service_candidate: self.clone(),
                 })
             } else {
-                w_info!("Ignoring applied Deployment, not a candidate {}", service_id);
+                info!("Ignoring applied Deployment, not a candidate {}", service_id);
                 None
             }
         })
@@ -60,10 +61,10 @@ impl SimpleWatchingProtocol<IdentityManagerProtocol<Deployment, ServiceIdentity>
         when_ok!((service_id:IdentityManagerProtocol<Deployment, ServiceIdentity> = self.service_id()) {
             let ns_candidate = ns.as_ref().and_then(|ns| ns.labels().get(SDP_INJECTOR_LABEL)).map(|s| s.eq_ignore_ascii_case("enabled")).unwrap_or(false);
             if ns_candidate && self.is_candidate() {
-                w_info!("Deleted candidate Deployment {}", service_id);
+                info!("Deleted candidate Deployment {}", service_id);
                 Some(IdentityManagerProtocol::DeletedServiceCandidate(self.clone()))
             } else {
-                w_info!("Ignoring deleted Deployment, not a candidate {}", service_id);
+                info!("Ignoring deleted Deployment, not a candidate {}", service_id);
                 None
             }
         })
@@ -75,7 +76,7 @@ impl SimpleWatchingProtocol<IdentityManagerProtocol<Deployment, ServiceIdentity>
     ) -> Option<IdentityManagerProtocol<Deployment, ServiceIdentity>> {
         when_ok!((service_id:IdentityManagerProtocol<Deployment, ServiceIdentity> = self.service_id()) {
             if self.is_candidate() {
-                w_info!("Ignoring reapplied Deployment {}", service_id);
+                info!("Ignoring reapplied Deployment {}", service_id);
             }
             None
         })

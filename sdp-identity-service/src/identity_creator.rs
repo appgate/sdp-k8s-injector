@@ -6,7 +6,7 @@ use k8s_openapi::api::apps::v1::Deployment;
 use k8s_openapi::api::core::v1::{ConfigMap, Secret};
 use kube::api::{Patch as KubePatch, PatchParams};
 use kube::{Api, Client};
-use log::{error, info, warn};
+use log::{error, warn};
 use sdp_common::constants::{IDENTITY_MANAGER_SECRET_NAME, SDP_CLUSTER_ID_ENV, SDP_IDP_NAME};
 use sdp_common::kubernetes::SDP_K8S_NAMESPACE;
 use sdp_common::sdp::auth::SDPUser;
@@ -18,7 +18,7 @@ use tokio::sync::mpsc::{Receiver, Sender};
 use crate::errors::IdentityServiceError;
 use crate::identity_manager::{IdentityManagerProtocol, ServiceIdentity};
 
-logger!("IdentityCreator", ic_info);
+logger!("IdentityCreator");
 
 #[derive(Debug)]
 pub enum IdentityCreatorProtocol {
@@ -113,7 +113,7 @@ impl IdentityCreator {
         let service_user = SDPUser::new();
         let profile_url =
             get_or_create_client_profile_url(&mut self.system, &self.cluster_id).await?;
-        ic_info!("Creating ServiceUser with id {}", service_user.id);
+        info!("Creating ServiceUser with id {}", service_user.id);
         if let Some(service_user) = self
             .system
             .create_user(&service_user)
@@ -136,7 +136,7 @@ impl IdentityCreator {
     }
 
     async fn delete_sdp_user(&mut self, sdp_user_id: &str) -> Result<(), IdentityServiceError> {
-        ic_info!("Deleting SDPUser with name {}", &sdp_user_id);
+        info!("Deleting SDPUser with name {}", &sdp_user_id);
         // Create a default SDPUser with the name of the one we want to delete
         let sdp_user = SDPUser::from_name(sdp_user_id.to_string());
         // Derive a ServiceUser that we can use to delete the secret fields
@@ -186,7 +186,7 @@ impl IdentityCreator {
         if let Some(data) = secret.data {
             for (field, _) in data {
                 if !known_fields.contains(&field) {
-                    ic_info!("Secret entry for SDPUser {} marked for deletion", field);
+                    info!("Secret entry for SDPUser {} marked for deletion", field);
                     patches.push(Remove(RemoveOperation {
                         path: format!("/data/{}", field),
                     }));
@@ -194,10 +194,9 @@ impl IdentityCreator {
                 }
             }
             if !patches.is_empty() {
-                ic_info!(
+                info!(
                     "Removing {} old entries from glocal secret {}",
-                    n,
-                    IDENTITY_MANAGER_SECRET_NAME
+                    n, IDENTITY_MANAGER_SECRET_NAME
                 );
                 let patch: KubePatch<Secret> = KubePatch::Json(Patch(patches));
                 api.patch(
@@ -292,10 +291,10 @@ impl IdentityCreator {
         self.cleanup_secret_entries(known_service_users).await?;
 
         // Create needed credentials until we reach the desired number of credentials pool
-        ic_info!("Creating {} ServiceUsers in system", n_missing_users);
+        info!("Creating {} ServiceUsers in system", n_missing_users);
         for _i in 0..n_missing_users {
             let service_user = self.create_user().await?;
-            ic_info!(
+            info!(
                 "New ServiceUser with name {} created, notifying IdentityManager",
                 service_user.name
             );
@@ -315,11 +314,11 @@ impl IdentityCreator {
         mut identity_creator_proto_rx: Receiver<IdentityCreatorProtocol>,
         identity_manager_proto_tx: Sender<IdentityManagerProtocol<Deployment, ServiceIdentity>>,
     ) -> () {
-        ic_info!("Starting dormant Identity Creator service, waiting commands from Identity Manager service");
+        info!("Starting dormant Identity Creator service, waiting commands from Identity Manager service");
         while let Some(msg) = identity_creator_proto_rx.recv().await {
             match msg {
                 IdentityCreatorProtocol::StartService => {
-                    ic_info!("Identity Creator awake! Ready to process messages");
+                    info!("Identity Creator awake! Ready to process messages");
                     break;
                 }
                 msg => warn!(
@@ -328,7 +327,7 @@ impl IdentityCreator {
                 ),
             }
         }
-        ic_info!("Intializing IdentityCreator");
+        info!("Intializing IdentityCreator");
         if let Err(e) = self
             .initialize(system, identity_manager_proto_tx.clone())
             .await
@@ -350,7 +349,7 @@ impl IdentityCreator {
                 IdentityCreatorProtocol::CreateIdentity => {
                     match self.create_user().await {
                         Ok(service_user) => {
-                            ic_info!(
+                            info!(
                                 "New ServiceUser with name {} created, notifying IdentityManager",
                                 service_user.name
                             );
@@ -371,11 +370,9 @@ impl IdentityCreator {
                     service_ns,
                     service_name,
                 ) => {
-                    ic_info!(
+                    info!(
                         "Deleting ServiceUser with name {} [{}/{}]",
-                        service_user.name,
-                        service_ns,
-                        service_name
+                        service_user.name, service_ns, service_name
                     );
 
                     if let Err(err) = self
@@ -402,11 +399,9 @@ impl IdentityCreator {
                     let mut service_user = service_user.clone();
                     service_user.name = sdp_user.name.clone();
 
-                    ic_info!(
+                    info!(
                         "Activating ServiceUser with name {} [{}/{}]",
-                        sdp_user.name,
-                        service_ns,
-                        service_name
+                        sdp_user.name, service_ns, service_name
                     );
                     if let Err(err) = system.modify_user(&sdp_user).await {
                         error!(
@@ -430,11 +425,9 @@ impl IdentityCreator {
                     }
 
                     // Create secrets now
-                    ic_info!(
+                    info!(
                         "Creating secrets for ServiceUser with name {} [{}/{}]",
-                        service_user.name,
-                        service_ns,
-                        service_name
+                        service_user.name, service_ns, service_name
                     );
                     if let Err(e) = service_user
                         .create_secrets(self.secrets_api(&service_ns), &service_ns, &service_name)
@@ -449,11 +442,9 @@ impl IdentityCreator {
                         );
                     }
 
-                    ic_info!(
+                    info!(
                         "Creating config for ServiceUser with name {} [{}/{}]",
-                        service_user.name,
-                        service_ns,
-                        service_name
+                        service_user.name, service_ns, service_name
                     );
                     if let Err(e) = service_user
                         .create_config(self.configmap_api(&service_ns), &service_ns, &service_name)

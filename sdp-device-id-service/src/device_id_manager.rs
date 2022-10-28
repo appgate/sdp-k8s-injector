@@ -3,7 +3,7 @@ use k8s_openapi::api::apps::v1::ReplicaSet;
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::OwnerReference;
 use kube::api::{DeleteParams, ListParams, PostParams};
 use kube::{Api, Client, Resource};
-use log::{error, info, warn};
+use log::{error, warn};
 use sdp_common::crd::{DeviceId, DeviceIdSpec, ServiceIdentity};
 use sdp_common::kubernetes::SDP_K8S_NAMESPACE;
 use sdp_common::traits::{HasCredentials, Named, Namespaced, Service};
@@ -15,7 +15,7 @@ use std::pin::Pin;
 use tokio::sync::mpsc::{Receiver, Sender};
 use uuid::Uuid;
 
-logger!("DeviceIDManager", dm_info);
+logger!("DeviceIDManager");
 
 #[derive(Debug)]
 pub enum DeviceIdManagerProtocol<From: Service + HasCredentials> {
@@ -110,7 +110,7 @@ impl DeviceIdAPI for KubeDeviceIdManager {
                 .map_err(|e| e.to_string())
             {
                 Ok(None) => {
-                    dm_info!("DeviceIds {} does not exist, creating it.", service_name);
+                    info!("DeviceIds {} does not exist, creating it.", service_name);
                     let owner_name = &device_id.spec.service_name;
                     let owner_namespace = &device_id.spec.service_namespace;
                     let mut uuids: Vec<String> = vec![];
@@ -145,11 +145,7 @@ impl DeviceIdAPI for KubeDeviceIdManager {
                                 if let Some(num_replicas) = replicaset.spec.unwrap().replicas {
                                     for _ in 0..(2 * num_replicas) {
                                         let uuid = Uuid::new_v4().to_string();
-                                        dm_info!(
-                                            "Assigning uuid {} to DeviceID {}",
-                                            uuid,
-                                            service_id
-                                        );
+                                        info!("Assigning uuid {} to DeviceID {}", uuid, service_id);
                                         uuids.push(uuid);
                                     }
                                 }
@@ -181,7 +177,7 @@ impl DeviceIdAPI for KubeDeviceIdManager {
                     )
                 }
                 Ok(_) => {
-                    dm_info!("DeviceIds for service {} already exists.", service_id);
+                    info!("DeviceIds for service {} already exists.", service_id);
                     Some(Ok(device_id.clone()))
                 }
                 Err(e) => {
@@ -258,10 +254,10 @@ impl DeviceIdManagerRunner<ServiceIdentity, DeviceId> {
         match dm.list().await {
             Ok(device_ids) => {
                 device_ids.iter().for_each(|d| {
-                    dm_info!("Restoring DeviceIds for service: {}", d.service_id());
+                    info!("Restoring DeviceIds for service: {}", d.service_id());
                     dm.register(d.clone());
                 });
-                dm_info!("Restored {} DeviceIds", device_ids.len());
+                info!("Restored {} DeviceIds", device_ids.len());
             }
             Err(err) => {
                 panic!("Error fetching the list of DeviceIds: {}", err);
@@ -276,7 +272,7 @@ impl DeviceIdManagerRunner<ServiceIdentity, DeviceId> {
         _watcher_proto_tx: Sender<ServiceIdentityWatcherProtocol>,
         queue_tx: Option<&Sender<DeviceIdManagerProtocol<F>>>,
     ) {
-        dm_info!("Entering Device ID Manager main loop");
+        info!("Entering Device ID Manager main loop");
         queue_debug!(DeviceIdManagerProtocol::<F>::DeviceIdManagerStarted => queue_tx);
 
         while let Some(message) = manager_proto_rx.recv().await {
@@ -285,14 +281,14 @@ impl DeviceIdManagerRunner<ServiceIdentity, DeviceId> {
 
                 DeviceIdManagerProtocol::CreateDeviceId(service_identity_ref) => {
                     let service_id = service_identity_ref.service_id();
-                    dm_info!(DeviceIdManagerProtocol::<F>::DeviceIdManagerDebug | (
+                    info!(DeviceIdManagerProtocol::<F>::DeviceIdManagerDebug | (
                         "Received request for new DeviceId for ServiceIdentity {}", service_id
                     ) => queue_tx);
 
                     match dm.next_device_id(&service_identity_ref) {
                         Some(d) => match dm.create(&d).await {
                             Ok(device_id) => {
-                                dm_info!(DeviceIdManagerProtocol::<F>::DeviceIdManagerDebug | (
+                                info!(DeviceIdManagerProtocol::<F>::DeviceIdManagerDebug | (
                                     "Created DeviceID {} for ServiceIdentity {}", device_id.service_id(), service_id
                                 ) => queue_tx);
                             }
@@ -307,7 +303,7 @@ impl DeviceIdManagerRunner<ServiceIdentity, DeviceId> {
                 }
 
                 DeviceIdManagerProtocol::FoundServiceIdentity(service_identity_ref) => {
-                    dm_info!(DeviceIdManagerProtocol::<F>::DeviceIdManagerDebug | (
+                    info!(DeviceIdManagerProtocol::<F>::DeviceIdManagerDebug | (
                         "Found ServiceIdentity {}",
                         service_identity_ref.service_id()
                     ) => queue_tx);

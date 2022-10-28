@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::pin::Pin;
 
 use futures::Future;
-use log::{error, info, warn};
+use log::{error, warn};
 use sdp_common::crd::DeviceId;
 use sdp_common::errors::SDPServiceError;
 use sdp_common::service::ServiceIdentity;
@@ -11,7 +11,7 @@ use sdp_macros::{logger, sdp_info, sdp_log, with_dollar_sign};
 use tokio::sync::mpsc::{Receiver, Sender};
 use uuid::Uuid;
 
-logger!("DeviceIDProvider", dp_info);
+logger!("DeviceIDProvider");
 
 #[derive(Debug)]
 pub enum DeviceIdProviderRequestProtocol<A: Service + HasCredentials> {
@@ -212,8 +212,8 @@ impl IdentityStore<ServiceIdentity> for InMemoryIdentityStore {
                     let mut available_uuids = available_uuids.clone();
                     let uuid = available_uuids.remove(0);
                     let available_uuids = available_uuids.clone();
-                    dp_info!("Device id {} assigned to service {}", uuid, service_id);
-                    dp_info!(
+                    info!("Device id {} assigned to service {}", uuid, service_id);
+                    info!(
                         "Service {} has {} device ids available {:?}",
                         service_id,
                         available_uuids.len(),
@@ -254,7 +254,7 @@ impl IdentityStore<ServiceIdentity> for InMemoryIdentityStore {
                 {
                     if n_available < n_all {
                         if !available.contains(&uuid) {
-                            dp_info!("Pushing device id {} to the list of available device ids for service {}", uuid, service_id);
+                            info!("Pushing device id {} to the list of available device ids for service {}", uuid, service_id);
                             let mut available = available.clone();
                             available.push(uuid.clone());
                             self.device_ids.insert(
@@ -302,41 +302,41 @@ impl DeviceIdProvider<ServiceIdentity> {
         mut provider_rx: Receiver<DeviceIdProviderRequestProtocol<ServiceIdentity>>,
         mut watcher_rx: Receiver<DeviceIdProviderRequestProtocol<ServiceIdentity>>,
     ) {
-        dp_info!("Starting device id provider");
+        info!("Starting device id provider");
         loop {
             tokio::select! {
                 val = watcher_rx.recv() => {
                     match val {
                         Some(DeviceIdProviderRequestProtocol::FoundServiceIdentity(s)) => {
                             let service_id = s.service_id();
-                            dp_info!("Registering new service {}", &service_id);
+                            info!("Registering new service {}", &service_id);
                             if let Err(e) = self.store.register_service(s).await {
                                 error!("Unable to register service identity {}: {}", service_id, e);
                             }
                         },
                         Some(DeviceIdProviderRequestProtocol::DeletedServiceIdentity(s)) => {
                             let service_id = s.service_id();
-                            dp_info!("Unregistering service {}", service_id);
+                            info!("Unregistering service {}", service_id);
                             if let Err(err) = self.store.unregister_service(&service_id).await {
                                 error!("Unable to unregister service {}: {}", service_id, err);
                             };
                         },
                         Some(DeviceIdProviderRequestProtocol::FoundDeviceId(id)) => {
                             let service_id = id.service_id();
-                            dp_info!("Registering new device ids for service {}", service_id);
+                            info!("Registering new device ids for service {}", service_id);
                             if let Err(err) = self.store.register_device_ids(id).await {
                                 error!("Unable to register device ids {}: {}", service_id, err);
                             }
                         },
                         Some(DeviceIdProviderRequestProtocol::DeletedDeviceId(id)) => {
                             let service_id = id.service_id();
-                            dp_info!("Unregistering device ids for service {}", service_id);
+                            info!("Unregistering device ids for service {}", service_id);
                             if let Err(err) = self.store.unregister_device_ids(&service_id).await {
                                 error!("Unable to unregister device ids for service {}: {}", service_id, err);
                             };
                         },
                         Some(DeviceIdProviderRequestProtocol::ReleasedDeviceId(service_id, uuid)) => {
-                            dp_info!("Released device id {} for service {}", uuid.to_string(), service_id);
+                            info!("Released device id {} for service {}", uuid.to_string(), service_id);
                             if let Err(err) = self.store.push_device_id(&service_id, uuid).await {
                                 error!("Unable to release device id {} for service {}: {}", uuid, service_id, err);
                             }
@@ -354,7 +354,7 @@ impl DeviceIdProvider<ServiceIdentity> {
                         Some(DeviceIdProviderRequestProtocol::RequestDeviceId(q_tx, service_id)) => {
                             let msg = match self.store.pop_device_id(&service_id).await {
                                 Ok((service_identity, uuid)) =>  {
-                                    dp_info!("Requested device id for service {}", service_id);
+                                    info!("Requested device id for service {}", service_id);
                                     Some(DeviceIdProviderResponseProtocol::AssignedDeviceId(service_identity.clone(), uuid))
                                 },
                                 Err(e) => {
@@ -370,7 +370,7 @@ impl DeviceIdProvider<ServiceIdentity> {
                             }
                         },
                         Some(ev) => {
-                            dp_info!("Ignored event {:?}", ev);
+                            info!("Ignored event {:?}", ev);
                         },
                         None => {
                             warn!("Event not found");

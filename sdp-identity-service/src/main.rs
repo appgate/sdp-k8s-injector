@@ -6,7 +6,7 @@ use crate::{
 use clap::{Parser, Subcommand};
 use k8s_openapi::api::{apps::v1::Deployment, core::v1::Namespace};
 use kube::{Api, CustomResourceExt};
-use log::{error, info};
+use log::error;
 use sdp_common::kubernetes::get_k8s_client;
 use sdp_common::sdp::system::get_sdp_system;
 use sdp_common::watcher::{watch, WatcherWaitReady};

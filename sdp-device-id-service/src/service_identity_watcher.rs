@@ -5,7 +5,7 @@ use sdp_common::traits::Service;
 use sdp_common::watcher::SimpleWatchingProtocol;
 use sdp_macros::{logger, with_dollar_sign};
 
-logger!("ServiceIdentityWatcher", _siw_info);
+logger!("ServiceIdentityWatcher");
 
 #[derive(Debug)]
 pub enum ServiceIdentityWatcherProtocol {
