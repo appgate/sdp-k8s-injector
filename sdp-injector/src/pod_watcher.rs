@@ -1,10 +1,9 @@
 use k8s_openapi::api::core::v1::{Namespace, Pod};
-use log::error;
 use sdp_common::crd::ServiceIdentity;
 use sdp_common::traits::{Annotated, Candidate, MaybeService};
 use sdp_common::watcher::SimpleWatchingProtocol;
 use sdp_common::annotations::SDP_ANNOTATION_CLIENT_DEVICE_ID;
-use sdp_macros::{logger, sdp_info, sdp_log, when_ok, with_dollar_sign};
+use sdp_macros::{logger, sdp_info, sdp_log, sdp_error, when_ok, with_dollar_sign};
 
 use crate::deviceid::DeviceIdProviderRequestProtocol;
 

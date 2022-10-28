@@ -15,7 +15,6 @@ use k8s_openapi::apimachinery::pkg::apis::meta::v1::Status;
 use kube::api::{DynamicObject, ListParams};
 use kube::core::admission::{AdmissionRequest, AdmissionResponse, AdmissionReview};
 use kube::Api;
-use log::error;
 use rustls::{Certificate, PrivateKey, ServerConfig};
 use rustls_pemfile::{read_one, Item};
 use sdp_common::constants::{
@@ -49,7 +48,7 @@ use sdp_common::service::{
     containers, init_containers, injection_strategy, volume_names, volumes, SDPInjectionStrategy,
     ServiceIdentity
 };
-use sdp_macros::{logger, sdp_debug, sdp_info, sdp_log, sdp_warn, with_dollar_sign};
+use sdp_macros::{logger, sdp_debug, sdp_error, sdp_info, sdp_log, sdp_warn, with_dollar_sign};
 
 logger!("SDPInjector");
 

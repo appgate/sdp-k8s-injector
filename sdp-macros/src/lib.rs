@@ -4,7 +4,7 @@ macro_rules! queue_debug {
         if cfg!(debug_assertions) {
             if let Some(ref q) = $q {
                 if let Err(err) = q.send($msg).await {
-                    error!("Error notifying external watcher:{:?} => {}", $msg, err)
+                    log::error!("Error notifying external watcher:{:?} => {}", $msg, err)
                 }
             }
         }
@@ -47,6 +47,17 @@ macro_rules! logger {
 
                     ($d protocol:path | ($d target:expr $d(, $d arg:expr)*) => $d q:ident) => {
                         sdp_warn!($module, $d protocol | ($d target $d(, $d arg)*) => $d q)
+                    };
+                }
+
+                #[allow(unused_macros)]
+                macro_rules! error {
+                    ($d target:expr $d(, $d arg:expr)*) => {
+                        sdp_error!($module | ($d target $d(, $d arg)*))
+                    };
+
+                    ($d protocol:path | ($d target:expr $d(, $d arg:expr)*) => $d q:ident) => {
+                        sdp_error!($module, $d protocol | ($d target $d(, $d arg)*) => $d q)
                     };
                 }
             }
@@ -165,6 +176,21 @@ macro_rules! sdp_debug {
 
 #[macro_export]
 macro_rules! sdp_error {
+    ($component:literal, $protocol:path | ($target:expr $(, $arg:expr)*) => $q:ident) => {
+        let t = format!($target $(, $arg)*);
+        sdp_log!(error | $protocol | $component | ("{}", t) => $q);
+    };
+
+    ($component:literal, $protocol:path | ($target:expr $(, $arg:expr)*)) => {
+        let t = format!($target $(, $arg)*);
+        sdp_log!(error | $protocol | ("[{}] {}", $component, t) => None);
+    };
+
+    ($component:literal | ($target:expr $(, $arg:expr)*)) => {
+        let t = format!($target $(, $arg)*);
+        sdp_log!(error | ("[{}] {}", $component, t));
+    };
+
     ($protocol:path | ($target:expr $(, $arg:expr)*) => $q:ident) => {
         sdp_log!(error | $protocol | ($target $(, $arg)*) => $q);
     };

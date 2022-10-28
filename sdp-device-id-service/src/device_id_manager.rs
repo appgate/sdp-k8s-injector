@@ -3,7 +3,6 @@ use k8s_openapi::api::apps::v1::ReplicaSet;
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::OwnerReference;
 use kube::api::{DeleteParams, ListParams, PostParams};
 use kube::{Api, Client, Resource};
-use log::error;
 use sdp_common::crd::{DeviceId, DeviceIdSpec, ServiceIdentity};
 use sdp_common::kubernetes::SDP_K8S_NAMESPACE;
 use sdp_common::traits::{HasCredentials, Named, Namespaced, Service};
@@ -293,7 +292,7 @@ impl DeviceIdManagerRunner<ServiceIdentity, DeviceId> {
                                 ) => queue_tx);
                             }
                             Err(error) => {
-                                sdp_error!(DeviceIdManagerProtocol::<F>::DeviceIdManagerDebug | (
+                                error!(DeviceIdManagerProtocol::<F>::DeviceIdManagerDebug | (
                                     "Error creating DeviceId for ServiceIdentity {}: {}", service_id, error
                                 ) => queue_tx);
                             }

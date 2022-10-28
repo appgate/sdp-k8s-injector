@@ -2,7 +2,6 @@ use futures::Future;
 use k8s_openapi::api::apps::v1::Deployment;
 use kube::api::{DeleteParams, ListParams, PostParams};
 use kube::{Api, Client};
-use log::error;
 use sdp_common::constants::SDP_CLUSTER_ID_ENV;
 pub use sdp_common::crd::{ServiceIdentity, ServiceIdentitySpec};
 use sdp_common::service::{ServiceLookup, ServiceUser};
@@ -617,7 +616,7 @@ impl IdentityManagerRunner<ServiceLookup, ServiceIdentity> {
                                 "Error requesting deleting of ServiceIdentity {}: {}",
                                 service_id,
                                 e.to_string()
-                            )
+                            );
                         } else {
                             // Make sure we dont try to delete it twice!
                             removed_service_identities.insert(service_id.clone());
@@ -656,7 +655,7 @@ impl IdentityManagerRunner<ServiceLookup, ServiceIdentity> {
                                     "Error requesting deleting of ServiceIdentity {}: {}",
                                     service_id,
                                     e.to_string()
-                                )
+                                );
                             } else {
                                 // Make sure we dont try to delete it twice!
                                 removed_service_identities.insert(service_id.clone());

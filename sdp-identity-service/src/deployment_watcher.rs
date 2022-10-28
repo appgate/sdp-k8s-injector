@@ -1,10 +1,9 @@
 use k8s_openapi::api::apps::v1::Deployment;
 use k8s_openapi::api::core::v1::Namespace;
 use kube::ResourceExt;
-use log::error;
 use sdp_common::watcher::SimpleWatchingProtocol;
 use sdp_common::{crd::ServiceIdentity, traits::Candidate, traits::MaybeService};
-use sdp_macros::{logger, sdp_info, sdp_log, when_ok, with_dollar_sign};
+use sdp_macros::{logger, sdp_error, sdp_info, sdp_log, when_ok, with_dollar_sign};
 use std::fmt::Debug;
 
 use crate::identity_manager::IdentityManagerProtocol;

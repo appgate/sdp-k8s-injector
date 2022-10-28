@@ -6,13 +6,12 @@ use k8s_openapi::api::apps::v1::Deployment;
 use k8s_openapi::api::core::v1::{ConfigMap, Secret};
 use kube::api::{Patch as KubePatch, PatchParams};
 use kube::{Api, Client};
-use log::error;
 use sdp_common::constants::{IDENTITY_MANAGER_SECRET_NAME, SDP_CLUSTER_ID_ENV, SDP_IDP_NAME};
 use sdp_common::kubernetes::SDP_K8S_NAMESPACE;
 use sdp_common::sdp::auth::SDPUser;
 use sdp_common::sdp::system::{ClientProfile, ClientProfileUrl, System};
 use sdp_common::service::{get_profile_client_url_name, get_service_username, ServiceUser};
-use sdp_macros::{logger, sdp_info, sdp_log, sdp_warn, with_dollar_sign};
+use sdp_macros::{logger, sdp_error, sdp_info, sdp_log, sdp_warn, with_dollar_sign};
 use tokio::sync::mpsc::{Receiver, Sender};
 
 use crate::errors::IdentityServiceError;
@@ -384,7 +383,7 @@ impl IdentityCreator {
                         error!(
                             "Error deleting ServiceUser with id {} [{}/{}]: {}",
                             service_user.name, service_ns, service_name, err
-                        )
+                        );
                     }
                 }
                 IdentityCreatorProtocol::ActivateServiceUser(
