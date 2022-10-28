@@ -2,12 +2,12 @@ use std::collections::{HashMap, HashSet};
 use std::pin::Pin;
 
 use futures::Future;
-use log::{error, warn};
+use log::error;
 use sdp_common::crd::DeviceId;
 use sdp_common::errors::SDPServiceError;
 use sdp_common::service::ServiceIdentity;
 use sdp_common::traits::{HasCredentials, Service};
-use sdp_macros::{logger, sdp_info, sdp_log, with_dollar_sign};
+use sdp_macros::{logger, sdp_info, sdp_log, sdp_warn, with_dollar_sign};
 use tokio::sync::mpsc::{Receiver, Sender};
 use uuid::Uuid;
 

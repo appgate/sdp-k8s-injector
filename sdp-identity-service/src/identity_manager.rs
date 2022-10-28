@@ -2,7 +2,7 @@ use futures::Future;
 use k8s_openapi::api::apps::v1::Deployment;
 use kube::api::{DeleteParams, ListParams, PostParams};
 use kube::{Api, Client};
-use log::{error, warn};
+use log::error;
 use sdp_common::constants::SDP_CLUSTER_ID_ENV;
 pub use sdp_common::crd::{ServiceIdentity, ServiceIdentitySpec};
 use sdp_common::service::{ServiceLookup, ServiceUser};
