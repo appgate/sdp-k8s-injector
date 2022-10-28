@@ -8,4 +8,5 @@ RUN apt-get update && \
     apt-get autoremove --purge -y ca-certificates && \
     rm -rf /var/lib/apt/lists/*
 COPY --from=sdp-k8s-client-build:latest /sdp-build/bin/sdp-injector /sdp-k8s-client
+COPY sdp-injector/log4rs.yaml /sdp-k8s-client/log4rs.yaml
 ENTRYPOINT ["/sdp-k8s-client/sdp-injector"]

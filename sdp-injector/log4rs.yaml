@@ -1,0 +1,19 @@
+refresh_rate: 30 seconds
+
+appenders:
+  stdout:
+    kind: console
+    encoder:
+      pattern: "{h({d(%Y-%m-%d %H:%M:%S %Z)} {l} {m}{n})}"
+
+  file:
+    kind: file
+    path: "sdp-injector.log"
+    encoder:
+      pattern: "{d(%Y-%m-%d %H:%M:%S %Z)} {l} {m}{n}"
+
+root:
+  level: info
+  appenders:
+    - stdout
+    - file

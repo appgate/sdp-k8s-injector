@@ -17,9 +17,6 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::{collections::BTreeMap, error::Error};
 
-pub const SDP_INJECTOR_ANNOTATION_CLIENT_VERSION: &str = "sdp-injector-client-version";
-pub const SDP_INJECTOR_ANNOTATION: &str = "sdp-injection";
-
 logger!("ServiceIdentityProvider");
 
 #[derive(PartialEq, Debug)]

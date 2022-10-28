@@ -1450,6 +1450,7 @@ dependencies = [
  "k8s-openapi",
  "kube",
  "log",
+ "log4rs",
  "rustls",
  "rustls-pemfile",
  "sdp-common",
