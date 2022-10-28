@@ -24,7 +24,7 @@ macro_rules! logger {
                     };
 
                     ($d protocol:path | ($d target:expr $d(, $d arg:expr)*) => $d q:ident) => {
-                        sdp_info!($module, $d protocol | ($d target $d(, $d arg)*) => $d q)
+                        sdp_info!($module | $d protocol | ($d target $d(, $d arg)*) => $d q)
                     };
                 }
 
@@ -35,7 +35,7 @@ macro_rules! logger {
                     };
 
                     ($d protocol:path | ($d target:expr $d(, $d arg:expr)*) => $d q:ident) => {
-                        sdp_debug!($module, $d protocol | ($d target $d(, $d arg)*) => $d q)
+                        sdp_debug!($module | $d protocol | ($d target $d(, $d arg)*) => $d q)
                     };
                 }
 
@@ -46,7 +46,7 @@ macro_rules! logger {
                     };
 
                     ($d protocol:path | ($d target:expr $d(, $d arg:expr)*) => $d q:ident) => {
-                        sdp_warn!($module, $d protocol | ($d target $d(, $d arg)*) => $d q)
+                        sdp_warn!($module | $d protocol | ($d target $d(, $d arg)*) => $d q)
                     };
                 }
 
@@ -57,7 +57,7 @@ macro_rules! logger {
                     };
 
                     ($d protocol:path | ($d target:expr $d(, $d arg:expr)*) => $d q:ident) => {
-                        sdp_error!($module, $d protocol | ($d target $d(, $d arg)*) => $d q)
+                        sdp_error!($module | $d protocol | ($d target $d(, $d arg)*) => $d q)
                     };
                 }
             }
@@ -74,7 +74,7 @@ macro_rules! logger {
                     };
 
                     ($d protocol:path | ($d target:expr $d(, $d arg:expr)*) => $d q:ident) => {
-                        sdp_info!($module, $d protocol | ($d target $d(, $d arg)*) => $d q)
+                        sdp_info!($module | $d protocol | ($d target $d(, $d arg)*) => $d q)
                     };
                 }
 
@@ -85,7 +85,7 @@ macro_rules! logger {
                     };
 
                     ($d protocol:path | ($d target:expr $d(, $d arg:expr)*) => $d q:ident) => {
-                        sdp_debug!($module, $d protocol | ($d target $d(, $d arg)*) => $d q)
+                        sdp_debug!($module | $d protocol | ($d target $d(, $d arg)*) => $d q)
                     };
                 }
 
@@ -96,7 +96,7 @@ macro_rules! logger {
                     };
 
                     ($d protocol:path | ($d target:expr $d(, $d arg:expr)*) => $d q:ident) => {
-                        sdp_warn!($module, $d protocol | ($d target $d(, $d arg)*) => $d q)
+                        sdp_warn!($module | $d protocol | ($d target $d(, $d arg)*) => $d q)
                     };
                 }
 
@@ -107,7 +107,7 @@ macro_rules! logger {
                     };
 
                     ($d protocol:path | ($d target:expr $d(, $d arg:expr)*) => $d q:ident) => {
-                        sdp_error!($module, $d protocol | ($d target $d(, $d arg)*) => $d q)
+                        sdp_error!($module | $d protocol | ($d target $d(, $d arg)*) => $d q)
                     };
                 }
             }
@@ -141,6 +141,10 @@ macro_rules! sdp_log {
         log::$logger!($target $(, $arg)*);
     };
 
+    ($logger:ident | $module:literal | ($target:expr $(, $arg:expr)*)) => {
+        log::$logger!("[{}] {}", $module, $target $(, $arg)*);
+    };
+
     ($logger:ident | ($target:expr $(, $arg:expr)*)) => {
         log::$logger!($target $(, $arg)*);
     };
@@ -148,14 +152,20 @@ macro_rules! sdp_log {
 
 #[macro_export]
 macro_rules! sdp_info {
-    ($module:literal, $protocol:path | ($target:expr $(, $arg:expr)*) => $q:ident) => {
-        let t = format!($target $(, $arg)*);
-        sdp_log!(info | $protocol | $module | ("{}", t) => $q);
+    ($module:literal | $protocol:path | ($target:expr $(, $arg:expr)*) => $q:ident) => {
+        sdp_log!(info | $protocol | $module | ($target $(, $arg)*) => $q);
     };
 
-    ($module:literal, $protocol:path | ($target:expr $(, $arg:expr)*)) => {
-        let t = format!($target $(, $arg)*);
-        sdp_log!(info | $protocol | ("[{}] {}", $module, t) => None);
+    ($module:ident | $protocol:path | ($target:expr $(, $arg:expr)*) => $q:ident) => {
+        sdp_log!(info | $protocol | $module | ($target $(, $arg)*) => $q);
+    };
+
+    ($module:literal | $protocol:path | ($target:expr $(, $arg:expr)*)) => {
+        sdp_log!(info | $protocol | $module | ($target $(, $arg)*) => None);
+    };
+
+    ($module:ident | $protocol:path | ($target:expr $(, $arg:expr)*)) => {
+        sdp_log!(info | $protocol | $module | ($target $(, $arg)*) => None);
     };
 
     ($module:literal | ($target:expr $(, $arg:expr)*)) => {
@@ -163,40 +173,28 @@ macro_rules! sdp_info {
         sdp_log!(info | ("[{}] {}", $module, t));
     };
 
-    ($module:ident, $protocol:path | ($target:expr $(, $arg:expr)*) => $q:ident) => {
-        let t = format!($target $(, $arg)*);
-        sdp_log!(info | $protocol | $module | ("{}", t) => $q);
-    };
-
-    ($module:ident, $protocol:path | ($target:expr $(, $arg:expr)*)) => {
-        let t = format!($target $(, $arg)*);
-        sdp_log!(info | $protocol | ("[{}] {}", $module, t) => None);
-    };
-
     ($module:ident | ($target:expr $(, $arg:expr)*)) => {
         let t = format!($target $(, $arg)*);
         sdp_log!(info | ("[{}] {}", $module, t));
-    };
-
-    ($protocol:path | ($target:expr $(, $arg:expr)*) => $q:ident) => {
-        sdp_log!(info | $protocol | ($target $(, $arg)*) => $q);
-    };
-
-    ($protocol:path | $target:expr $(, $arg:expr)*) => {
-        sdp_log!(info | $protocol | ($target $(, $arg)*) => None);
     };
 }
 
 #[macro_export]
 macro_rules! sdp_warn {
-    ($module:literal, $protocol:path | ($target:expr $(, $arg:expr)*) => $q:ident) => {
-        let t = format!($target $(, $arg)*);
-        sdp_log!(warn | $protocol | $module | ("{}", t) => $q);
+    ($module:literal | $protocol:path | ($target:expr $(, $arg:expr)*) => $q:ident) => {
+        sdp_log!(warn | $protocol | $module | ($target $(, $arg)*) => $q);
     };
 
-    ($module:literal, $protocol:path | ($target:expr $(, $arg:expr)*)) => {
-        let t = format!($target $(, $arg)*);
-        sdp_log!(warn | $protocol | ("[{}] {}", $module, t) => None);
+    ($module:ident | $protocol:path | ($target:expr $(, $arg:expr)*) => $q:ident) => {
+        sdp_log!(warn | $protocol | $module | ($target $(, $arg)*) => $q);
+    };
+
+    ($module:literal | $protocol:path | ($target:expr $(, $arg:expr)*)) => {
+        sdp_log!(warn | $protocol | $module | ($target $(, $arg)*) => None);
+    };
+
+    ($module:ident | $protocol:path | ($target:expr $(, $arg:expr)*)) => {
+        sdp_log!(warn | $protocol | $module | ($target $(, $arg)*) => None);
     };
 
     ($module:literal | ($target:expr $(, $arg:expr)*)) => {
@@ -204,40 +202,28 @@ macro_rules! sdp_warn {
         sdp_log!(warn | ("[{}] {}", $module, t));
     };
 
-    ($module:ident, $protocol:path | ($target:expr $(, $arg:expr)*) => $q:ident) => {
-        let t = format!($target $(, $arg)*);
-        sdp_log!(warn | $protocol | $module | ("{}", t) => $q);
-    };
-
-    ($module:ident, $protocol:path | ($target:expr $(, $arg:expr)*)) => {
-        let t = format!($target $(, $arg)*);
-        sdp_log!(warn | $protocol | ("[{}] {}", $module, t) => None);
-    };
-
     ($module:ident | ($target:expr $(, $arg:expr)*)) => {
         let t = format!($target $(, $arg)*);
         sdp_log!(warn | ("[{}] {}", $module, t));
-    };
-
-    ($protocol:path | ($target:expr $(, $arg:expr)*) => $q:ident) => {
-        sdp_log!(warn | $protocol | ($target $(, $arg)*) => $q);
-    };
-
-    ($protocol:path | $target:expr $(, $arg:expr)*) => {
-        sdp_log!(warn | $protocol | ($target $(, $arg)*) => None);
     };
 }
 
 #[macro_export]
 macro_rules! sdp_debug {
-    ($module:literal, $protocol:path | ($target:expr $(, $arg:expr)*) => $q:ident) => {
-        let t = format!($target $(, $arg)*);
-        sdp_log!(debug | $protocol | $module | ("{}", t) => $q);
+    ($module:literal | $protocol:path | ($target:expr $(, $arg:expr)*) => $q:ident) => {
+        sdp_log!(debug | $protocol | $module | ($target $(, $arg)*) => $q);
     };
 
-    ($module:literal, $protocol:path | ($target:expr $(, $arg:expr)*)) => {
-        let t = format!($target $(, $arg)*);
-        sdp_log!(debug | $protocol | ("[{}] {}", $module, t) => None);
+    ($module:ident | $protocol:path | ($target:expr $(, $arg:expr)*) => $q:ident) => {
+        sdp_log!(debug | $protocol | $module | ($target $(, $arg)*) => $q);
+    };
+
+    ($module:literal | $protocol:path | ($target:expr $(, $arg:expr)*)) => {
+        sdp_log!(debug | $protocol | $module | ($target $(, $arg)*) => None);
+    };
+
+    ($module:ident | $protocol:path | ($target:expr $(, $arg:expr)*)) => {
+        sdp_log!(debug | $protocol | $module | ($target $(, $arg)*) => None);
     };
 
     ($module:literal | ($target:expr $(, $arg:expr)*)) => {
@@ -245,40 +231,28 @@ macro_rules! sdp_debug {
         sdp_log!(debug | ("[{}] {}", $module, t));
     };
 
-    ($module:ident, $protocol:path | ($target:expr $(, $arg:expr)*) => $q:ident) => {
-        let t = format!($target $(, $arg)*);
-        sdp_log!(debug | $protocol | $module | ("{}", t) => $q);
-    };
-
-    ($module:ident, $protocol:path | ($target:expr $(, $arg:expr)*)) => {
-        let t = format!($target $(, $arg)*);
-        sdp_log!(debug | $protocol | ("[{}] {}", $module, t) => None);
-    };
-
     ($module:ident | ($target:expr $(, $arg:expr)*)) => {
         let t = format!($target $(, $arg)*);
         sdp_log!(debug | ("[{}] {}", $module, t));
-    };
-
-    ($protocol:path | ($target:expr $(, $arg:expr)*) => $q:ident) => {
-        sdp_log!(debug | $protocol | ($target $(, $arg)*) => $q);
-    };
-
-    ($protocol:path | $target:expr $(, $arg:expr)*) => {
-        sdp_log!(debug | $protocol | ($target $(, $arg)*) => None);
     };
 }
 
 #[macro_export]
 macro_rules! sdp_error {
-    ($module:literal, $protocol:path | ($target:expr $(, $arg:expr)*) => $q:ident) => {
-        let t = format!($target $(, $arg)*);
-        sdp_log!(error | $protocol | $module | ("{}", t) => $q);
+    ($module:literal | $protocol:path | ($target:expr $(, $arg:expr)*) => $q:ident) => {
+        sdp_log!(error | $protocol | $module | ($target $(, $arg)*) => $q);
     };
 
-    ($module:literal, $protocol:path | ($target:expr $(, $arg:expr)*)) => {
-        let t = format!($target $(, $arg)*);
-        sdp_log!(error | $protocol | ("[{}] {}", $module, t) => None);
+    ($module:ident | $protocol:path | ($target:expr $(, $arg:expr)*) => $q:ident) => {
+        sdp_log!(error | $protocol | $module | ($target $(, $arg)*) => $q);
+    };
+
+    ($module:literal | $protocol:path | ($target:expr $(, $arg:expr)*)) => {
+        sdp_log!(error | $protocol | $module | ($target $(, $arg)*) => None);
+    };
+
+    ($module:ident | $protocol:path | ($target:expr $(, $arg:expr)*)) => {
+        sdp_log!(error | $protocol | $module | ($target $(, $arg)*) => None);
     };
 
     ($module:literal | ($target:expr $(, $arg:expr)*)) => {
@@ -286,27 +260,9 @@ macro_rules! sdp_error {
         sdp_log!(error | ("[{}] {}", $module, t));
     };
 
-    ($module:ident, $protocol:path | ($target:expr $(, $arg:expr)*) => $q:ident) => {
-        let t = format!($target $(, $arg)*);
-        sdp_log!(error | $protocol | $module | ("{}", t) => $q);
-    };
-
-    ($module:ident, $protocol:path | ($target:expr $(, $arg:expr)*)) => {
-        let t = format!($target $(, $arg)*);
-        sdp_log!(error | $protocol | ("[{}] {}", $module, t) => None);
-    };
-
     ($module:ident | ($target:expr $(, $arg:expr)*)) => {
         let t = format!($target $(, $arg)*);
         sdp_log!(error | ("[{}] {}", $module, t));
-    };
-
-    ($protocol:path | ($target:expr $(, $arg:expr)*) => $q:ident) => {
-        sdp_log!(error | $protocol | ($target $(, $arg)*) => $q);
-    };
-
-    ($protocol:path | $target:expr $(, $arg:expr)*) => {
-        sdp_log!(error | $protocol | ($target $(, $arg)*) => None);
     };
 }
 

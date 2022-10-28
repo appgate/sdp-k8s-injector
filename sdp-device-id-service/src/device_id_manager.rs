@@ -291,9 +291,9 @@ impl DeviceIdManagerRunner<ServiceIdentity, DeviceId> {
                                     "Created DeviceID {} for ServiceIdentity {}", device_id.service_id(), service_id
                                 ) => queue_tx);
                             }
-                            Err(error) => {
+                            Err(err) => {
                                 error!(DeviceIdManagerProtocol::<F>::DeviceIdManagerDebug | (
-                                    "Error creating DeviceId for ServiceIdentity {}: {}", service_id, error
+                                    "Error creating DeviceId for ServiceIdentity {}: {}", service_id, err
                                 ) => queue_tx);
                             }
                         },

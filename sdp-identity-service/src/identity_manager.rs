@@ -393,9 +393,8 @@ impl IdentityManagerRunner<ServiceLookup, ServiceIdentity> {
                                 info!(IdentityManagerProtocol::<F, ServiceIdentity>::IdentityManagerDebug |
                                     ("ServiceIdentity with id {} unregistered", s.service_id()) => external_queue_tx);
                             } else {
-                                sdp_warn!(IdentityManagerProtocol::<F, ServiceIdentity>::IdentityManagerDebug | (
-                                    "ServiceIdentity with id {} was not registered", service_id
-                                ) => external_queue_tx);
+                                warn!(IdentityManagerProtocol::<F, ServiceIdentity>::IdentityManagerDebug |
+                                    ("ServiceIdentity with id {} was not registered", service_id) => external_queue_tx);
                             }
 
                             // Ask IdentityCreator to remove the IdentityCredential
@@ -411,13 +410,13 @@ impl IdentityManagerRunner<ServiceLookup, ServiceIdentity> {
                                 ))
                                 .await
                             {
-                                sdp_error!(IdentityManagerProtocol::<F, ServiceIdentity>::IdentityManagerDebug |(
+                                error!(IdentityManagerProtocol::<F, ServiceIdentity>::IdentityManagerDebug |(
                                     "Error when sending event to delete IdentityCredential: {}", err
                                 ) => external_queue_tx);
                             }
                         }
                         Err(err) => {
-                            sdp_error!(IdentityManagerProtocol::<F, ServiceIdentity>::IdentityManagerDebug |(
+                            error!(IdentityManagerProtocol::<F, ServiceIdentity>::IdentityManagerDebug |(
                                 "Error deleting ServiceIdentity for service {}: {}",
                                 service_id,
                                 err
@@ -446,7 +445,7 @@ impl IdentityManagerRunner<ServiceLookup, ServiceIdentity> {
                                             .send(IdentityCreatorProtocol::CreateIdentity)
                                             .await
                                         {
-                                            sdp_error!(IdentityManagerProtocol::<F, ServiceIdentity>::IdentityManagerDebug |(
+                                            error!(IdentityManagerProtocol::<F, ServiceIdentity>::IdentityManagerDebug |(
                                                 "Error when sending IdentityCreatorMessage::CreateIdentity: {}",
                                                 err
                                             ) => external_queue_tx);
@@ -467,7 +466,7 @@ impl IdentityManagerRunner<ServiceLookup, ServiceIdentity> {
                                     }
                                 }
                                 Err(err) => {
-                                    sdp_error!(IdentityManagerProtocol::<F, ServiceIdentity>::IdentityManagerDebug |(
+                                    error!(IdentityManagerProtocol::<F, ServiceIdentity>::IdentityManagerDebug |(
                                         "Error creating ServiceIdentity for service with id {}: {}",
                                         service_id, err
                                 ) => external_queue_tx);
@@ -480,7 +479,7 @@ impl IdentityManagerRunner<ServiceLookup, ServiceIdentity> {
                                 ) => external_queue_tx);
                             }
                             None => {
-                                sdp_error!(IdentityManagerProtocol::<F, ServiceIdentity>::IdentityManagerDebug |(
+                                error!(IdentityManagerProtocol::<F, ServiceIdentity>::IdentityManagerDebug |(
                                     "Unable to assign service identity for service {}. Identities pool seems to be empty!",
                                     service_id
                                     ) => external_queue_tx);
