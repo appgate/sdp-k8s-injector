@@ -223,9 +223,10 @@ The initial init-container `sdp-init-container-0` is meant to preserve the origi
 
 The last init-container `sdp-init-container-f` overwrite `/etc/resolv.conf` by setting the nameserver to `127.0.0.1` so the pod can use the DNS server provided by the injector's dnsmasq. 
 
-You can disable the injection of these init-containers by providing the annotation `k8s.appgate.com/sdp-injector.strategy.disable-init-containers="true"` or by providing the annotation in the deployment's pod template. 
+You can disable the injection of these init-containers by providing the annotation `k8s.appgate.com/sdp-injector.strategy.disable-init-containers="true"` or by providing the annotation in the deployment.
 ```bash
 $ kubectl annotate pod <POD> k8s.appgate.com/sdp-injector.disable-init-containers="true"
+$ kubectl annotate deployment <DEPLOYMENT> k8s.appgate.com/sdp-injector.disable-init-containers="true"
 ```
 
 ### Multiple Injectors
