@@ -2,13 +2,14 @@ use k8s_openapi::api::apps::v1::Deployment;
 use k8s_openapi::api::core::v1::Namespace;
 use kube::ResourceExt;
 use log::{error, info};
-use sdp_common::service::SDP_INJECTOR_ANNOTATION;
 use sdp_common::watcher::SimpleWatchingProtocol;
 use sdp_common::{crd::ServiceIdentity, traits::Candidate, traits::MaybeService};
 use sdp_macros::when_ok;
 use std::fmt::Debug;
 
 use crate::identity_manager::IdentityManagerProtocol;
+
+pub const SDP_INJECTOR_ANNOTATION: &str = "sdp-injector";
 
 #[derive(Debug)]
 pub enum DeploymentWatcherProtocol {

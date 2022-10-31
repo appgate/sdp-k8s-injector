@@ -16,8 +16,6 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::{collections::BTreeMap, error::Error};
 
-pub const SDP_INJECTOR_ANNOTATION: &str = "sdp-injector";
-
 #[derive(PartialEq, Debug)]
 pub enum SDPInjectionStrategy {
     EnabledByDefault,

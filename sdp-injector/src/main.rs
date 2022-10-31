@@ -1109,7 +1109,7 @@ mod tests {
     use sdp_common::annotations::SDP_INJECTOR_ANNOTATION_ENABLED;
     use sdp_common::constants::SDP_DEFAULT_CLIENT_VERSION_ENV;
     use sdp_common::crd::{DeviceId, DeviceIdSpec, ServiceIdentity, ServiceIdentitySpec};
-    use sdp_common::service::{init_containers, ServiceUser, SDP_INJECTOR_ANNOTATION_ENABLED};
+    use sdp_common::service::{init_containers, ServiceUser};
     use sdp_common::traits::{
         Annotated, Candidate, MaybeNamespaced, MaybeService, Named, ObjectRequest,
     };
