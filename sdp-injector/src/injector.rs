@@ -885,6 +885,15 @@ async fn patch_deployment(
         .unwrap_or(false)
         .to_string();
 
+    let default_version = std::env::var(SDP_DEFAULT_CLIENT_VERSION_ENV).unwrap();
+    let client_version = deployment
+        .annotation(SDP_INJECTOR_ANNOTATION_CLIENT_VERSION)
+        .or_else(|| {
+            ns.as_ref()
+                .and_then(|ns| ns.annotation(SDP_INJECTOR_ANNOTATION_CLIENT_VERSION))
+        })
+        .unwrap_or(&default_version);
+
     patches.push(Add(AddOperation {
         path: format!(
             "/metadata/annotations/{}",
@@ -957,6 +966,17 @@ async fn patch_deployment(
             patch_annotation!(SDP_INJECTOR_ANNOTATION_DISABLE_INIT_CONTAINERS)
         ),
         value: serde_json::to_value(disable_init_containers)
+            .map_err(|e| SDPServiceError::from(e))
+            .map_err(SDPPatchError::from_admission_response(Box::clone(
+                &admission_response,
+            )))?,
+    }));
+    patches.push(Add(AddOperation {
+        path: format!(
+            "/spec/template/metadata/annotations/{}",
+            patch_annotation!(SDP_INJECTOR_ANNOTATION_CLIENT_VERSION)
+        ),
+        value: serde_json::to_value(client_version)
             .map_err(|e| SDPServiceError::from(e))
             .map_err(SDPPatchError::from_admission_response(Box::clone(
                 &admission_response,
