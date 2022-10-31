@@ -17,11 +17,15 @@ use kube::core::admission::{AdmissionRequest, AdmissionResponse, AdmissionReview
 use kube::Api;
 use rustls::{Certificate, PrivateKey, ServerConfig};
 use rustls_pemfile::{read_one, Item};
-use sdp_common::constants::{
-    MAX_PATCH_ATTEMPTS, SDP_DEFAULT_CLIENT_VERSION_ENV,
+use sdp_common::annotations::{
+    SDP_ANNOTATION_CLIENT_CONFIG, SDP_ANNOTATION_CLIENT_DEVICE_ID, SDP_ANNOTATION_CLIENT_SECRETS,
+    SDP_ANNOTATION_DNS_SEARCHES, SDP_INJECTOR_ANNOTATION_CLIENT_VERSION,
+    SDP_INJECTOR_ANNOTATION_ENABLED, SDP_INJECTOR_ANNOTATION_STRATEGY,
 };
+use sdp_common::constants::{MAX_PATCH_ATTEMPTS, SDP_DEFAULT_CLIENT_VERSION_ENV};
 use sdp_common::crd::DeviceId;
 use sdp_common::errors::SDPServiceError;
+use sdp_common::patch_annotation;
 use sdp_common::traits::{
     Annotated, Candidate, HasCredentials, MaybeNamespaced, MaybeService, ObjectRequest, Validated,
 };
@@ -41,22 +45,17 @@ use tokio::sync::mpsc::{channel, Sender};
 use tokio::sync::{Mutex, MutexGuard};
 use tokio::time::timeout;
 use uuid::Uuid;
-use sdp_common::annotations::{SDP_INJECTOR_ANNOTATION_CLIENT_VERSION, SDP_INJECTOR_ANNOTATION_ENABLED, SDP_INJECTOR_ANNOTATION_STRATEGY};
 
 use crate::deviceid::DeviceIdProviderRequestProtocol;
 use sdp_common::service::{
     containers, init_containers, injection_strategy, volume_names, volumes, SDPInjectionStrategy,
-    ServiceIdentity
+    ServiceIdentity,
 };
 use sdp_macros::{logger, sdp_debug, sdp_error, sdp_info, sdp_log, sdp_warn, with_dollar_sign};
 
 logger!("SDPInjector");
 
 const SDP_DNS_SERVICE_NAMES: [&str; 2] = ["kube-dns", "coredns"];
-const SDP_ANNOTATION_CLIENT_CONFIG: &str = "sdp-injector-client-config";
-const SDP_ANNOTATION_CLIENT_SECRETS: &str = "sdp-injector-client-secrets";
-const SDP_ANNOTATION_CLIENT_DEVICE_ID: &str = "sdp-injector-client-device-id";
-const SDP_ANNOTATION_DNS_SEARCHES: &str = "sdp-injector-dns-searches";
 const SDP_SIDECARS_FILE: &str = "/opt/sdp-injector/k8s/sdp-sidecars.json";
 const SDP_SIDECARS_FILE_ENV: &str = "SDP_SIDECARS_FILE";
 const SDP_CERT_FILE_ENV: &str = "SDP_CERT_FILE";
@@ -584,18 +583,27 @@ impl Patched for SDPPod {
                 .unwrap_or(injection_strategy == SDPInjectionStrategy::EnabledByDefault)
                 .to_string();
             patches.push(Add(AddOperation {
-                path: format!("/metadata/annotations/{}", SDP_INJECTOR_ANNOTATION_STRATEGY),
+                path: format!(
+                    "/metadata/annotations/{}",
+                    patch_annotation!(SDP_INJECTOR_ANNOTATION_STRATEGY)
+                ),
                 value: serde_json::to_value(injection_strategy.to_string())?,
             }));
             patches.push(Add(AddOperation {
-                path: format!("/metadata/annotations/{}", SDP_INJECTOR_ANNOTATION_ENABLED),
+                path: format!(
+                    "/metadata/annotations/{}",
+                    patch_annotation!(SDP_INJECTOR_ANNOTATION_ENABLED)
+                ),
                 value: serde_json::to_value(
                     pod.annotation(SDP_INJECTOR_ANNOTATION_ENABLED)
                         .unwrap_or(&injection_enabled),
                 )?,
             }));
             patches.push(Add(AddOperation {
-                path: format!("/metadata/annotations/{}", SDP_ANNOTATION_CLIENT_DEVICE_ID),
+                path: format!(
+                    "/metadata/annotations/{}",
+                    patch_annotation!(SDP_ANNOTATION_CLIENT_DEVICE_ID)
+                ),
                 value: serde_json::to_value(&environment.client_device_id)?,
             }));
 
@@ -1079,11 +1087,10 @@ mod tests {
     };
     use kube::core::admission::AdmissionReview;
     use kube::core::ObjectMeta;
+    use sdp_common::annotations::SDP_INJECTOR_ANNOTATION_ENABLED;
     use sdp_common::constants::SDP_DEFAULT_CLIENT_VERSION_ENV;
     use sdp_common::crd::{DeviceId, DeviceIdSpec, ServiceIdentity, ServiceIdentitySpec};
-    use sdp_common::service::{
-        containers, init_containers, volume_names, ServiceUser, SDP_INJECTOR_ANNOTATION_ENABLED,
-    };
+    use sdp_common::service::{containers, init_containers, volume_names, ServiceUser};
     use sdp_common::traits::{
         Annotated, Candidate, MaybeNamespaced, MaybeService, Named, ObjectRequest, Validated,
     };
