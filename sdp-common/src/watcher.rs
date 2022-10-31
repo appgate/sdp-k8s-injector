@@ -7,7 +7,7 @@ use kube::{
     runtime::watcher::{self, Event},
     Api, Resource, ResourceExt,
 };
-use sdp_macros::{logger, sdp_error, sdp_info, sdp_log, with_dollar_sign};
+use sdp_macros::{logger, sdp_debug, sdp_error, sdp_info, sdp_log, with_dollar_sign};
 use serde::de::DeserializeOwned;
 use tokio::sync::mpsc::{Receiver, Sender};
 
@@ -51,10 +51,10 @@ where
             if let Some(ns) = ns_name {
                 match watcher.api_ns.as_ref().unwrap().get_opt(&ns).await {
                     Ok(ns) => Ok(ns),
-                    Err(err) => Err(format!("Error getting namespace {}:", err)),
+                    Err(err) => Err(format!("Error getting namespace: {}", err)),
                 }
             } else {
-                Err(format!("Namespace not found!"))
+                Err(format!("Unable to get namespace"))
             }
         } else {
             Ok(None)
@@ -111,7 +111,7 @@ where
         info!("Waiting for other services to be ready");
         while let Some(msg) = queue_rx.recv().await {
             if continue_f(&msg) {
-                info!("Got message {:?}, watcher is ready to continue:", msg);
+                info!("Got message {:?}, watcher is ready to continue", msg);
                 break;
             }
         }
@@ -120,7 +120,7 @@ where
     // Run the watcher
     let xs = watcher::watcher(watcher.api, ListParams::default());
     let mut xs = xs.boxed();
-    info!("Starting watcher loop");
+    info!("Starting watcher loop for {}", module);
     loop {
         match xs.try_next().await {
             Ok(Some(Event::Applied(e))) => {
@@ -139,11 +139,11 @@ where
                 };
                 let msg = match op {
                     WatcherOperation::Apply => {
-                        info!("Applying message");
+                        debug!("Sending Applied message for {}", e.name_any());
                         e.applied(ns)
                     }
                     WatcherOperation::ReApply => {
-                        info!("Reapplying message");
+                        debug!("Sending Reapplied message for {}", e.name_any());
                         e.reapplied(ns)
                     }
                 };
@@ -165,6 +165,7 @@ where
                         err
                     })
                     .unwrap_or(None);
+                debug!("Sending Deleted message for {}", e.name_any());
                 if let Some(msg) = e.deleted(ns) {
                     if let Err(e) = watcher.queue_tx.send(msg).await {
                         error!("Error sending Deleted message: {}", e.to_string());
@@ -178,7 +179,7 @@ where
             Ok(Some(Event::Restarted(_))) => {}
             Ok(None) => {}
             Err(e) => {
-                error!("Error reading ServiceIdentity events: {}", e.to_string());
+                error!("Error reading events: {}", e.to_string());
             }
         }
     }

@@ -194,7 +194,7 @@ impl IdentityCreator {
             }
             if !patches.is_empty() {
                 info!(
-                    "Removing {} old entries from glocal secret {}",
+                    "Removing {} old entries from global secret {}",
                     n, IDENTITY_MANAGER_SECRET_NAME
                 );
                 let patch: KubePatch<Secret> = KubePatch::Json(Patch(patches));
@@ -221,10 +221,9 @@ impl IdentityCreator {
             .await
             .map_err(|e| {
                 IdentityServiceError::from(format!(
-                    "Unable to delete secrets for ServiceUser witn name {} [{}/{}]: {}",
+                    "[{}] Unable to delete secrets for ServiceUser {}: {}",
+                    format!("{}_{}", service_ns, service_name),
                     service_user.name,
-                    service_ns,
-                    service_name,
                     e.to_string()
                 ))
             })?;
@@ -233,10 +232,9 @@ impl IdentityCreator {
             .await
             .map_err(|e| {
                 IdentityServiceError::from(format!(
-                    "Unable to delete secrets for ServiceUser witn name {} [{}/{}]: {}",
+                    "[{}] Unable to delete secrets for ServiceUser {}: {}",
+                    format!("{}_{}", service_ns, service_name),
                     service_user.name,
-                    service_ns,
-                    service_name,
                     e.to_string()
                 ))
             })?;
@@ -252,10 +250,10 @@ impl IdentityCreator {
         let client_profile_url = get_or_create_client_profile_url(system, &self.cluster_id).await?;
         // Notify ServiceIdentityManager about the actual credentials created in appgate
         let mut n_missing_users = self.service_users_pool_size;
-        // This could be actived credentials or deactivated ones.
+        // This could be activated credentials or deactivated ones.
         let mut known_service_users = HashSet::new();
         for sdp_user in users {
-            // We got a SDPUSer. We dont have any wayt to recover passwords
+            // We got a SDPUser. We dont have any way to recover passwords
             // from there (SDPUsers dont contain the password when fetched from a controller)
             // IM always saves those creds for ServiceUsers that are deactivated.
             // If we dont have a password for this user, don't recover it and ask IC to delete as soon as possible.
@@ -273,7 +271,7 @@ impl IdentityCreator {
                 identity_manager_proto_tx.send(msg).await?;
             } else {
                 error!(
-                    "Recovering ServiceUser information from SDPUser {}. Deleting SDPUSer.",
+                    "Recovering ServiceUser information from SDPUser {}. Deleting SDPUser.",
                     sdp_user.name
                 );
                 if let Err(e) = self.delete_sdp_user(&sdp_user.name).await {
@@ -313,22 +311,18 @@ impl IdentityCreator {
         mut identity_creator_proto_rx: Receiver<IdentityCreatorProtocol>,
         identity_manager_proto_tx: Sender<IdentityManagerProtocol<Deployment, ServiceIdentity>>,
     ) -> () {
-        info!("Starting dormant Identity Creator service, waiting commands from Identity Manager service");
         while let Some(msg) = identity_creator_proto_rx.recv().await {
             match msg {
                 IdentityCreatorProtocol::StartService => {
-                    info!("Identity Creator awake! Ready to process messages");
+                    info!("Identity Creator is ready");
                     break;
                 }
                 msg => {
-                    warn!(
-                        "IdentityCreator is still dormant, ignoring message {:?}",
-                        msg
-                    );
+                    warn!("IdentityCreator is not ready, ignoring message {:?}", msg);
                 }
             }
         }
-        info!("Intializing IdentityCreator");
+        info!("Starting IdentityCreator");
         if let Err(e) = self
             .initialize(system, identity_manager_proto_tx.clone())
             .await
@@ -372,8 +366,9 @@ impl IdentityCreator {
                     service_name,
                 ) => {
                     info!(
-                        "Deleting ServiceUser with name {} [{}/{}]",
-                        service_user.name, service_ns, service_name
+                        "[{}] Deleting ServiceUser {}",
+                        format!("{}_{}", service_ns, service_name),
+                        service_user.name
                     );
 
                     if let Err(err) = self
@@ -381,8 +376,10 @@ impl IdentityCreator {
                         .await
                     {
                         error!(
-                            "Error deleting ServiceUser with id {} [{}/{}]: {}",
-                            service_user.name, service_ns, service_name, err
+                            "[{}] Error deleting ServiceUser with id {}: {}",
+                            format!("{}_{}", service_ns, service_name),
+                            service_user.name,
+                            err
                         );
                     }
                 }
@@ -401,13 +398,16 @@ impl IdentityCreator {
                     service_user.name = sdp_user.name.clone();
 
                     info!(
-                        "Activating ServiceUser with name {} [{}/{}]",
-                        sdp_user.name, service_ns, service_name
+                        "[{}] Activating ServiceUser with name {}",
+                        format!("{}_{}", service_ns, service_name),
+                        service_name
                     );
                     if let Err(err) = system.modify_user(&sdp_user).await {
                         error!(
-                            "Unable to activate ServiceUser with name {} [{}/{}]: {}",
-                            service_user.name, service_ns, service_name, err
+                            "[{}] Unable to activate ServiceUser with name {}: {}",
+                            format!("{}_{}", service_ns, service_name),
+                            service_name,
+                            err
                         );
                     }
 
@@ -420,42 +420,42 @@ impl IdentityCreator {
                         .await
                     {
                         error!(
-                            "Unable to notify IdentityManager about activated ServiceUSer {} [{}/{}]: {}",
-                            service_user.name, service_ns, service_name, err
+                            "[{}] Unable to notify IdentityManager about activated ServiceUSer {}: {}",
+                             format!("{}_{}", service_ns, service_name), service_user.name,  err
                         );
                     }
 
                     // Create secrets now
                     info!(
-                        "Creating secrets for ServiceUser with name {} [{}/{}]",
-                        service_user.name, service_ns, service_name
+                        "[{}] Creating secrets for ServiceUser with name {}",
+                        format!("{}_{}", service_ns, service_name),
+                        service_user.name
                     );
                     if let Err(e) = service_user
                         .create_secrets(self.secrets_api(&service_ns), &service_ns, &service_name)
                         .await
                     {
                         error!(
-                            "Error creating secrets for ServiceUser {} [{}/{}]: {}",
+                            "[{}] Error creating secrets for ServiceUser {}: {}",
+                            format!("{}_{}", service_ns, service_name),
                             service_user.name,
-                            service_ns,
-                            service_name,
                             e.to_string()
                         );
                     }
 
                     info!(
-                        "Creating config for ServiceUser with name {} [{}/{}]",
-                        service_user.name, service_ns, service_name
+                        "[{}] Creating config for ServiceUser {}",
+                        format!("{}_{}", service_ns, service_name),
+                        service_name
                     );
                     if let Err(e) = service_user
                         .create_config(self.configmap_api(&service_ns), &service_ns, &service_name)
                         .await
                     {
                         error!(
-                            "Error creating secrets for ServiceUser {} [{}/{}]: {}",
+                            "[{}] Error creating secrets for ServiceUser {}: {}",
+                            format!("{}_{}", service_ns, service_name),
                             service_user.name,
-                            service_ns,
-                            service_name,
                             e.to_string()
                         );
                     }
@@ -469,9 +469,7 @@ impl IdentityCreator {
                         );
                     }
                 }
-                msg => {
-                    warn!("Ignoring message: {:?}", msg);
-                }
+                _ => {}
             }
         }
     }

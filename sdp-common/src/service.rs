@@ -230,19 +230,26 @@ impl ServiceUser {
             api.delete(&secret_name, &DeleteParams::default())
                 .await?
                 .map_left(|_| {
-                    info!("Deleted secret {} [{}]", secret_name, service_ns);
+                    info!(
+                        "[{}] Deleted secret {}",
+                        format!("{}_{}", service_ns, service_name),
+                        secret_name
+                    );
                 })
                 .map_right(|s| {
                     info!(
-                        "Deleting secret {} [{}]: {}",
-                        secret_name, service_ns, s.status
+                        "[{}] Deleting secret {}: {}",
+                        format!("{}_{}", service_ns, service_name),
+                        secret_name,
+                        s.status
                     );
                 });
             Ok(())
         } else {
             warn!(
-                "Secret {} [{}] does not exists, could not delete it.",
-                secret_name, service_ns
+                "[{}] Unable to find Secret {} to delete it",
+                format!("{}_{}", service_ns, service_name),
+                secret_name
             );
             Ok(())
         }
@@ -260,19 +267,28 @@ impl ServiceUser {
             api.delete(&config_map_name, &DeleteParams::default())
                 .await?
                 .map_left(|_| {
-                    info!("Deleted secret {} [{}]", config_map_name, service_ns);
+                    info!(
+                        "[{}] Deleted secret {} [{}]",
+                        format!("{}_{}", service_ns, service_name),
+                        config_map_name,
+                        service_ns
+                    );
                 })
                 .map_right(|s| {
                     info!(
-                        "Deleting config {} [{}]: {}",
-                        config_map_name, service_ns, s.status
+                        "[{}] Deleting config {} [{}]: {}",
+                        format!("{}_{}", service_ns, service_name),
+                        config_map_name,
+                        service_ns,
+                        s.status
                     );
                 });
             Ok(())
         } else {
             warn!(
-                "Config {} [{}] does not exists, could not delete it.",
-                config_map_name, service_ns
+                "[{}] Unable to find Config {} to delete it.",
+                format!("{}_{}", service_ns, service_name),
+                config_map_name
             );
             Ok(())
         }
@@ -404,8 +420,8 @@ impl ServiceUser {
             .await?
         {
             warn!(
-                "Found old config for service {} [{}]. Deleting it.",
-                service_name, service_ns
+                "[{}] Found old config. Deleting it.",
+                format!("{}_{}", service_name, service_ns)
             );
             api.delete(
                 &service_config_fields.configmap_name,

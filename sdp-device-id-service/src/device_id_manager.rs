@@ -6,7 +6,7 @@ use kube::{Api, Client, Resource};
 use sdp_common::crd::{DeviceId, DeviceIdSpec, ServiceIdentity};
 use sdp_common::kubernetes::SDP_K8S_NAMESPACE;
 use sdp_common::traits::{HasCredentials, Named, Namespaced, Service};
-use sdp_macros::{logger, queue_debug, sdp_error, sdp_info, sdp_log, sdp_warn, with_dollar_sign};
+use sdp_macros::{logger, queue_debug, sdp_error, sdp_info, sdp_log, with_dollar_sign};
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::future::Future;
@@ -109,7 +109,7 @@ impl DeviceIdAPI for KubeDeviceIdManager {
                 .map_err(|e| e.to_string())
             {
                 Ok(None) => {
-                    info!("DeviceIds {} does not exist, creating it.", service_name);
+                    info!("[{}] Creating DeviceID {}", service_id, service_name);
                     let owner_name = &device_id.spec.service_name;
                     let owner_namespace = &device_id.spec.service_namespace;
                     let mut uuids: Vec<String> = vec![];
@@ -120,7 +120,7 @@ impl DeviceIdAPI for KubeDeviceIdManager {
                     let replicasets = replicaset_api
                         .list(&ListParams::default())
                         .await
-                        .map_err(|e| format!("Unable to get replica sets: {}", e.to_string()))?;
+                        .map_err(|e| format!("Unable to get ReplicaSets: {}", e.to_string()))?;
                     for replicaset in replicasets {
                         if let Some(replicaset_owners) =
                             &replicaset.meta().owner_references.as_ref()
@@ -131,7 +131,7 @@ impl DeviceIdAPI for KubeDeviceIdManager {
                                     Api::namespaced(self.client.clone(), SDP_K8S_NAMESPACE);
                                 let service_identity =
                                     service_identity_api.get(&service_name).await.map_err(|e| {
-                                        format!("Unable to get service identity: {}", e.to_string())
+                                        format!("Unable to get ServiceIdentity: {}", e.to_string())
                                     })?;
                                 owner_ref.controller = Default::default();
                                 owner_ref.block_owner_deletion = Some(true);
@@ -144,7 +144,10 @@ impl DeviceIdAPI for KubeDeviceIdManager {
                                 if let Some(num_replicas) = replicaset.spec.unwrap().replicas {
                                     for _ in 0..(2 * num_replicas) {
                                         let uuid = Uuid::new_v4().to_string();
-                                        info!("Assigning uuid {} to DeviceID {}", uuid, service_id);
+                                        info!(
+                                            "[{}] Assigning uuid {} to DeviceID {}",
+                                            service_id, uuid, service_id
+                                        );
                                         uuids.push(uuid);
                                     }
                                 }
@@ -168,7 +171,8 @@ impl DeviceIdAPI for KubeDeviceIdManager {
                             .await
                             .map_err(|e| {
                                 format!(
-                                    "Error creatring DeviceIds for service {}: {}",
+                                    "[{}] Error creating DeviceIDs for service {}: {}",
+                                    service_id,
                                     service_id,
                                     e.to_string()
                                 )
@@ -176,22 +180,26 @@ impl DeviceIdAPI for KubeDeviceIdManager {
                     )
                 }
                 Ok(_) => {
-                    info!("DeviceIds for service {} already exists.", service_id);
+                    info!(
+                        "[{}] DeviceID for service {} already exists.",
+                        service_id, service_id
+                    );
                     Some(Ok(device_id.clone()))
                 }
                 Err(e) => {
                     error!(
-                        "Error checking if device ids for service {} exists.",
-                        service_id
+                        "[{}] Error checking if DeviceID for service {} exists.",
+                        service_id, service_id
                     );
                     Some(Err(format!(
-                        "Error checking if device ids for service {} exists: {}",
+                        "[{}] Error checking if DeviceID for service {} exists: {}",
+                        service_id,
                         service_id,
                         e.to_string()
                     )))
                 }
             }
-            .unwrap_or(Err("Unknown namespace for DeviceId".to_string()))
+            .unwrap_or(Err("Unable to get namespace for DeviceID".to_string()))
         };
         Box::pin(fut)
     }
@@ -202,7 +210,7 @@ impl DeviceIdAPI for KubeDeviceIdManager {
     ) -> Pin<Box<dyn Future<Output = Result<(), String>> + Send + '_>> {
         let fut = async move {
             let device_id_api: Api<DeviceId> =
-                Api::namespaced(self.client.clone(), "purple-devops");
+                Api::namespaced(self.client.clone(), SDP_K8S_NAMESPACE);
             device_id_api
                 .delete(device_id_name, &DeleteParams::default())
                 .await
@@ -253,13 +261,16 @@ impl DeviceIdManagerRunner<ServiceIdentity, DeviceId> {
         match dm.list().await {
             Ok(device_ids) => {
                 device_ids.iter().for_each(|d| {
-                    info!("Restoring DeviceIds for service: {}", d.service_id());
+                    info!(
+                        "[{}] Restoring DeviceID for service: {}",
+                        d.service_id(),
+                        d.service_id()
+                    );
                     dm.register(d.clone());
                 });
-                info!("Restored {} DeviceIds", device_ids.len());
             }
             Err(err) => {
-                panic!("Error fetching the list of DeviceIds: {}", err);
+                panic!("Error fetching the list of DeviceIDs: {}", err);
             }
         }
     }
@@ -271,7 +282,7 @@ impl DeviceIdManagerRunner<ServiceIdentity, DeviceId> {
         _watcher_proto_tx: Sender<ServiceIdentityWatcherProtocol>,
         queue_tx: Option<&Sender<DeviceIdManagerProtocol<F>>>,
     ) {
-        info!("Entering Device ID Manager main loop");
+        info!("Starting Device ID Manager loop");
         queue_debug!(DeviceIdManagerProtocol::<F>::DeviceIdManagerStarted => queue_tx);
 
         while let Some(message) = manager_proto_rx.recv().await {
@@ -281,19 +292,19 @@ impl DeviceIdManagerRunner<ServiceIdentity, DeviceId> {
                 DeviceIdManagerProtocol::CreateDeviceId(service_identity_ref) => {
                     let service_id = service_identity_ref.service_id();
                     info!(DeviceIdManagerProtocol::<F>::DeviceIdManagerDebug | (
-                        "Received request for new DeviceId for ServiceIdentity {}", service_id
+                        "[{}] Received request for new DeviceId for ServiceIdentity {}", service_id, service_id
                     ) => queue_tx);
 
                     match dm.next_device_id(&service_identity_ref) {
                         Some(d) => match dm.create(&d).await {
                             Ok(device_id) => {
                                 info!(DeviceIdManagerProtocol::<F>::DeviceIdManagerDebug | (
-                                    "Created DeviceID {} for ServiceIdentity {}", device_id.service_id(), service_id
+                                    "[{}] Created DeviceID {} for ServiceIdentity {}", device_id.service_id(), device_id.service_id(), service_id
                                 ) => queue_tx);
                             }
                             Err(err) => {
                                 error!(DeviceIdManagerProtocol::<F>::DeviceIdManagerDebug | (
-                                    "Error creating DeviceId for ServiceIdentity {}: {}", service_id, err
+                                    "[{}] Error creating DeviceID for ServiceIdentity {}: {}", service_id, service_id, err
                                 ) => queue_tx);
                             }
                         },
@@ -303,7 +314,8 @@ impl DeviceIdManagerRunner<ServiceIdentity, DeviceId> {
 
                 DeviceIdManagerProtocol::FoundServiceIdentity(service_identity_ref) => {
                     info!(DeviceIdManagerProtocol::<F>::DeviceIdManagerDebug | (
-                        "Found ServiceIdentity {}",
+                        "[{}] Found ServiceIdentity {}",
+                        service_identity_ref.service_id(),
                         service_identity_ref.service_id()
                     ) => queue_tx);
 
@@ -314,9 +326,7 @@ impl DeviceIdManagerRunner<ServiceIdentity, DeviceId> {
                         .await
                         .expect("Unable to send CreateDeviceId message");
                 }
-                _ => {
-                    warn!("Ignored message");
-                }
+                _ => {}
             }
         }
     }
@@ -480,7 +490,7 @@ mod tests {
                 assert_message! {
                     (m :: DeviceIdManagerProtocol::DeviceIdManagerDebug(_) in queue_rx) => {
                         if let DeviceIdManagerProtocol::DeviceIdManagerDebug(msg) = m {
-                            assert!(msg.eq("Found ServiceIdentity ns1_srv1"), "Wrong message, got {}", msg);
+                            assert!(msg.eq("[ns1_srv1] Found ServiceIdentity ns1_srv1"), "Wrong message, got {}", msg);
                         }
                     }
                 }
@@ -488,7 +498,7 @@ mod tests {
                 assert_message! {
                     (m :: DeviceIdManagerProtocol::DeviceIdManagerDebug(_) in queue_rx) => {
                         if let DeviceIdManagerProtocol::DeviceIdManagerDebug(msg) = m {
-                            assert!(msg.eq("Received request for new DeviceId for ServiceIdentity ns1_srv1"), "Wrong message, got {}", msg)
+                            assert!(msg.eq("[ns1_srv1] Received request for new DeviceId for ServiceIdentity ns1_srv1"), "Wrong message, got {}", msg)
                         }
                     }
                 }
@@ -498,7 +508,7 @@ mod tests {
                 assert_message! {
                     (m :: DeviceIdManagerProtocol::DeviceIdManagerDebug(_) in queue_rx) => {
                         if let DeviceIdManagerProtocol::DeviceIdManagerDebug(msg) = m {
-                            assert!(msg.eq("Created DeviceID ns1_srv1 for ServiceIdentity ns1_srv1"), "Wrong message, got {}", msg)
+                            assert!(msg.eq("[ns1_srv1] Created DeviceID ns1_srv1 for ServiceIdentity ns1_srv1"), "Wrong message, got {}", msg)
                         }
                     }
                 }

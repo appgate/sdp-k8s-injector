@@ -13,7 +13,11 @@ impl SimpleWatchingProtocol<DeviceIdProviderRequestProtocol<ServiceIdentity>> fo
         &self,
         _ns: Option<Namespace>,
     ) -> Option<DeviceIdProviderRequestProtocol<ServiceIdentity>> {
-        info!("Recovered DeviceId {}", self.service_id());
+        info!(
+            "[{}] Recovered DeviceId {}",
+            self.service_id(),
+            self.service_id()
+        );
         Some(DeviceIdProviderRequestProtocol::FoundDeviceId(self.clone()))
     }
 
@@ -21,18 +25,12 @@ impl SimpleWatchingProtocol<DeviceIdProviderRequestProtocol<ServiceIdentity>> fo
         &self,
         _ns: Option<Namespace>,
     ) -> Option<DeviceIdProviderRequestProtocol<ServiceIdentity>> {
-        info!("Applied DeviceId {}", self.service_id());
+        info!(
+            "[{}] Applied DeviceId {}",
+            self.service_id(),
+            self.service_id()
+        );
         Some(DeviceIdProviderRequestProtocol::FoundDeviceId(self.clone()))
-    }
-
-    fn deleted(
-        &self,
-        _ns: Option<Namespace>,
-    ) -> Option<DeviceIdProviderRequestProtocol<ServiceIdentity>> {
-        info!("Deleted DeviceId {}", self.service_id());
-        Some(DeviceIdProviderRequestProtocol::DeletedDeviceId(
-            self.clone(),
-        ))
     }
 
     fn reapplied(
@@ -40,6 +38,20 @@ impl SimpleWatchingProtocol<DeviceIdProviderRequestProtocol<ServiceIdentity>> fo
         _ns: Option<Namespace>,
     ) -> Option<DeviceIdProviderRequestProtocol<ServiceIdentity>> {
         None
+    }
+
+    fn deleted(
+        &self,
+        _ns: Option<Namespace>,
+    ) -> Option<DeviceIdProviderRequestProtocol<ServiceIdentity>> {
+        info!(
+            "[{}] Deleted DeviceId {}",
+            self.service_id(),
+            self.service_id()
+        );
+        Some(DeviceIdProviderRequestProtocol::DeletedDeviceId(
+            self.clone(),
+        ))
     }
 
     fn key(&self) -> Option<String> {

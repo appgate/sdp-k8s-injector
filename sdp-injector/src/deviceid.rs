@@ -211,9 +211,10 @@ impl IdentityStore<ServiceIdentity> for InMemoryIdentityStore {
                     let mut available_uuids = available_uuids.clone();
                     let uuid = available_uuids.remove(0);
                     let available_uuids = available_uuids.clone();
-                    info!("Device id {} assigned to service {}", uuid, service_id);
+                    info!("[{}] DeviceID {} assigned to service {}", service_id, uuid, service_id);
                     info!(
-                        "Service {} has {} device ids available {:?}",
+                        "[{}] Service {} has {} DeviceIDs available {:?}",
+                        service_id,
                         service_id,
                         available_uuids.len(),
                         &available_uuids
@@ -253,7 +254,7 @@ impl IdentityStore<ServiceIdentity> for InMemoryIdentityStore {
                 {
                     if n_available < n_all {
                         if !available.contains(&uuid) {
-                            info!("Pushing device id {} to the list of available device ids for service {}", uuid, service_id);
+                            info!("[{}] Pushing DeviceID {} to the list of available DeviceIDs for service {}", service_id, uuid, service_id);
                             let mut available = available.clone();
                             available.push(uuid.clone());
                             self.device_ids.insert(
@@ -267,11 +268,11 @@ impl IdentityStore<ServiceIdentity> for InMemoryIdentityStore {
                             );
                             Ok(Some(uuid.clone()))
                         } else {
-                            warn!("Device id {} is already in the list of available device-ids for service {}", uuid, service_id);
+                            warn!("[{}] DeviceID {} is already in the list of available device-ids for service {}", service_id, uuid, service_id);
                             Ok(None)
                         }
                     } else {
-                        warn!("Unable to push device id {} into the list of available devices for service {}. List of devices is complete.", uuid, service_id);
+                        warn!("[{}] Unable to push DeviceID {} into the list of available devices for service {}. List of devices is complete.", service_id, uuid, service_id);
                         Ok(None)
                     }
                 }
@@ -301,51 +302,47 @@ impl DeviceIdProvider<ServiceIdentity> {
         mut provider_rx: Receiver<DeviceIdProviderRequestProtocol<ServiceIdentity>>,
         mut watcher_rx: Receiver<DeviceIdProviderRequestProtocol<ServiceIdentity>>,
     ) {
-        info!("Starting device id provider");
+        info!("Starting DeviceID Provider");
         loop {
             tokio::select! {
                 val = watcher_rx.recv() => {
                     match val {
                         Some(DeviceIdProviderRequestProtocol::FoundServiceIdentity(s)) => {
                             let service_id = s.service_id();
-                            info!("Registering new service {}", &service_id);
+                            info!("[{}] Registering new service {}", service_id, &service_id);
                             if let Err(e) = self.store.register_service(s).await {
-                                error!("Unable to register service identity {}: {}", service_id, e);
+                                error!("[{}] Unable to register service identity {}: {}", service_id, service_id, e);
                             }
                         },
                         Some(DeviceIdProviderRequestProtocol::DeletedServiceIdentity(s)) => {
                             let service_id = s.service_id();
-                            info!("Unregistering service {}", service_id);
+                            info!("[{}] Unregistering service {}", service_id, service_id);
                             if let Err(err) = self.store.unregister_service(&service_id).await {
-                                error!("Unable to unregister service {}: {}", service_id, err);
+                                error!("[{}] Unable to unregister service {}: {}", service_id, service_id, err);
                             };
                         },
                         Some(DeviceIdProviderRequestProtocol::FoundDeviceId(id)) => {
                             let service_id = id.service_id();
-                            info!("Registering new device ids for service {}", service_id);
+                            info!("[{}] Registering new DeviceID for service {}", service_id, service_id);
                             if let Err(err) = self.store.register_device_ids(id).await {
-                                error!("Unable to register device ids {}: {}", service_id, err);
+                                error!("[{}] Unable to register DeviceID {}: {}", service_id, service_id, err);
                             }
                         },
                         Some(DeviceIdProviderRequestProtocol::DeletedDeviceId(id)) => {
                             let service_id = id.service_id();
-                            info!("Unregistering device ids for service {}", service_id);
+                            info!("[{}] Unregistering DeviceID for service {}", service_id, service_id);
                             if let Err(err) = self.store.unregister_device_ids(&service_id).await {
-                                error!("Unable to unregister device ids for service {}: {}", service_id, err);
+                                error!("[{}] Unable to unregister DeviceID for service {}: {}", service_id, service_id, err);
                             };
                         },
                         Some(DeviceIdProviderRequestProtocol::ReleasedDeviceId(service_id, uuid)) => {
-                            info!("Released device id {} for service {}", uuid.to_string(), service_id);
+                            info!("[{}] Released DeviceID {} for service {}", service_id, uuid.to_string(), service_id);
                             if let Err(err) = self.store.push_device_id(&service_id, uuid).await {
-                                error!("Unable to release device id {} for service {}: {}", uuid, service_id, err);
+                                error!("[{}] Unable to release DeviceID {} for service {}: {}", service_id, uuid, service_id, err);
                             }
                         },
-                        Some(ev) => {
-                            warn!("Ignored event {:?}", ev);
-                        }
-                        None => {
-                            warn!("Ignored None event");
-                        },
+                        Some(_) => {}
+                        None => {},
                     }
                 },
                 val = provider_rx.recv() => {
@@ -353,27 +350,23 @@ impl DeviceIdProvider<ServiceIdentity> {
                         Some(DeviceIdProviderRequestProtocol::RequestDeviceId(q_tx, service_id)) => {
                             let msg = match self.store.pop_device_id(&service_id).await {
                                 Ok((service_identity, uuid)) =>  {
-                                    info!("Requested device id for service {}", service_id);
+                                    info!("[{}] Requested DeviceID for service {}", service_id, service_id);
                                     Some(DeviceIdProviderResponseProtocol::AssignedDeviceId(service_identity.clone(), uuid))
                                 },
                                 Err(e) => {
-                                    error!("Error assigning devide id: {}", e.to_string());
+                                    error!("[{}] Error assigning DeviceID: {}", service_id, e.to_string());
                                     Some(DeviceIdProviderResponseProtocol::NotFound)
                                 }
                             };
                             if let Some(msg) = msg {
                                 if let Err(e) = q_tx.send(msg).await {
                                     // TODO: Probably we want to unregister it at this point or retry
-                                    error!("Error assigning devide id: {}", e.to_string());
+                                    error!("[{}] Error assigning DeviceID: {}", service_id, e.to_string());
                                 }
                             }
                         },
-                        Some(ev) => {
-                            info!("Ignored event {:?}", ev);
-                        },
-                        None => {
-                            warn!("Event not found");
-                        }
+                        Some(_) => {},
+                        None => {}
                     }
                 }
             }

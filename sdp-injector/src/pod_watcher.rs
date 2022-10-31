@@ -24,6 +24,13 @@ impl SimpleWatchingProtocol<DeviceIdProviderRequestProtocol<ServiceIdentity>> fo
         None
     }
 
+    fn reapplied(
+        &self,
+        _ns: Option<Namespace>,
+    ) -> Option<DeviceIdProviderRequestProtocol<ServiceIdentity>> {
+        None
+    }
+
     fn deleted(
         &self,
         _ns: Option<Namespace>,
@@ -38,14 +45,15 @@ impl SimpleWatchingProtocol<DeviceIdProviderRequestProtocol<ServiceIdentity>> fo
                     match uuid {
                         Err(e) => {
                             error!(
-                                "Error parsing device id from {}: {}",
+                                "[{}] Error parsing DeviceID from {}: {}",
+                                service_id,
                                 uuid_str,
                                 e.to_string()
                             );
                             None
                         }
                         Ok(uuid) => {
-                            info!("Deleted POD with device id assigned {}", &service_id);
+                            info!("[{}] Deleted POD with DeviceID assigned {}", service_id, &service_id);
                             Some(DeviceIdProviderRequestProtocol::ReleasedDeviceId(
                                 service_id.clone(),
                                 uuid,
@@ -54,17 +62,10 @@ impl SimpleWatchingProtocol<DeviceIdProviderRequestProtocol<ServiceIdentity>> fo
                     }
                 });
             if msg.is_none() {
-                info!("Ignoring POD {}", service_id);
+                info!("[{}] Ignoring Pod {}", service_id, service_id);
             }
             msg
         })
-    }
-
-    fn reapplied(
-        &self,
-        _ns: Option<Namespace>,
-    ) -> Option<DeviceIdProviderRequestProtocol<ServiceIdentity>> {
-        None
     }
 
     fn key(&self) -> Option<String> {

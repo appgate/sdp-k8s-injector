@@ -327,9 +327,8 @@ fn reader_from_cwd(file_name: &str) -> Result<BufReader<File>, Box<dyn Error>> {
     Ok(BufReader::new(file))
 }
 
-async fn dns_service_discover<'a>(services_api: &'a Api<KubeService>) -> Option<KubeService> {
+async fn dns_service_discover(services_api: &Api<KubeService>) -> Option<KubeService> {
     let names: HashSet<&str, RandomState> = HashSet::from_iter(SDP_DNS_SERVICE_NAMES);
-    debug!("Discovering K8S DNS service");
     let services = services_api.list(&ListParams::default()).await;
     services
         .map(|xs| {
@@ -343,7 +342,7 @@ async fn dns_service_discover<'a>(services_api: &'a Api<KubeService>) -> Option<
             })
         })
         .unwrap_or_else(|e| {
-            warn!("Unable to discover k8s DNS service {}", e);
+            warn!("Unable to discover K8S DNS service {}", e);
             Option::None
         })
 }
@@ -433,9 +432,10 @@ impl ServiceEnvironment {
     fn from_pod<R: ObjectRequest<Pod> + MaybeService + Annotated>(
         request: &R,
     ) -> Result<Option<Self>, SDPServiceError> {
+        debug!("Building service environment from pod");
         let pod = request
             .object()
-            .ok_or_else(|| "POD not found in the request")?;
+            .ok_or_else(|| "Pod was not found in the request")?;
         let service_id = request.service_id()?;
         let service_name = pod.service_name().unwrap();
         let config = pod.annotation(SDP_ANNOTATION_CLIENT_CONFIG);
@@ -545,10 +545,10 @@ impl Patched for SDPPod {
     ) -> Result<Patch, SDPServiceError> {
         let pod = request
             .object()
-            .ok_or("POD not found in admission request")?;
+            .ok_or("Unable to get Pod object in admission request")?;
         let ns = request
             .namespace()
-            .ok_or("Unable to get namespace for POD")?;
+            .ok_or("Unable to get namespace from Pod admission request")?;
         let n_containers = containers(pod).map(|xs| xs.len()).unwrap_or(0);
         environment.n_containers = format!("{}", n_containers);
 
@@ -561,7 +561,7 @@ impl Patched for SDPPod {
             let k8s_dns_ip = self
                 .k8s_dns_service
                 .maybe_ip()
-                .ok_or("Unable to patch POD: K8S DNS service IP is unknown")?;
+                .ok_or("Unable to get K8S DNS service IP address")?;
             let custom_searches = pod
                 .annotation(SDP_ANNOTATION_DNS_SEARCHES)
                 .map(|s| searches_string_to_vec(s.to_string()));
@@ -604,7 +604,7 @@ impl Patched for SDPPod {
             }));
 
             if std::env::var(SDP_DEFAULT_CLIENT_VERSION_ENV).is_err() {
-                panic!("Unable to get default client version, make sure SDP_DEFAULT_CLIENT_VERSION environment variable is set.");
+                panic!("Unable to get default client version environment variable");
             }
             let default_version = std::env::var(SDP_DEFAULT_CLIENT_VERSION_ENV).unwrap();
             let version = pod
@@ -674,12 +674,8 @@ impl Patched for SDPPod {
                 value: serde_json::to_value("None".to_string())?,
             }))
         }
-        if patches.is_empty() {
-            debug!("POD does not require patching");
-            Ok(Patch(vec![]))
-        } else {
-            Ok(Patch(patches))
-        }
+        debug!("Pod patches: {:?}", patches);
+        Ok(Patch(patches))
     }
 }
 
@@ -687,7 +683,7 @@ impl Validated for SDPPod {
     fn validate<R: ObjectRequest<Pod>>(&self, request: R) -> Result<(), String> {
         let pod = request
             .object()
-            .ok_or_else(|| "POD not found in admission request")?;
+            .ok_or_else(|| "Unable to get Pod from admission request")?;
         let expected_volume_names =
             HashSet::from_iter(self.sdp_sidecars.volumes.iter().map(|v| v.name.clone()));
         let expected_container_names =
@@ -711,7 +707,7 @@ impl Validated for SDPPod {
                 .collect();
             missing_containers.sort();
             errors.push(format!(
-                "POD is missing needed containers: {}",
+                "Pod is missing required containers: {}",
                 missing_containers.join(", ")
             ));
         }
@@ -726,14 +722,14 @@ impl Validated for SDPPod {
                 .collect();
             missing_volumes.sort();
             errors.push(format!(
-                "POD is missing needed volumes: {}",
+                "Pod is missing required volumes: {}",
                 missing_volumes.join(", ")
             ));
         }
         if errors.is_empty() {
             Ok(())
         } else {
-            Err(format!("Unable to run SDP client on POD: {}", errors.join("\n")).to_string())
+            Err(format!("Unable to run SDP client on Pod: {}", errors.join("\n")).to_string())
         }
     }
 }
@@ -810,7 +806,6 @@ impl SDPSidecars {
 }
 
 pub fn load_sidecar_containers() -> Result<SDPSidecars, Box<dyn Error>> {
-    debug!("Loading SDP context");
     let cwd = std::env::current_dir()?;
     let mut sidecars_path = cwd.join(PathBuf::from(SDP_SIDECARS_FILE).as_path());
     if let Ok(sidecars_file) = std::env::var(SDP_SIDECARS_FILE_ENV) {
@@ -819,7 +814,7 @@ pub fn load_sidecar_containers() -> Result<SDPSidecars, Box<dyn Error>> {
     let file = File::open(sidecars_path)?;
     let reader = BufReader::new(file);
     let sdp_sidecars = serde_json::from_reader(reader)?;
-    debug!("SDP context loaded successful");
+    debug!("SDP sidecar: {:?}", sdp_sidecars);
     Ok(sdp_sidecars)
 }
 
@@ -845,7 +840,7 @@ async fn patch_deployment(
     let deployment = admission_request
         .object()
         .ok_or(SDPServiceError::from(
-            "Unable to find Deployment inside AdmissionRequest",
+            "Unable to get Deployment from admission request",
         ))
         .map_err(SDPPatchError::from_admission_response(Box::clone(
             &admission_response,
@@ -935,6 +930,7 @@ async fn patch_deployment(
                 &admission_response,
             )))?,
     }));
+    debug!("Deployment patches: {:?}", patches);
     let admission_response = Box::clone(&admission_response)
         .with_patch(Patch(patches))
         .map_err(SDPServiceError::from_error("Unable to patch deployment"))
@@ -1011,11 +1007,11 @@ async fn mutate<'a, E: IdentityStore<ServiceIdentity>>(
         Some("deployments") => {
             let admission_request = admission_request!(body, Deployment);
             let ns = admission_request.namespace().ok_or_else(|| {
-                SDPServiceError::from("Could not get name space name for requested Deployment")
+                SDPServiceError::from("Unable to get namespace from Deployment admission request")
             })?;
             let ns = sdp_injector_context.ns_api.get_opt(&ns).await.map_err(
                 SDPServiceError::from_error(
-                    "Could not get Namespace object for requested Deployment",
+                    "Unable to get Namespace object from Deployment admission request",
                 ),
             )?;
             attempt_patch!(
@@ -1448,37 +1444,37 @@ mod tests {
         vec![
             TestValidate {
                 pod: pod!(0),
-                validation_errors: Some(r#"Unable to run SDP client on POD: POD is missing needed containers: sdp-dnsmasq, sdp-driver, sdp-service
-POD is missing needed volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-device"#.to_string()),
+                validation_errors: Some(r#"Unable to run SDP client on Pod: Pod is missing required containers: sdp-dnsmasq, sdp-driver, sdp-service
+Pod is missing required volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-device"#.to_string()),
             },
             TestValidate {
                 pod: pod!(1, containers => vec!["sdp-dnsmasq"]),
-                validation_errors: Some(r#"Unable to run SDP client on POD: POD is missing needed containers: sdp-driver, sdp-service
-POD is missing needed volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-device"#.to_string()),
+                validation_errors: Some(r#"Unable to run SDP client on Pod: Pod is missing required containers: sdp-driver, sdp-service
+Pod is missing required volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-device"#.to_string()),
             },
             TestValidate {
                 pod: pod!(2, containers => vec!["sdp-dnsmasq", "sdp-service"]),
-                validation_errors: Some(r#"Unable to run SDP client on POD: POD is missing needed containers: sdp-driver
-POD is missing needed volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-device"#.to_string()),
+                validation_errors: Some(r#"Unable to run SDP client on Pod: Pod is missing required containers: sdp-driver
+Pod is missing required volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-device"#.to_string()),
             },
             TestValidate {
                 pod: pod!(3, containers => vec!["sdp-service", "sdp-dnsmasq", "sdp-driver"]),
-                validation_errors: Some(r#"Unable to run SDP client on POD: POD is missing needed volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-device"#.to_string()),
+                validation_errors: Some(r#"Unable to run SDP client on Pod: Pod is missing required volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-device"#.to_string()),
             },
             TestValidate {
                 pod: pod!(4, containers => vec!["sdp-service", "sdp-dnsmasq", "sdp-driver"],
                                   volumes => vec!["run-sdp-dnsmasq", "run-sdp-driver"]),
-                validation_errors: Some(r#"Unable to run SDP client on POD: POD is missing needed volumes: pod-info, tun-device"#.to_string()),
+                validation_errors: Some(r#"Unable to run SDP client on Pod: Pod is missing required volumes: pod-info, tun-device"#.to_string()),
             },
             TestValidate {
                 pod: pod!(5, containers => vec!["sdp-service", "sdp-dnsmasq", "sdp-driver"],
                                   volumes => vec!["run-sdp-driver", "run-sdp-dnsmasq"]),
-                validation_errors: Some(r#"Unable to run SDP client on POD: POD is missing needed volumes: pod-info, tun-device"#.to_string()),
+                validation_errors: Some(r#"Unable to run SDP client on Pod: Pod is missing required volumes: pod-info, tun-device"#.to_string()),
             },
             TestValidate {
                 pod: pod!(6, containers => vec!["sdp-driver"],
                                   volumes => vec!["run-sdp-driver", "tun-device", "pod-info", "run-sdp-dnsmasq"]),
-                validation_errors: Some(r#"Unable to run SDP client on POD: POD is missing needed containers: sdp-dnsmasq, sdp-service"#.to_string()),
+                validation_errors: Some(r#"Unable to run SDP client on Pod: Pod is missing required containers: sdp-dnsmasq, sdp-service"#.to_string()),
             },
             TestValidate {
                 pod: pod!(7, containers => vec!["sdp-service", "sdp-dnsmasq", "sdp-driver"],
@@ -1488,8 +1484,8 @@ POD is missing needed volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-de
             TestValidate {
                 pod: pod!(8, containers => vec!["_sdp-service", "_sdp-dnsmasq", "_sdp-driver"],
                                   volumes => vec!["_run-appgate", "_tun-device"]),
-                validation_errors: Some(r#"Unable to run SDP client on POD: POD is missing needed containers: sdp-dnsmasq, sdp-driver, sdp-service
-POD is missing needed volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-device"#.to_string()),
+                validation_errors: Some(r#"Unable to run SDP client on Pod: Pod is missing required containers: sdp-dnsmasq, sdp-driver, sdp-service
+Pod is missing required volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-device"#.to_string()),
             },
         ]
     }
@@ -1602,11 +1598,11 @@ POD is missing needed volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-de
         };
         let assert_patch = |pod: &Pod, patch: Patch| -> Result<Pod, String> {
             let mut unpatched_pod = serde_json::to_value(pod)
-                .map_err(|e| format!("Unable to convert POD to value [{}]", e.to_string()))?;
+                .map_err(|e| format!("Unable to convert Pod to value [{}]", e.to_string()))?;
             json_patch::patch(&mut unpatched_pod, &patch)
-                .map_err(|e| format!("Unable to patch POD [{}]", e.to_string()))?;
+                .map_err(|e| format!("Unable to patch Pod [{}]", e.to_string()))?;
             let patched_pod: Pod = serde_json::from_value(unpatched_pod)
-                .map_err(|e| format!("Unable to convert patched POD [{}]", e.to_string()))?;
+                .map_err(|e| format!("Unable to convert patched Pod [{}]", e.to_string()))?;
             Ok(patched_pod)
         };
 
@@ -1779,7 +1775,6 @@ POD is missing needed volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-de
                 assert_containers(&patched_pod, unpatched_containers)?;
                 if init_containers.is_some() {
                     let unpatched_init_containers = container_names(init_containers.unwrap());
-                    println!("CC {:?} ", unpatched_init_containers);
                     assert_init_containers(&patched_pod, unpatched_init_containers)?;
                 }
                 assert_envs(&patched_pod, test_patch)?;
@@ -2311,7 +2306,7 @@ pub async fn injector_handler<E: IdentityStore<ServiceIdentity>>(
                 // Object properly patched and allowed
                 Ok(SDPPatchResponse::Allow(mut response)) => {
                     info!(
-                        "Resource properly patched with {} patches",
+                        "Resource patched with {} patches",
                         response.patch.as_ref().map(|xs| xs.len()).unwrap_or(0)
                     );
                     // Object properly patched and allowed

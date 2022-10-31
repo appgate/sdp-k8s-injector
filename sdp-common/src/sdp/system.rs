@@ -177,7 +177,7 @@ impl System {
             .is_some()
             || self.login.is_none()
         {
-            info!("Getting a new token");
+            info!("Authenticating with SDP Controller");
             let login = self.login().await?;
             self.login = Some(login);
         }

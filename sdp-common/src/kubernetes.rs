@@ -21,13 +21,14 @@ pub const SDP_K8S_HOST_ENV: &str = "SDP_K8S_HOST";
 pub const SDP_K8S_HOST_DEFAULT: &str = "kubernetes.default.svc";
 pub const SDP_K8S_NO_VERIFY_ENV: &str = "SDP_K8S_NO_VERIFY";
 pub const SDP_K8S_NAMESPACE: &str = "sdp-system";
+pub const KUBE_SYSTEM_NAMESPACE: &str = "kube-system";
 
 pub async fn get_k8s_client() -> Client {
     let mut k8s_host = String::from("https://");
     k8s_host.push_str(&std::env::var(SDP_K8S_HOST_ENV).unwrap_or(SDP_K8S_HOST_DEFAULT.to_string()));
     let k8s_uri = k8s_host
         .parse::<Uri>()
-        .expect("Unable to parse SDP_K8S_HOST value:");
+        .expect(format!("Unable to parse SDP_K8S_HOST value: {}", k8s_host).as_str());
     let mut k8s_config = Config::infer()
         .await
         .expect("Unable to infer K8S configuration");
@@ -61,7 +62,7 @@ impl Named for Pod {
         if let Some(name) = name {
             name
         } else {
-            error!("Unable to find service name for Pod, generating a random one!");
+            error!("Unable to find service name for Pod, generating a random name");
             uuid::Uuid::new_v4().to_string()
         }
     }
@@ -72,7 +73,7 @@ impl MaybeNamespaced for Pod {
         if let Some(ns) = ResourceExt::namespace(self) {
             Some(ns.clone())
         } else {
-            error!("Unable to find service namespace for POD inside admission request, generating a random one!");
+            error!("Unable to find service namespace for Pod inside admission request, generating a random name");
             Some(uuid::Uuid::new_v4().to_string())
         }
     }
@@ -164,10 +165,10 @@ impl Annotated for AdmissionRequest<Pod> {
 }
 
 fn admission_request_name<E: Resource + Metadata>(
-    admisison_request: &AdmissionRequest<E>,
+    admission_request: &AdmissionRequest<E>,
 ) -> String {
     let mut name = None;
-    if let Some(obj) = admisison_request.object.as_ref() {
+    if let Some(obj) = admission_request.object.as_ref() {
         name = obj
             .meta()
             .name

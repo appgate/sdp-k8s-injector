@@ -11,9 +11,10 @@ use hyper::service::{make_service_fn, service_fn};
 use hyper::Server;
 use k8s_openapi::api::core::v1::Pod;
 use kube::{Api, Client, Config};
-use log::{error, info};
 use sdp_common::crd::{DeviceId, ServiceIdentity};
+use sdp_common::kubernetes::{KUBE_SYSTEM_NAMESPACE, SDP_K8S_NAMESPACE};
 use sdp_common::watcher::{watch, Watcher};
+use sdp_macros::{logger, sdp_debug, sdp_error, sdp_info, sdp_log, with_dollar_sign};
 use std::collections::HashMap;
 use std::convert::Infallible;
 use std::error::Error;
@@ -36,38 +37,47 @@ mod service_identity_watcher;
 
 pub type Acceptor = tokio_rustls::TlsAcceptor;
 
+logger!("Main");
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
+    debug!("Initializing logger");
     log4rs::init_file("/sdp-k8s-client/log4rs.yaml", Default::default()).unwrap();
 
     let mut k8s_host = String::from("https://");
     k8s_host.push_str(&std::env::var(SDP_K8S_HOST_ENV).unwrap_or(SDP_K8S_HOST_DEFAULT.to_string()));
-    let k8s_uri = k8s_host
-        .parse::<Uri>()
-        .expect("Unable to parse SDP_K8S_HOST value:");
+    let k8s_uri = k8s_host.parse::<Uri>().expect(
+        format!(
+            "Unable to parse SDP_K8S_HOST environment value: {}",
+            k8s_host
+        )
+        .as_str(),
+    );
     let mut k8s_config = Config::infer()
         .await
-        .expect("Unable to infer K8S configuration");
+        .expect("Unable to infer Kubernetes config");
     k8s_config.cluster_url = k8s_uri;
     k8s_config.accept_invalid_certs = std::env::var(SDP_K8S_NO_VERIFY_ENV)
         .map(|v| v == "1" || v.to_lowercase() == "true")
         .unwrap_or(false);
-    let k8s_client: Client = Client::try_from(k8s_config).expect("Unable to create k8s client");
+    debug!("Kubernetes config: {:?}", k8s_config);
+    let k8s_client: Client =
+        Client::try_from(k8s_config).expect("Unable to create kubernetes client");
     let service_identity_api: Api<ServiceIdentity> =
-        Api::namespaced(k8s_client.clone(), "sdp-system");
+        Api::namespaced(k8s_client.clone(), SDP_K8S_NAMESPACE);
     let pods_api: Api<Pod> = Api::all(k8s_client.clone());
-    let device_ids_api: Api<DeviceId> = Api::namespaced(k8s_client.clone(), "sdp-system");
+    let device_ids_api: Api<DeviceId> = Api::namespaced(k8s_client.clone(), SDP_K8S_NAMESPACE);
     let (device_id_tx, device_id_rx) =
         channel::<DeviceIdProviderRequestProtocol<ServiceIdentity>>(50);
     let store = KubeIdentityStore {
         device_id_q_tx: device_id_tx.clone(),
     };
     let sdp_sidecars: SDPSidecars =
-        load_sidecar_containers().expect("Unable to load the sidecar information");
+        load_sidecar_containers().expect("Unable to load the sidecar context");
     let sdp_injector_context = Arc::new(SDPInjectorContext {
         sdp_sidecars: Arc::new(sdp_sidecars),
         ns_api: Api::all(k8s_client.clone()),
-        services_api: Api::namespaced(k8s_client, "kube-system"),
+        services_api: Api::namespaced(k8s_client, KUBE_SYSTEM_NAMESPACE),
         identity_store: Mutex::new(store),
         attempts_store: Mutex::new(HashMap::new()),
     });
@@ -88,15 +98,15 @@ async fn main() -> Result<(), Box<dyn Error>> {
     };
     let incoming = TlsListener::new(tls_acceptor, AddrIncoming::bind(&addr)?).filter(|c| {
         if let Err(e) = c {
-            error!("Error running injector server: {:?}", e);
+            error!("Error running SDP Injector server: {:?}", e);
             ready(false)
         } else {
             ready(true)
         }
     });
 
-    // Thread to watch ServideIdentity entities
-    // We register new ServiceIdentity entieies in the store when created and de unregister them when deleted.
+    // Thread to watch ServiceIdentity entities
+    // We register new ServiceIdentity entities in the store when created and de unregister them when deleted.
     let (watcher_tx, watcher_rx) = channel::<DeviceIdProviderRequestProtocol<ServiceIdentity>>(50);
     let watcher_tx2 = watcher_tx.clone();
     let watcher_tx3 = watcher_tx.clone();
@@ -119,7 +129,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     });
 
     // Thread to watch DeviceId entities
-    // We register new DeviceId entieies in the store when created and de unregister them when deleted.
+    // We register new DeviceId entities in the store when created and de unregister them when deleted.
     tokio::spawn(async move {
         let watcher = Watcher {
             api_ns: None,
@@ -133,7 +143,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
             DeviceIdProviderRequestProtocol<ServiceIdentity>,
         >(watcher, None);
         if let Err(e) = w.await {
-            panic!("Unable to start DeviceId Watcher: {}", e);
+            panic!("Unable to start DeviceID Watcher: {}", e);
         }
     });
 
@@ -163,7 +173,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         device_id_provider.run(device_id_rx, watcher_rx).await;
     });
 
-    info!("Starting sdp-injector server");
+    info!("Starting SDP Injector server");
     let server = Server::builder(accept::from_stream(incoming)).serve(make_service);
     server.await?;
     Ok(())

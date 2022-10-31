@@ -31,3 +31,5 @@ pub const SDP_ANNOTATION_CLIENT_CONFIG: &str = appgate_annotate!("client-config"
 pub const SDP_ANNOTATION_CLIENT_SECRETS: &str = appgate_annotate!("client-secrets");
 pub const SDP_ANNOTATION_CLIENT_DEVICE_ID: &str = appgate_annotate!("device-id");
 pub const SDP_ANNOTATION_DNS_SEARCHES: &str = appgate_annotate!("dns-searches");
+
+pub const SDP_INJECTOR_LABEL: &str = "sdp-injection";
