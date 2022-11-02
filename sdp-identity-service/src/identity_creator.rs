@@ -11,7 +11,7 @@ use sdp_common::kubernetes::SDP_K8S_NAMESPACE;
 use sdp_common::sdp::auth::SDPUser;
 use sdp_common::sdp::system::{ClientProfile, ClientProfileUrl, System};
 use sdp_common::service::{get_profile_client_url_name, get_service_username, ServiceUser};
-use sdp_macros::{logger, sdp_error, sdp_info, sdp_log, sdp_warn, with_dollar_sign};
+use sdp_macros::{logger, sdp_error, sdp_info, sdp_debug, sdp_log, sdp_warn, with_dollar_sign};
 use tokio::sync::mpsc::{Receiver, Sender};
 
 use crate::errors::IdentityServiceError;
@@ -67,6 +67,7 @@ async fn get_or_create_client_profile_url(
                 .create_client_profile(&p)
                 .await
                 .map_err(|e| format!("Unable to create a new client profile: {}", e))?;
+            debug!("Client Profile: {:?}", p);
             (p.id, p.name)
         }
     };
@@ -262,7 +263,8 @@ impl IdentityCreator {
             if let Some(service_user) = self.recover_sdp_user(&sdp_user, &client_profile_url).await
             {
                 let activated = !sdp_user.disabled;
-                if !activated {
+                if !activated && n_missing_users > 0 {
+                    debug!("Missing user count: {}", n_missing_users);
                     n_missing_users -= 1;
                 }
                 let (_, pw_field, _) = service_user.secrets_field_names(false);
