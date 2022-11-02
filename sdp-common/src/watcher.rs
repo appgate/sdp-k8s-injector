@@ -139,11 +139,11 @@ where
                 };
                 let msg = match op {
                     WatcherOperation::Apply => {
-                        debug!("Sending Applied message for {}", e.name_any());
+                        info!("Sending Applied message for {}", e.name_any());
                         e.applied(ns)
                     }
                     WatcherOperation::ReApply => {
-                        debug!("Sending Reapplied message for {}", e.name_any());
+                        info!("Sending Reapplied message for {}", e.name_any());
                         e.reapplied(ns)
                     }
                 };
