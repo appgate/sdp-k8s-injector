@@ -61,7 +61,7 @@ async fn run() {
 
 #[tokio::main]
 async fn main() -> () {
-    log4rs::init_file("/sdp-k8s-client/log4rs.yaml", Default::default()).unwrap();
+    log4rs::init_file("/opt/sdp-device-id-service/log4rs.yaml", Default::default()).unwrap();
 
     let args = DeviceIdService::parse();
     match args.command {

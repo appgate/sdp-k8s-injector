@@ -11,7 +11,7 @@ use sdp_common::kubernetes::SDP_K8S_NAMESPACE;
 use sdp_common::sdp::auth::SDPUser;
 use sdp_common::sdp::system::{ClientProfile, ClientProfileUrl, System};
 use sdp_common::service::{get_profile_client_url_name, get_service_username, ServiceUser};
-use sdp_macros::{logger, sdp_error, sdp_info, sdp_debug, sdp_log, sdp_warn, with_dollar_sign};
+use sdp_macros::{logger, sdp_debug, sdp_error, sdp_info, sdp_log, sdp_warn, with_dollar_sign};
 use tokio::sync::mpsc::{Receiver, Sender};
 
 use crate::errors::IdentityServiceError;

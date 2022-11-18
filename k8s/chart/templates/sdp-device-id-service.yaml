@@ -20,6 +20,13 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       serviceAccountName: {{ include "sdp-k8s-client.serviceAccountName" .}}-device-id-service
+      volumes:
+        - name: sdp-device-id-service-log
+          configMap:
+            name: {{ include "sdp-k8s-client.fullname" . }}-log
+            items:
+              - key: sdp-device-id-service-log4rs.yaml
+                path: log4rs.yaml
       containers:
         - name: {{ .Chart.Name }}-device-id-service
           env:
@@ -29,6 +36,9 @@ spec:
           imagePullPolicy: {{ default .Values.global.image.pullPolicy .Values.sdp.deviceIdService.image.pullPolicy }}
           args:
             - run
+          volumeMounts:
+            - mountPath: /opt/sdp-device-id-service
+              name: sdp-device-id-service-log
 ---
 apiVersion: v1
 kind: Service

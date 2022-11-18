@@ -21,6 +21,12 @@ spec:
       {{- end }}
       serviceAccountName: {{ include "sdp-k8s-client.serviceAccountName" .}}-injector
       volumes:
+        - name: sdp-injector-log
+          configMap:
+            name: {{ include "sdp-k8s-client.fullname" . }}-log
+            items:
+              - key: sdp-injector-log4rs.yaml
+                path: log4rs.yaml
         - name: sdp-injector-secrets-and-config
           projected:
             sources:
@@ -49,6 +55,8 @@ spec:
             - name: sdp-injector-secrets-and-config
               mountPath: /opt/sdp-injector/k8s
               readOnly: true
+            - name: sdp-injector-log
+              mountPath: /opt/sdp-injector/
 ---
 apiVersion: v1
 kind: Service

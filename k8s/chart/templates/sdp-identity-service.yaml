@@ -27,7 +27,15 @@ spec:
           - 127.0.0.1
         searches:
           {{ toYaml .Values.sdp.metaClient.dnsConfig.searches | nindent 8 }}
+      {{ end }}
       volumes:
+        - name: sdp-identity-service-log
+          configMap:
+            name: {{ include "sdp-k8s-client.fullname" . }}-log
+            items:
+              - key: sdp-identity-service-log4rs.yaml
+                path: log4rs.yaml
+      {{- if .Values.sdp.metaClient.enabled }}
         - name: run-sdp-driver
         - name: run-sdp-dnsmasq
         - name: tun-device
@@ -42,7 +50,7 @@ spec:
               - path: "annotations"
                 fieldRef:
                   fieldPath: metadata.annotations
-      {{ end }}
+      {{- end }}
       containers:
         {{ if .Values.sdp.metaClient.enabled }}
         - name: {{ .Chart.Name }}-sdp-service
@@ -144,6 +152,9 @@ spec:
           imagePullPolicy: {{ default .Values.global.image.pullPolicy .Values.sdp.identityService.image.pullPolicy }}
           args:
             - run
+          volumeMounts:
+            - mountPath: /opt/sdp-identity-service
+              name: sdp-identity-service-log
 ---
 apiVersion: v1
 kind: Service

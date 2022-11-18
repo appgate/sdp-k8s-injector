@@ -44,7 +44,7 @@ struct IdentityService {
 
 #[tokio::main]
 async fn main() -> () {
-    log4rs::init_file("/sdp-k8s-client/log4rs.yaml", Default::default()).unwrap();
+    log4rs::init_file("/opt/sdp-identity-service/log4rs.yaml", Default::default()).unwrap();
 
     // Exit on panics from other threads
     panic::set_hook(Box::new(|info| {

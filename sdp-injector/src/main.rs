@@ -42,7 +42,7 @@ logger!("Main");
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     debug!("Initializing logger");
-    log4rs::init_file("/sdp-k8s-client/log4rs.yaml", Default::default()).unwrap();
+    log4rs::init_file("/opt/sdp-injector/log4rs.yaml", Default::default()).unwrap();
 
     let mut k8s_host = String::from("https://");
     k8s_host.push_str(&std::env::var(SDP_K8S_HOST_ENV).unwrap_or(SDP_K8S_HOST_DEFAULT.to_string()));
