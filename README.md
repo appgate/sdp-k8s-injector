@@ -218,9 +218,9 @@ $ kubectl annotate deployment <DEPLOYMENT> k8s.appgate.com/sdp-injector.enabled=
 ### Alternative Client Versions
 The injector takes the helm value `sdp.clientVersion` as the default client version to use. By annotating a pod or deployment with `k8s.appgate.com/sdp-injector.client-version=<VERSION>`, the injector will load an SDP client version different from the default.
 
-Assuming the default client version is 6.x.x, you can inject a 5.x.x client by annotating the pod with `sdp-injector-client-version=5.x.x`.
+Assuming the default client version is 6.x.x, you can inject a 5.x.x client at a per-deployment basis by annotating the deployment with `k8s.appgate.com/sdp-injector.client-version=5.x.x`.
 ```bash
-$ kubectl annotate pod <POD> k8s.appgate.com/sdp-injector.client-version="5.5.1"
+$ kubectl annotate deployment <DEPLOYMENT> k8s.appgate.com/sdp-injector.client-version="5.5.1"
 ```
 
 ### Init Containers
@@ -230,9 +230,8 @@ The initial init-container `sdp-init-container-0` is meant to preserve the origi
 
 The last init-container `sdp-init-container-f` overwrite `/etc/resolv.conf` by setting the nameserver to `127.0.0.1` so the pod can use the DNS server provided by the injector's dnsmasq. 
 
-You can disable the injection of these init-containers by providing the annotation `k8s.appgate.com/sdp-injector.strategy.disable-init-containers="true"` or by providing the annotation in the deployment.
+You can disable the injection of these init-containers by annotation the deployment with `k8s.appgate.com/sdp-injector.strategy.disable-init-containers="true"`.
 ```bash
-$ kubectl annotate pod <POD> k8s.appgate.com/sdp-injector.disable-init-containers="true"
 $ kubectl annotate deployment <DEPLOYMENT> k8s.appgate.com/sdp-injector.disable-init-containers="true"
 ```
 
