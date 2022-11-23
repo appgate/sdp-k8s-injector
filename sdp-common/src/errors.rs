@@ -1,4 +1,4 @@
-use std::fmt::Display;
+use std::{error::Error as StdError, fmt::Display};
 
 use crate::sdp::errors::SDPClientError;
 
@@ -34,6 +34,8 @@ impl SDPServiceError {
         }
     }
 }
+
+impl StdError for SDPServiceError {}
 
 impl Display for SDPServiceError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

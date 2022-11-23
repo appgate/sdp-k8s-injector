@@ -18,8 +18,8 @@ use sdp_macros::{logger, sdp_debug, sdp_error, sdp_info, sdp_log, with_dollar_si
 use std::collections::HashMap;
 use std::convert::Infallible;
 use std::error::Error;
-use std::future::ready;
 use std::sync::Arc;
+use std::task::Poll;
 use tls_listener::TlsListener;
 use tokio::sync::mpsc::channel;
 use tokio::sync::Mutex;
@@ -83,8 +83,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
     });
 
     let ssl_config = load_ssl()?;
-    let addr = ([0, 0, 0, 0], 8443).into();
     let tls_acceptor: Acceptor = Arc::new(ssl_config).into();
+
+    let addr = ([0, 0, 0, 0], 8443).into();
     let make_service = {
         make_service_fn(move |_conn| {
             let sdp_injector_context = sdp_injector_context.clone();
@@ -96,14 +97,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
             }
         })
     };
-    let incoming = TlsListener::new(tls_acceptor, AddrIncoming::bind(&addr)?).filter(|c| {
-        if let Err(e) = c {
-            error!("Error running SDP Injector server: {:?}", e);
-            ready(false)
-        } else {
-            ready(true)
-        }
-    });
+
+    let mut reload_certs: bool = false;
+    let mut tls_listener = TlsListener::new(tls_acceptor, AddrIncoming::bind(&addr)?);
 
     // Thread to watch ServiceIdentity entities
     // We register new ServiceIdentity entities in the store when created and de unregister them when deleted.
@@ -174,7 +170,28 @@ async fn main() -> Result<(), Box<dyn Error>> {
     });
 
     info!("Starting SDP Injector server");
-    let server = Server::builder(accept::from_stream(incoming)).serve(make_service);
+    let acceptor = accept::poll_fn(move |cx| {
+        if reload_certs {
+            info!("Reloading TLS certificates");
+            let ssl_config = load_ssl().map_err(|e| {
+                tls_listener::Error::ListenerError(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    e,
+                ))
+            })?;
+            let tls_acceptor: Acceptor = Arc::new(ssl_config).into();
+            tls_listener.replace_acceptor(tls_acceptor);
+        }
+        match tls_listener.poll_next_unpin(cx) {
+            Poll::Ready(Some(Err(e))) => {
+                error!("Error running SDP Injector server: {:?}", e);
+                Poll::Ready(Some(Err(e)))
+            }
+            v => v,
+        }
+    });
+
+    let server = Server::builder(acceptor).serve(make_service);
     server.await?;
     Ok(())
 }

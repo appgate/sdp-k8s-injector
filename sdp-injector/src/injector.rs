@@ -2301,22 +2301,29 @@ Pod is missing required volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-
     }
 }
 
-pub fn load_ssl() -> Result<ServerConfig, Box<dyn Error>> {
+pub fn load_ssl() -> Result<ServerConfig, SDPServiceError> {
     let cert_file = std::env::var(SDP_CERT_FILE_ENV).unwrap_or(SDP_CERT_FILE.to_string());
     let key_file = std::env::var(SDP_KEY_FILE_ENV).unwrap_or(SDP_KEY_FILE.to_string());
 
-    let mut cert_reader = BufReader::new(File::open(cert_file)?);
-    let mut key_reader = BufReader::new(File::open(key_file)?);
+    let mut cert_reader = BufReader::new(
+        File::open(cert_file).map_err(|e| format!("Unable to open cert file: {}", e))?,
+    );
+    let mut key_reader = BufReader::new(
+        File::open(key_file).map_err(|e| format!("Unable to open key file: {}", e))?,
+    );
 
-    let raw_certs = certs(&mut cert_reader)?;
+    let raw_certs =
+        certs(&mut cert_reader).map_err(|e| format!("Unable to load certificates: {}", e))?;
     let certs: Vec<Certificate> = raw_certs.into_iter().map(Certificate).collect();
-    let raw_keys = rsa_private_keys(&mut key_reader)?;
+    let raw_keys =
+        rsa_private_keys(&mut key_reader).map_err(|e| format!("Unable to load keys: {}", e))?;
     let keys: Vec<PrivateKey> = raw_keys.into_iter().map(PrivateKey).collect();
 
     Ok(ServerConfig::builder()
         .with_safe_defaults()
         .with_no_client_auth()
-        .with_single_cert(certs, keys[0].clone())?)
+        .with_single_cert(certs, keys[0].clone())
+        .map_err(|e| format!("Unable to create ServerConfig with TLS certificate: {}", e))?)
 }
 
 pub async fn injector_handler<E: IdentityStore<ServiceIdentity>>(
