@@ -21,10 +21,6 @@ global:
     ##   - myRegistryKeySecretName
     pullSecrets: []
 
-cert-manager:
-  ## @param cert-manager.installCRDs Whether to install cert-manager CRDs.
-  installCRDs: true
-
 sdp:
   ## @param sdp.host Hostname of the SDP controller
   ## @param sdp.adminSecret Name of the secret for initial authentication
@@ -52,14 +48,12 @@ sdp:
 
   ## @param sdp.injector.logLevel SDP Injector log level.
   ## @param sdp.injector.replica Number of Device ID Service replicas to deploy
-  ## @param sdp.injector.certDays How many days will be the SDP Injector certificate be valid.
   ## @param sdp.injector.image.repository SDP Injector image repository. If set, it overrides `.global.image.repository`.
   ## @param sdp.injector.image.tag SDP Injector image tag. If set, it overrides `chart.appVersion`.
   ## @param sdp.injector.image.pullPolicy SDP Injector pull policy. If set, it overrides `.global.image.pullPolicy`.
   injector:
     logLevel: info
     replica: 1
-    certDays: 365
     image:
       repository: ""
       tag: ""
