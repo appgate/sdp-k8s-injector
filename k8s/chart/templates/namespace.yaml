@@ -1,9 +1,0 @@
-{{- if not (lookup "v1" "Namespace" "" (include "sdp-k8s-client.namespace" .)) }}
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: {{ include "sdp-k8s-client.namespace" . }}
-  annotations:
-    "helm.sh/hook": pre-install
-    "helm.sh/hook-weight": "-1"
-{{- end }}

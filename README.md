@@ -41,15 +41,22 @@ SDP Kubernetes Client requires several configuration on the SDP Controller:
 ### Installation
 > Browse the available versions on [Appgate GitHub Container Registry](https://github.com/appgate/sdp-k8s-client/pkgs/container/charts%2Fsdp-k8s-client)
 
-1. Create `sdp-system` namespace for the SDP Kubernetes Client
-    ```bash
-     $ kubectl create namespace sdp-system
-     ```
+1. Install [cert-manager](https://cert-manager.io/docs/installation/helm/) via Helm
+   ```bash
+   $ helm repo add jetstack https://charts.jetstack.io
+   $ helm repo update
+   $ helm install cert-manager jetstack/cert-manager \
+         --namespace cert-manager \
+         --create-namespace \
+         --version v1.10.1 \
+         --set installCRDs=true
+   ```
 2. Install the SDP Kubernetes Client CRD with Helm
     ```bash
     $ export HELM_EXPERIMENTAL_OCI=1
     $ helm install sdp-k8s-client-crd oci://ghcr.io/appgate/charts/sdp-k8s-client-crd \
          --namespace sdp-system \
+         --create-namespace \
          --version <VERSION>
     ```
 3. Create a secret containing the username and password for admin authentication
@@ -248,12 +255,11 @@ SDP Kubernetes Client supports various annotation-based behavior customization
 ### SDP parameters
 
 | Name                                   | Description                                                                              | Value                                   |
-|----------------------------------------|------------------------------------------------------------------------------------------|-----------------------------------------|
+| -------------------------------------- | ---------------------------------------------------------------------------------------- | --------------------------------------- |
 | `global.image.repository`              | Image registry to use for all SDP images.                                                | `ghcr.io/appgate/sdp-k8s-client`        |
 | `global.image.tag`                     | Image tag to use for all SDP images. If not set, it defaults to `.Chart.appVersion`.     | `""`                                    |
 | `global.image.pullPolicy`              | Image pull policy to use for all SDP images.                                             | `IfNotPresent`                          |
 | `global.image.pullSecrets`             | Image pull secret to use for all SDP images.                                             | `[]`                                    |
-| `cert-manager.installCRDs`             | Whether to install cert-manager CRDs.                                                    | `true`                                  |
 | `sdp.host`                             | Hostname of the SDP controller                                                           | `""`                                    |
 | `sdp.adminSecret`                      | Name of the secret for initial authentication                                            | `""`                                    |
 | `sdp.clientVersion`                    | Version of the SDP client to inject as sidecars.                                         | `6.0.1`                                 |
@@ -265,7 +271,6 @@ SDP Kubernetes Client supports various annotation-based behavior customization
 | `sdp.metaClient.dnsConfig.searches`    | Search domains to add to the Pod DNS configuration                                       | `["svc.cluster.local","cluster.local"]` |
 | `sdp.injector.logLevel`                | SDP Injector log level.                                                                  | `info`                                  |
 | `sdp.injector.replica`                 | Number of Device ID Service replicas to deploy                                           | `1`                                     |
-| `sdp.injector.certDays`                | How many days will be the SDP Injector certificate be valid.                             | `365`                                   |
 | `sdp.injector.image.repository`        | SDP Injector image repository. If set, it overrides `.global.image.repository`.          | `""`                                    |
 | `sdp.injector.image.tag`               | SDP Injector image tag. If set, it overrides `chart.appVersion`.                         | `""`                                    |
 | `sdp.injector.image.pullPolicy`        | SDP Injector pull policy. If set, it overrides `.global.image.pullPolicy`.               | `Always`                                |
@@ -294,7 +299,7 @@ SDP Kubernetes Client supports various annotation-based behavior customization
 ### Kubernetes parameters
 
 | Name           | Description         | Value       |
-|----------------|---------------------|-------------|
+| -------------- | ------------------- | ----------- |
 | `service.type` | Type of the service | `ClusterIP` |
 | `service.port` | Port of the service | `443`       |
 
