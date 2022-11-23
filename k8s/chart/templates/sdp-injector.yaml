@@ -27,10 +27,10 @@ spec:
               - secret:
                   name: {{ include "sdp-k8s-client.injector-secret" . }}
                   items:
-                    - key: sdp-injector-crt.pem
-                      path: sdp-injector-crt.pem
-                    - key: sdp-injector-key.pem
-                      path: sdp-injector-key.pem
+                    - key: ca.crt
+                      path: sdp-injector.crt
+                    - key: tls.key
+                      path: sdp-injector.key
               - configMap:
                   name: {{ include "sdp-k8s-client.sidecar-config" . }}
                   items:

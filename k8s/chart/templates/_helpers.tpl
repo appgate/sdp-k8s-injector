@@ -68,6 +68,14 @@ Secret
 {{- printf "sdp-client-secret-%s" .Release.Name }}
 {{- end }}
 
+{{- define "sdp-k8s-client.injector-certificate" -}}
+{{- printf "sdp-client-certificate-%s" .Release.Name }}
+{{- end }}
+
+{{- define "sdp-k8s-client.injector-issuer" -}}
+{{- printf "sdp-client-issuer-%s" .Release.Name }}
+{{- end }}
+
 {{/*
 Sidecar Config
 */}}

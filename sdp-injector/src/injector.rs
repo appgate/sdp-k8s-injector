@@ -16,7 +16,7 @@ use kube::api::{DynamicObject, ListParams};
 use kube::core::admission::{AdmissionRequest, AdmissionResponse, AdmissionReview};
 use kube::Api;
 use rustls::{Certificate, PrivateKey, ServerConfig};
-use rustls_pemfile::{read_one, Item};
+use rustls_pemfile::{certs, rsa_private_keys};
 use sdp_common::annotations::{
     SDP_ANNOTATION_CLIENT_CONFIG, SDP_ANNOTATION_CLIENT_DEVICE_ID, SDP_ANNOTATION_CLIENT_SECRETS,
     SDP_ANNOTATION_DNS_SEARCHES, SDP_INJECTOR_ANNOTATION_CLIENT_VERSION,
@@ -35,7 +35,7 @@ use std::collections::hash_map::RandomState;
 use std::collections::{HashMap, HashSet};
 use std::error::Error;
 use std::fs::File;
-use std::io::{BufReader, Error as IOError, ErrorKind};
+use std::io::BufReader;
 use std::iter::FromIterator;
 use std::path::PathBuf;
 use std::pin::Pin;
@@ -61,8 +61,8 @@ const SDP_SIDECARS_FILE: &str = "/opt/sdp-injector/k8s/sdp-sidecars.json";
 const SDP_SIDECARS_FILE_ENV: &str = "SDP_SIDECARS_FILE";
 const SDP_CERT_FILE_ENV: &str = "SDP_CERT_FILE";
 const SDP_KEY_FILE_ENV: &str = "SDP_KEY_FILE";
-const SDP_CERT_FILE: &str = "/opt/sdp-injector/k8s/sdp-injector-crt.pem";
-const SDP_KEY_FILE: &str = "/opt/sdp-injector/k8s/sdp-injector-key.pem";
+const SDP_CERT_FILE: &str = "/opt/sdp-injector/k8s/sdp-injector.crt";
+const SDP_KEY_FILE: &str = "/opt/sdp-injector/k8s/sdp-injector.key";
 const SDP_SERVICE_CONTAINER_NAME: &str = "sdp-service";
 
 macro_rules! admission_request {
@@ -324,12 +324,6 @@ impl IdentityStore<ServiceIdentity> for KubeIdentityStore {
             ))
         })
     }
-}
-
-fn reader_from_cwd(file_name: &str) -> Result<BufReader<File>, Box<dyn Error>> {
-    let cwd = std::env::current_dir()?;
-    let file = File::open(cwd.join(PathBuf::from(file_name).as_path()))?;
-    Ok(BufReader::new(file))
 }
 
 async fn dns_service_discover(services_api: &Api<KubeService>) -> Option<KubeService> {
@@ -821,19 +815,6 @@ pub fn load_sidecar_containers() -> Result<SDPSidecars, Box<dyn Error>> {
     let sdp_sidecars = serde_json::from_reader(reader)?;
     debug!("SDP sidecar: {:?}", sdp_sidecars);
     Ok(sdp_sidecars)
-}
-
-fn load_cert_files() -> Result<(Option<Item>, Option<Item>), Box<dyn Error>> {
-    let cert_file = std::env::var(SDP_CERT_FILE_ENV).unwrap_or(SDP_CERT_FILE.to_string());
-    let key_file = std::env::var(SDP_KEY_FILE_ENV).unwrap_or(SDP_KEY_FILE.to_string());
-    let mut cert_buf = reader_from_cwd(&cert_file)
-        .map_err(|e| format!("Unable to read cert file {}: {}", &cert_file, e))?;
-    let mut key_buf = reader_from_cwd(&key_file)
-        .map_err(|e| format!("Unable to read key file {}: {}", &key_file, e))?;
-    Ok((
-        read_one(&mut cert_buf).map_err(|e| format!("Error reading cert file: {}", e))?,
-        read_one(&mut key_buf).map_err(|e| format!("Error reading key file: {}", e))?,
-    ))
 }
 
 async fn patch_deployment(
@@ -2321,30 +2302,21 @@ Pod is missing required volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-
 }
 
 pub fn load_ssl() -> Result<ServerConfig, Box<dyn Error>> {
-    let (cert_pem, key_pem) = load_cert_files()?;
-    let cert: Option<Certificate>;
-    let key: Option<PrivateKey>;
-    if let Some(Item::X509Certificate(cs)) = cert_pem {
-        cert = Some(Certificate(cs));
-    } else {
-        return Err(Box::new(IOError::new(
-            ErrorKind::InvalidData,
-            "Unable to load certificate",
-        )));
-    }
-    match key_pem {
-        Some(Item::PKCS8Key(key_vec)) | Some(Item::RSAKey(key_vec)) => {
-            key = Some(PrivateKey(key_vec));
-            Ok(ServerConfig::builder()
-                .with_safe_defaults()
-                .with_no_client_auth()
-                .with_single_cert(vec![cert.unwrap()], key.unwrap())?)
-        }
-        _ => Err(Box::new(IOError::new(
-            ErrorKind::InvalidData,
-            "Unable to load private key",
-        ))),
-    }
+    let cert_file = std::env::var(SDP_CERT_FILE_ENV).unwrap_or(SDP_CERT_FILE.to_string());
+    let key_file = std::env::var(SDP_KEY_FILE_ENV).unwrap_or(SDP_KEY_FILE.to_string());
+
+    let mut cert_reader = BufReader::new(File::open(cert_file)?);
+    let mut key_reader = BufReader::new(File::open(key_file)?);
+
+    let raw_certs = certs(&mut cert_reader)?;
+    let certs: Vec<Certificate> = raw_certs.into_iter().map(Certificate).collect();
+    let raw_keys = rsa_private_keys(&mut key_reader)?;
+    let keys: Vec<PrivateKey> = raw_keys.into_iter().map(PrivateKey).collect();
+
+    Ok(ServerConfig::builder()
+        .with_safe_defaults()
+        .with_no_client_auth()
+        .with_single_cert(certs, keys[0].clone())?)
 }
 
 pub async fn injector_handler<E: IdentityStore<ServiceIdentity>>(

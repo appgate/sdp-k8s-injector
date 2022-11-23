@@ -5,7 +5,7 @@ metadata:
   labels:
     app: {{ include "sdp-k8s-client.fullname" . }}
   annotations:
-    cert-manager.io/inject-ca-from-secret: {{ include "sdp-k8s-client.namespace" . }}/{{ include "sdp-k8s-client.injector-ca-crt" . }}
+    cert-manager.io/inject-ca-from: {{ include "sdp-k8s-client.namespace" . }}/{{ include "sdp-k8s-client.injector-certificate" . }}
 webhooks:
   - name: sdp-injector.appgate.com
     clientConfig:
