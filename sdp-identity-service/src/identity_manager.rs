@@ -64,7 +64,7 @@ trait ServiceIdentityProvider {
         let current_activated_credentials: HashSet<String> = HashSet::from_iter(
             self.identities()
                 .iter()
-                .map(|&i| i.credentials().name.clone()),
+                .map(|&i| i.credentials().id.clone()),
         );
         activated_service_users
             .difference(&current_activated_credentials)
@@ -79,7 +79,7 @@ trait ServiceIdentityProvider {
     ) -> Vec<&Self::To> {
         self.identities()
             .iter()
-            .filter(|i| !activated_service_users.contains(&i.credentials().name))
+            .filter(|i| !activated_service_users.contains(&i.credentials().id))
             .map(|i| *i)
             .collect()
     }
@@ -527,7 +527,7 @@ impl IdentityManagerRunner<ServiceLookup, ServiceIdentity> {
                 }
                 // Identity Creator notifies about already activated User Credentials
                 IdentityManagerProtocol::FoundServiceUser(service_user, activated) if activated => {
-                    existing_activated_credentials.insert(service_user.name.clone());
+                    existing_activated_credentials.insert(service_user.id.clone());
                     info!(IdentityManagerProtocol::<F, ServiceIdentity>::IdentityManagerDebug |(
                         "Found activated ServiceUser {} (id: {})",
                         service_user.name,
@@ -1084,7 +1084,7 @@ mod tests {
                 (
                     spec.service_namespace.as_str(),
                     spec.service_name.as_str(),
-                    spec.service_user.name.as_str(),
+                    spec.service_user.id.as_str(),
                 )
             })
             .collect();
@@ -1106,10 +1106,10 @@ mod tests {
                     im.extra_service_identities(&HashSet::new()));
                 assert_eq!(xs.len(), 4);
                 assert_eq!(xs, vec![
-                    ("ns1", "srv1", "service_user1"),
-                    ("ns2", "srv2", "service_user2"),
-                    ("ns3", "srv3", "service_user3"),
-                    ("ns4", "srv4", "service_user4"),
+                    ("ns1", "srv1", "service_user_id1"),
+                    ("ns2", "srv2", "service_user_id2"),
+                    ("ns3", "srv3", "service_user_id3"),
+                    ("ns4", "srv4", "service_user_id4"),
                 ]);
 
                 // 4 service identities registered and only 1 on start
@@ -1119,9 +1119,9 @@ mod tests {
                 )));
                 assert_eq!(xs.len(), 3);
                 assert_eq!(xs, vec![
-                    ("ns2", "srv2", "service_user2"),
-                    ("ns3", "srv3", "service_user3"),
-                    ("ns4", "srv4", "service_user4"),
+                    ("ns2", "srv2", "service_user_id2"),
+                    ("ns3", "srv3", "service_user_id3"),
+                    ("ns4", "srv4", "service_user_id4"),
                 ]);
 
                 // 4 service identities registered and all 4 on start
@@ -1166,19 +1166,19 @@ mod tests {
                     im.orphan_service_identities(&HashSet::new()));
                 assert_eq!(xs.len(), 4);
                 assert_eq!(xs, vec![
-                    ("ns1", "srv1", "service_user1"),
-                    ("ns2", "srv2", "service_user2"),
-                    ("ns3", "srv3", "service_user3"),
-                    ("ns4", "srv4", "service_user4"),
+                    ("ns1", "srv1", "service_user_id1"),
+                    ("ns2", "srv2", "service_user_id2"),
+                    ("ns3", "srv3", "service_user_id3"),
+                    ("ns4", "srv4", "service_user_id4"),
                 ]);
 
                 // 4 service identities registered 4 active service users,
                 let xs = service_identities_to_tuple(
                     im.orphan_service_identities(&HashSet::from([
-                        identities[0].credentials().name.clone(),
-                        identities[1].credentials().name.clone(),
-                        identities[2].credentials().name.clone(),
-                        identities[3].credentials().name.clone(),
+                        identities[0].credentials().id.clone(),
+                        identities[1].credentials().id.clone(),
+                        identities[2].credentials().id.clone(),
+                        identities[3].credentials().id.clone(),
                     ])));
                 assert_eq!(xs.len(), 0);
                 assert_eq!(xs, vec![]);
@@ -1186,23 +1186,23 @@ mod tests {
                 // 4 service identities registered 2 active service users,
                 let xs = service_identities_to_tuple(
                     im.orphan_service_identities(&HashSet::from([
-                        identities[1].credentials().name.clone(), // service_user2
-                        identities[3].credentials().name.clone(), // service_user4
+                        identities[1].credentials().id.clone(), // service_user2
+                        identities[3].credentials().id.clone(), // service_user4
                     ])));
                 assert_eq!(xs.len(), 2);
                 assert_eq!(xs, vec![
-                    ("ns1", "srv1", "service_user1"),
-                    ("ns3", "srv3", "service_user3"),
+                    ("ns1", "srv1", "service_user_id1"),
+                    ("ns3", "srv3", "service_user_id3"),
                 ]);
 
                 // 4 service identities registered 5 active service users,
                 let xs = service_identities_to_tuple(
                     im.orphan_service_identities(&HashSet::from([
-                        identities[0].credentials().name.clone(),
-                        identities[1].credentials().name.clone(),
-                        identities[2].credentials().name.clone(),
-                        identities[3].credentials().name.clone(),
-                        service_identity!(5).credentials().name.clone()
+                        identities[0].credentials().id.clone(),
+                        identities[1].credentials().id.clone(),
+                        identities[2].credentials().id.clone(),
+                        identities[3].credentials().id.clone(),
+                        service_identity!(5).credentials().id.clone()
                     ])));
                 assert_eq!(xs.len(), 0);
                 assert_eq!(xs, vec![]);
@@ -1227,38 +1227,38 @@ mod tests {
 
                 // 4 service identities registered 4 active service users,
                 let xs = im.orphan_service_users(&HashSet::from([
-                    "service_user1".to_string(),
-                    "service_user2".to_string(),
-                    "service_user3".to_string(),
-                    "service_user4".to_string(),
+                    "service_user_id1".to_string(),
+                    "service_user_id2".to_string(),
+                    "service_user_id3".to_string(),
+                    "service_user_id4".to_string(),
                 ]));
                 assert_eq!(xs.len(), 0);
                 assert_eq!(xs, HashSet::<String>::new());
 
                 // 4 service identities registered 1 active service user but not used,
                 let xs = im.orphan_service_users(&HashSet::from([
-                    "service_user5".to_string(),
+                    "service_user_id5".to_string(),
                 ]));
                 assert_eq!(xs.len(), 1);
-                assert_eq!(xs, HashSet::from(["service_user5".to_string()]));
+                assert_eq!(xs, HashSet::from(["service_user_id5".to_string()]));
 
                 // 4 service identities registered 8 active service users, 4 not being used
                 let xs = im.orphan_service_users(&HashSet::from([
-                    "service_user1".to_string(),
-                    "service_user2".to_string(),
-                    "service_user3".to_string(),
-                    "service_user4".to_string(),
-                    "service_user5".to_string(),
-                    "service_user6".to_string(),
-                    "service_user7".to_string(),
-                    "service_user8".to_string(),
+                    "service_user_id1".to_string(),
+                    "service_user_id2".to_string(),
+                    "service_user_id3".to_string(),
+                    "service_user_id4".to_string(),
+                    "service_user_id5".to_string(),
+                    "service_user_id6".to_string(),
+                    "service_user_id7".to_string(),
+                    "service_user_id8".to_string(),
                 ]));
                 assert_eq!(xs.len(), 4);
                 assert_eq!(xs, HashSet::from([
-                    "service_user5".to_string(),
-                    "service_user6".to_string(),
-                    "service_user7".to_string(),
-                    "service_user8".to_string(),
+                    "service_user_id5".to_string(),
+                    "service_user_id6".to_string(),
+                    "service_user_id7".to_string(),
+                    "service_user_id8".to_string(),
                     ]));
             }
         }
@@ -1753,7 +1753,7 @@ mod tests {
                 tx.send(IdentityManagerProtocol::IdentityCreatorReady).await.expect("Unable to send message!");
                 // Notify the DeploymentWatcher is ready
                 tx.send(IdentityManagerProtocol::DeploymentWatcherReady).await.expect("Unable to send message!");
-                let mut extra_credentials_expected: HashSet<String> = HashSet::from_iter((1 .. 12).map(|i| format!("service_user{}", i)).collect::<Vec<_>>());
+                let mut extra_credentials_expected: HashSet<String> = HashSet::from_iter((1 .. 12).map(|i| format!("service_user_id{}", i)).collect::<Vec<_>>());
                 for _ in 1 .. 12 {
                     assert_message!(m :: IdentityCreatorProtocol::DeleteSDPUser(_) in identity_creator_rx);
                     if let IdentityCreatorProtocol::DeleteSDPUser(service_user_name) = m {

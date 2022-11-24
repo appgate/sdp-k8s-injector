@@ -279,7 +279,7 @@ impl IdentityCreator {
                     "Error recovering ServiceUser information from SDPUser {}. Deleting SDPUser.",
                     sdp_user.name
                 );
-                if let Err(e) = self.delete_sdp_user(&sdp_user.name).await {
+                if let Err(e) = self.delete_sdp_user(&sdp_user.id).await {
                     error!(
                         "Error deleting SDPUser {} from collective: {}",
                         sdp_user.name,
