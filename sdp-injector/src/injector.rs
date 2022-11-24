@@ -2054,7 +2054,10 @@ Pod is missing required volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-
         let env = ServiceEnvironment::from_identity_store(&request, store.lock().await).await;
         assert!(env.is_err());
         if let Err(e) = env {
-            assert_eq!(e.error, "Service ns1_srv1 is not registered (true) or device ids for service are not registered (true)");
+            assert_eq!(
+                e.error,
+                "ServiceIdentity and/or DeviceId is missing for service ns1_srv1"
+            );
         }
         let id = service_identity!(1);
         let ds = service_device_ids!(1);
@@ -2270,7 +2273,10 @@ Pod is missing required volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-
             let env = ServiceEnvironment::from_identity_store(&request, store2.lock().await).await;
             assert!(env.is_err());
             if let Err(ref e) = env {
-                assert_eq!(e.error, "Service ns2_srv2 is not registered (true) or device ids for service are not registered (true)");
+                assert_eq!(
+                    e.error,
+                    "ServiceIdentity and/or DeviceId is missing for service ns2_srv2"
+                );
             }
             if ch_rx
                 .recv()

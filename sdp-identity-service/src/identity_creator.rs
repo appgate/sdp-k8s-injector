@@ -52,7 +52,7 @@ async fn get_or_create_client_profile_url(
         Some(p) => (p.id.clone(), p.name.clone()),
         None => {
             warn!(
-                "We could not find any client profile url for this cluster with name {}, creating a new one",
+                "Unable to find client profile url for cluster {}, creating a new one",
                 profile_name
             );
             let spa_key_name = profile_name.replace(" ", "").to_lowercase();
@@ -113,7 +113,10 @@ impl IdentityCreator {
         let service_user = SDPUser::new();
         let profile_url =
             get_or_create_client_profile_url(&mut self.system, &self.cluster_id).await?;
-        info!("Creating ServiceUser with id {}", service_user.id);
+        info!(
+            "Creating ServiceUser {} (id: {})",
+            service_user.name, service_user.id
+        );
         if let Some(service_user) = self
             .system
             .create_user(&service_user)
@@ -136,7 +139,6 @@ impl IdentityCreator {
     }
 
     async fn delete_sdp_user(&mut self, sdp_user_id: &str) -> Result<(), IdentityServiceError> {
-        info!("Deleting SDPUser with name {}", &sdp_user_id);
         // Create a default SDPUser with the name of the one we want to delete
         let sdp_user = SDPUser::from_name(sdp_user_id.to_string());
         // Derive a ServiceUser that we can use to delete the secret fields
@@ -151,8 +153,9 @@ impl IdentityCreator {
                 .await
                 .map_err(|e| IdentityServiceError::from(e.to_string()))?;
         }
+        info!("Deleting SDPUser {} (id: {})", sdp_user.name, sdp_user.id);
         self.system
-            .delete_user(&sdp_user_id)
+            .delete_user(sdp_user_id)
             .await
             .map_err(|e| IdentityServiceError::from(e.to_string()))
     }
@@ -273,7 +276,7 @@ impl IdentityCreator {
                 identity_manager_proto_tx.send(msg).await?;
             } else {
                 error!(
-                    "Recovering ServiceUser information from SDPUser {}. Deleting SDPUser.",
+                    "Error recovering ServiceUser information from SDPUser {}. Deleting SDPUser.",
                     sdp_user.name
                 );
                 if let Err(e) = self.delete_sdp_user(&sdp_user.name).await {
@@ -294,8 +297,8 @@ impl IdentityCreator {
         for _i in 0..n_missing_users {
             let service_user = self.create_user().await?;
             info!(
-                "New ServiceUser with name {} created, notifying IdentityManager",
-                service_user.name
+                "New ServiceUser {} (id: {}) created, notifying IdentityManager",
+                service_user.name, service_user.id
             );
             identity_manager_proto_tx
                 .send(IdentityManagerProtocol::FoundServiceUser(
@@ -347,8 +350,8 @@ impl IdentityCreator {
                     match self.create_user().await {
                         Ok(service_user) => {
                             info!(
-                                "New ServiceUser with name {} created, notifying IdentityManager",
-                                service_user.name
+                                "New ServiceUser {} (id: {}) created, notifying IdentityManager",
+                                service_user.name, service_user.id
                             );
                             let msg =
                                 IdentityManagerProtocol::FoundServiceUser(service_user, false);
@@ -378,9 +381,10 @@ impl IdentityCreator {
                         .await
                     {
                         error!(
-                            "[{}] Error deleting ServiceUser with id {}: {}",
+                            "[{}] Error deleting ServiceUser {} (id: {}): {}",
                             format!("{}_{}", service_ns, service_name),
                             service_user.name,
+                            service_user.id,
                             err
                         );
                     }
@@ -400,15 +404,17 @@ impl IdentityCreator {
                     service_user.name = sdp_user.name.clone();
 
                     info!(
-                        "[{}] Activating ServiceUser with name {}",
+                        "[{}] Activating ServiceUser {} (id: {})",
                         format!("{}_{}", service_ns, service_name),
-                        service_name
+                        sdp_user.name,
+                        sdp_user.id
                     );
                     if let Err(err) = system.modify_user(&sdp_user).await {
                         error!(
-                            "[{}] Unable to activate ServiceUser with name {}: {}",
+                            "[{}] Unable to activate ServiceUser {} (id: {}): {}",
                             format!("{}_{}", service_ns, service_name),
-                            service_name,
+                            service_user.name,
+                            service_user.id,
                             err
                         );
                     }
@@ -429,9 +435,10 @@ impl IdentityCreator {
 
                     // Create secrets now
                     info!(
-                        "[{}] Creating secrets for ServiceUser with name {}",
+                        "[{}] Creating secrets for ServiceUser {} (id: {})",
                         format!("{}_{}", service_ns, service_name),
-                        service_user.name
+                        service_user.name,
+                        service_user.id
                     );
                     if let Err(e) = service_user
                         .create_secrets(self.secrets_api(&service_ns), &service_ns, &service_name)

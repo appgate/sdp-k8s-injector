@@ -192,7 +192,10 @@ impl ServiceUser {
                 })
                 .unwrap_or((None, None, None))
         } else {
-            error!("Error getting ServiceUser with name {}", &self.name);
+            error!(
+                "Error getting ServiceUser {} (id: {})",
+                &self.name, &self.id
+            );
             (None, None, None)
         }
     }

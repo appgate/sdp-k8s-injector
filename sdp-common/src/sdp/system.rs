@@ -305,6 +305,7 @@ impl System {
         let _ = self.maybe_refresh_login().await?;
         let mut url = Url::from(self.hosts[0].clone());
         url.set_path(&format!("/admin/service-users/{}", service_user_id));
+        info!("Deleting ServiceUser in SDP system: {}", service_user_id);
         self.delete(url).await
     }
 

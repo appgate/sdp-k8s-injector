@@ -204,14 +204,20 @@ impl IdentityStore<ServiceIdentity> for InMemoryIdentityStore {
                         available_uuids,
                     )),
                 ) => {
-                    (*n_available_uuids > 0)
-                    .then(|| ())
-                    .ok_or_else(|| format!("Requested device id for {} but no device ids are available", service_id))?;
+                    (*n_available_uuids > 0).then(|| ()).ok_or_else(|| {
+                        format!(
+                            "Requested device id for {} but no device ids are available",
+                            service_id
+                        )
+                    })?;
                     // Get first uuid and update current data
                     let mut available_uuids = available_uuids.clone();
                     let uuid = available_uuids.remove(0);
                     let available_uuids = available_uuids.clone();
-                    info!("[{}] DeviceID {} assigned to service {}", service_id, uuid, service_id);
+                    info!(
+                        "[{}] DeviceID {} assigned to service {}",
+                        service_id, uuid, service_id
+                    );
                     info!(
                         "[{}] Service {} has {} DeviceIDs available {:?}",
                         service_id,
@@ -231,7 +237,22 @@ impl IdentityStore<ServiceIdentity> for InMemoryIdentityStore {
                     Ok((sid.clone(), uuid))
                 }
                 _ => {
-                    Err(SDPServiceError::from_string(format!("Service {} is not registered ({}) or device ids for service are not registered ({})", service_id, sid.is_none(), ds.is_none())))
+                    if sid.is_none() {
+                        error!(
+                            "[{}] ServiceIdentity does not exist for service {}",
+                            service_id, service_id
+                        );
+                    }
+                    if ds.is_none() {
+                        error!(
+                            "[{}] DeviceID does not exist for service {}",
+                            service_id, service_id
+                        );
+                    }
+                    Err(SDPServiceError::from_string(format!(
+                        "ServiceIdentity and/or DeviceId is missing for service {}",
+                        service_id
+                    )))
                 }
             }
         };

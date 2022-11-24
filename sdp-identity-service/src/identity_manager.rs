@@ -473,8 +473,8 @@ impl IdentityManagerRunner<ServiceLookup, ServiceIdentity> {
                                         ))
                                         .await
                                     {
-                                        error!("[{}] Error updating ServiceUser in ServiceUser with name {} for service {}: {}",
-                                        service_identity.service_id(), service_identity.credentials().name, service_identity.service_id(), err);
+                                        error!("[{}] Error activating ServiceUser for service {}: {}",
+                                        service_identity.service_id(), service_identity.service_id(), err);
                                     }
                                 }
                                 Err(err) => {
@@ -521,16 +521,17 @@ impl IdentityManagerRunner<ServiceLookup, ServiceIdentity> {
                 IdentityManagerProtocol::FoundServiceUser(service_user, activated)
                     if !activated =>
                 {
-                    info!(IdentityManagerProtocol::<F, ServiceIdentity>::IdentityManagerDebug | ("Found deactivated ServiceUser with name {}", service_user.name) => external_queue_tx);
-                    existing_deactivated_credentials.insert(service_user.name.clone());
+                    info!(IdentityManagerProtocol::<F, ServiceIdentity>::IdentityManagerDebug | ("Found deactivated ServiceUser {} (id: {})", service_user.name, service_user.id) => external_queue_tx);
+                    existing_deactivated_credentials.insert(service_user.id.clone());
                     im.push(service_user);
                 }
                 // Identity Creator notifies about already activated User Credentials
                 IdentityManagerProtocol::FoundServiceUser(service_user, activated) if activated => {
                     existing_activated_credentials.insert(service_user.name.clone());
                     info!(IdentityManagerProtocol::<F, ServiceIdentity>::IdentityManagerDebug |(
-                        "Found activated ServiceUser with name {}",
-                        service_user.name
+                        "Found activated ServiceUser {} (id: {})",
+                        service_user.name,
+                        service_user.id
                     ) => external_queue_tx);
                 }
                 // Identity Creator notifies about already activated User Credentials
@@ -540,11 +541,10 @@ impl IdentityManagerRunner<ServiceLookup, ServiceIdentity> {
                     service_name,
                 ) => {
                     info!(
-                        "[{}] ServiceUser {} has been activated [{}/{}], updating ServiceIdentity",
+                        "[{}] ServiceUser {} (id: {}) has been activated, updating ServiceIdentity",
                         format!("{}_{}", service_ns, service_name),
                         &service_user.name,
-                        service_ns,
-                        service_name
+                        &service_user.id
                     );
                     if let Some(service_identity) =
                         im.identity(&ServiceLookup::new(&service_ns, &service_name, None))
@@ -554,8 +554,8 @@ impl IdentityManagerRunner<ServiceLookup, ServiceIdentity> {
                         let user_id = service_user.id.clone();
                         new_service_identity.spec.service_user = service_user;
                         if let Err(e) = im.update(&new_service_identity).await {
-                            error!("[{}] Error updating ServiceIdentity [{}/{}] after user activation for user with id {} and name {}: {}",
-                                    service_identity.name(), &service_ns, &service_name, &user_id, &new_user_name, e);
+                            error!("[{}] Error updating ServiceIdentity [{}/{}] after activating ServiceUser {} (id: {}): {}",
+                                    service_identity.name(), &service_ns, &service_name, &new_user_name, &user_id, e);
                         }
                         im.register_identity(new_service_identity);
                     }
@@ -611,13 +611,14 @@ impl IdentityManagerRunner<ServiceLookup, ServiceIdentity> {
 
                     info!(IdentityManagerProtocol::<F, ServiceIdentity>::IdentityManagerDebug |("Syncing ServiceIdentity instances") => external_queue_tx);
 
-                    // 1. Delete IdentityService instances with not known ServiceCandidate
+                    // 1. Delete IdentityService instances with unknown ServiceCandidate
+                    info!("Searching for ServiceIdentities with unknown ServiceCandidate");
                     for service_identity in
                         im.extra_service_identities(&existing_service_candidates)
                     {
                         let service_id = service_identity.service_id();
                         info!(
-                            "[{}] Found ServiceIdentity {} with not known ServiceCandidate. Deleting it.",
+                            "[{}] Found ServiceIdentity {} with unknown ServiceCandidate. Deleting it.",
                             service_id, service_id
                         );
                         if let Err(e) = identity_manager_tx
@@ -627,7 +628,7 @@ impl IdentityManagerRunner<ServiceLookup, ServiceIdentity> {
                             .await
                         {
                             error!(
-                                "[{}] Error requesting deleting of ServiceIdentity {}: {}",
+                                "[{}] Error deleting ServiceIdentity {} with unknown ServiceCandidate: {}",
                                 service_id,
                                 service_id,
                                 e.to_string()
@@ -639,6 +640,7 @@ impl IdentityManagerRunner<ServiceLookup, ServiceIdentity> {
                     }
 
                     // 2. Delete ServiceUser instances that don't belong to any ServiceIdentity
+                    info!("Searching for orphaned ServiceUsers");
                     for sdp_user_name in im.orphan_service_users(&existing_activated_credentials) {
                         info!(
                             "SDPUser {} is active but not used by any ServiceIdentity, deleting it",
@@ -647,10 +649,11 @@ impl IdentityManagerRunner<ServiceLookup, ServiceIdentity> {
                         identity_creator_tx
                             .send(IdentityCreatorProtocol::DeleteSDPUser(sdp_user_name))
                             .await
-                            .expect("Unable to delete obsolete SDPUser");
+                            .expect("Error deleting orphaned SDPUser");
                     }
 
                     // 3. Delete IdentityService instances holding not active credentials
+                    info!("Searching for orphaned ServiceIdentities");
                     for service_identity in
                         im.orphan_service_identities(&existing_activated_credentials)
                     {
@@ -1427,7 +1430,7 @@ mod tests {
                 assert_message! {
                     (m :: IdentityManagerProtocol::IdentityManagerDebug(_) in watcher_rx) => {
                      if let IdentityManagerProtocol::IdentityManagerDebug(msg) = m {
-                            assert!(msg.eq("Found deactivated ServiceUser with name service_user1"),
+                            assert!(msg.eq("Found deactivated ServiceUser service_user1 (id: service_user_id1)"),
                                     "Wrong message, got {}", msg);
                         }
                     }
@@ -1435,7 +1438,7 @@ mod tests {
                 assert_message! {
                     (m :: IdentityManagerProtocol::IdentityManagerDebug(_) in watcher_rx) => {
                      if let IdentityManagerProtocol::IdentityManagerDebug(msg) = m {
-                            assert!(msg.eq("Found deactivated ServiceUser with name service_user2"),
+                            assert!(msg.eq("Found deactivated ServiceUser service_user2 (id: service_user_id2)"),
                                     "Wrong message, got {}", msg);
                         }
                     }
@@ -1595,7 +1598,7 @@ mod tests {
                     .await.expect("Unable to send message!");
                     assert_message! {
                         (m :: IdentityManagerProtocol::IdentityManagerDebug(_) in watcher_rx) => {
-                        let expected_msg = format!("Found deactivated ServiceUser with name service_user{}", i);
+                        let expected_msg = format!("Found deactivated ServiceUser service_user{} (id: service_user_id{})", i, i);
                          if let IdentityManagerProtocol::IdentityManagerDebug(msg) = m {
                                 assert!(msg.eq(expected_msg.as_str()),
                                         "Wrong message, expected {} but got {}", expected_msg.as_str(), msg);
@@ -1664,7 +1667,7 @@ mod tests {
                         .await.expect("Unable to send message!");
                     assert_message! {
                         (m :: IdentityManagerProtocol::IdentityManagerDebug(_) in watcher_rx) => {
-                        let expected_msg = format!("Found activated ServiceUser with name service_user{}", i);
+                        let expected_msg = format!("Found activated ServiceUser service_user{} (id: service_user_id{})", i, i);
                          if let IdentityManagerProtocol::IdentityManagerDebug(msg) = m {
                                 assert!(msg.eq(expected_msg.as_str()),
                                         "Wrong message, expected {} but got {}", expected_msg.as_str(), msg);
@@ -1736,7 +1739,7 @@ mod tests {
                         .await.expect("Unable to send message!");
                     assert_message! {
                         (m :: IdentityManagerProtocol::IdentityManagerDebug(_) in watcher_rx) => {
-                        let expected_msg = format!("Found activated ServiceUser with name service_user{}", i);
+                        let expected_msg = format!("Found activated ServiceUser service_user{} (id: service_user_id{})", i, i);
                          if let IdentityManagerProtocol::IdentityManagerDebug(msg) = m {
                                 assert_eq!(msg, expected_msg.as_str());
                             }
