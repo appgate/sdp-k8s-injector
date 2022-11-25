@@ -73,7 +73,7 @@ impl FileWatcher {
             TokioSenderHandler { sender: tx },
             NotifyConfig::default()
                 .with_compare_contents(true)
-                .with_poll_interval(Duration::from_secs(3)),
+                .with_poll_interval(Duration::from_secs(15*60)),
         )?;
 
         for p in paths {
