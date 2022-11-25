@@ -19,17 +19,18 @@ use notify::{
 use sdp_common::crd::{DeviceId, ServiceIdentity};
 use sdp_common::kubernetes::{KUBE_SYSTEM_NAMESPACE, SDP_K8S_NAMESPACE};
 use sdp_common::watcher::{watch, Watcher};
-use sdp_macros::{logger, sdp_debug, sdp_error, sdp_info, sdp_log, with_dollar_sign};
+use sdp_macros::{logger, sdp_debug, sdp_error, sdp_info, sdp_log, sdp_warn, with_dollar_sign};
 use std::collections::HashMap;
 use std::convert::Infallible;
 use std::error::Error;
 use std::path::Path;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::task::Poll;
 use std::time::Duration;
 use tls_listener::TlsListener;
 use tokio::sync::mpsc::channel;
 use tokio::sync::Mutex as AsyncMutex;
+use tokio::time::timeout;
 
 const SDP_K8S_HOST_ENV: &str = "SDP_K8S_HOST";
 const SDP_K8S_HOST_DEFAULT: &str = "kubernetes.default.svc";
@@ -90,7 +91,7 @@ impl FileWatcher {
 
 async fn watch_files(
     mut file_watcher: FileWatcher,
-    reload_certs: Arc<Mutex<bool>>,
+    reload_certs: Arc<AsyncMutex<bool>>,
 ) -> NotifyResult<()> {
     info!("Waiting now for events! {:?}", file_watcher.receiver);
 
@@ -102,7 +103,7 @@ async fn watch_files(
                 attrs: _,
             }) if kind.is_modify() => {
                 info!("Certificate has been updated");
-                *reload_certs.lock().unwrap() = true;
+                *reload_certs.lock().await = true;
             }
             Ok(event) => {
                 info!("Ignoring iNotify event: {:?}", event);
@@ -174,7 +175,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         })
     };
 
-    let reload_certs: Arc<Mutex<bool>> = Arc::new(Mutex::new(false));
+    let reload_certs: Arc<AsyncMutex<bool>> = Arc::new(AsyncMutex::new(false));
     let mut tls_listener = TlsListener::new(tls_acceptor, AddrIncoming::bind(&addr)?);
 
     // Thread to watch ServiceIdentity entities
@@ -248,7 +249,16 @@ async fn main() -> Result<(), Box<dyn Error>> {
     info!("Starting SDP Injector server");
     let reload_certs_lock = Arc::clone(&reload_certs);
     let acceptor = accept::poll_fn(move |cx| {
-        if *reload_certs_lock.lock().unwrap() {
+        let reload_certs = block_on(async {
+            match timeout(Duration::from_millis(10), reload_certs_lock.lock()).await {
+                Ok(v) => *v,
+                Err(_e) => {
+                    warn!("Timeout waiting for ReloadCert lock");
+                    false
+                }
+            }
+        });
+        if reload_certs {
             info!("Reloading TLS certificates");
             let ssl_config = load_ssl().map_err(|e| {
                 tls_listener::Error::ListenerError(std::io::Error::new(
@@ -258,7 +268,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
             })?;
             let tls_acceptor: Acceptor = Arc::new(ssl_config).into();
             tls_listener.replace_acceptor(tls_acceptor);
-            *reload_certs_lock.lock().unwrap() = false;
+            block_on(async {
+                *reload_certs_lock.lock().await = false;
+            });
         }
         match tls_listener.poll_next_unpin(cx) {
             Poll::Ready(Some(Err(e))) => {
