@@ -64,6 +64,8 @@ const SDP_KEY_FILE_ENV: &str = "SDP_KEY_FILE";
 const SDP_CERT_FILE: &str = "/opt/sdp-injector/k8s/sdp-injector.crt";
 const SDP_KEY_FILE: &str = "/opt/sdp-injector/k8s/sdp-injector.key";
 const SDP_SERVICE_CONTAINER_NAME: &str = "sdp-service";
+const SDP_LOG_CONFIG_FILE_ENV: &str = "SDP_LOG_CONFIG_FILE";
+const SDP_LOG_CONFIG_FILE: &str = "/opt/sdp-injector/log4rs.yaml";
 
 macro_rules! admission_request {
     ($body:ident, $typ:tt) => {{
@@ -2301,9 +2303,21 @@ Pod is missing required volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-
     }
 }
 
+pub fn get_log_config_path() -> String {
+    std::env::var(SDP_LOG_CONFIG_FILE_ENV).unwrap_or(SDP_LOG_CONFIG_FILE.to_string())
+}
+
+pub fn get_cert_path() -> String {
+    std::env::var(SDP_CERT_FILE_ENV).unwrap_or(SDP_CERT_FILE.to_string())
+}
+
+pub fn get_key_path() -> String {
+    std::env::var(SDP_KEY_FILE_ENV).unwrap_or(SDP_KEY_FILE.to_string())
+}
+
 pub fn load_ssl() -> Result<ServerConfig, SDPServiceError> {
-    let cert_file = std::env::var(SDP_CERT_FILE_ENV).unwrap_or(SDP_CERT_FILE.to_string());
-    let key_file = std::env::var(SDP_KEY_FILE_ENV).unwrap_or(SDP_KEY_FILE.to_string());
+    let cert_file = get_cert_path();
+    let key_file = get_key_path();
 
     let mut cert_reader = BufReader::new(
         File::open(cert_file).map_err(|e| format!("Unable to open cert file: {}", e))?,

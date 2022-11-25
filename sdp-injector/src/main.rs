@@ -1,8 +1,9 @@
 use crate::deviceid::{DeviceIdProvider, DeviceIdProviderRequestProtocol};
 use crate::injector::{
-    injector_handler, load_sidecar_containers, load_ssl, KubeIdentityStore, SDPInjectorContext,
-    SDPSidecars,
+    get_cert_path, get_key_path, get_log_config_path, injector_handler, load_sidecar_containers,
+    load_ssl, KubeIdentityStore, SDPInjectorContext, SDPSidecars,
 };
+use futures::executor::block_on;
 use futures_util::stream::StreamExt;
 use http::Uri;
 use hyper::server::accept;
@@ -11,6 +12,10 @@ use hyper::service::{make_service_fn, service_fn};
 use hyper::Server;
 use k8s_openapi::api::core::v1::Pod;
 use kube::{Api, Client, Config};
+use notify::{
+    Config as NotifyConfig, Event as NotifyEvent, EventHandler, PollWatcher, RecursiveMode,
+    Result as NotifyResult, Watcher as INotifyWatcher,
+};
 use sdp_common::crd::{DeviceId, ServiceIdentity};
 use sdp_common::kubernetes::{KUBE_SYSTEM_NAMESPACE, SDP_K8S_NAMESPACE};
 use sdp_common::watcher::{watch, Watcher};
@@ -18,11 +23,13 @@ use sdp_macros::{logger, sdp_debug, sdp_error, sdp_info, sdp_log, with_dollar_si
 use std::collections::HashMap;
 use std::convert::Infallible;
 use std::error::Error;
-use std::sync::Arc;
+use std::path::Path;
+use std::sync::{Arc, Mutex};
 use std::task::Poll;
+use std::time::Duration;
 use tls_listener::TlsListener;
 use tokio::sync::mpsc::channel;
-use tokio::sync::Mutex;
+use tokio::sync::Mutex as AsyncMutex;
 
 const SDP_K8S_HOST_ENV: &str = "SDP_K8S_HOST";
 const SDP_K8S_HOST_DEFAULT: &str = "kubernetes.default.svc";
@@ -39,10 +46,79 @@ pub type Acceptor = tokio_rustls::TlsAcceptor;
 
 logger!("Main");
 
+struct TokioSenderHandler {
+    pub sender: tokio::sync::mpsc::Sender<NotifyResult<NotifyEvent>>,
+}
+
+impl EventHandler for TokioSenderHandler {
+    fn handle_event(&mut self, event: NotifyResult<NotifyEvent>) {
+        debug!("Got iNotify event: {:?}", event);
+        block_on(async {
+            let _ = self.sender.send(event).await;
+        });
+    }
+}
+
+#[derive(Debug)]
+struct FileWatcher {
+    _watcher: PollWatcher,
+    pub receiver: tokio::sync::mpsc::Receiver<NotifyResult<NotifyEvent>>,
+}
+
+impl FileWatcher {
+    fn new<'a>(paths: Vec<&'a str>) -> NotifyResult<Self> {
+        let (tx, rx) = tokio::sync::mpsc::channel::<NotifyResult<NotifyEvent>>(1);
+        let mut watcher = PollWatcher::new(
+            TokioSenderHandler { sender: tx },
+            NotifyConfig::default()
+                .with_compare_contents(true)
+                .with_poll_interval(Duration::from_secs(3)),
+        )?;
+
+        for p in paths {
+            if let Err(e) = watcher.watch(Path::new(p), RecursiveMode::Recursive) {
+                panic!("Error when watching changes in file {:?}: {}", p, e);
+            };
+            info!("Watching for changes on path: {}", p);
+        }
+        Ok(FileWatcher {
+            _watcher: watcher,
+            receiver: rx,
+        })
+    }
+}
+
+async fn watch_files(
+    mut file_watcher: FileWatcher,
+    reload_certs: Arc<Mutex<bool>>,
+) -> NotifyResult<()> {
+    info!("Waiting now for events! {:?}", file_watcher.receiver);
+
+    while let Some(res) = file_watcher.receiver.recv().await {
+        match res {
+            Ok(NotifyEvent {
+                kind,
+                paths: _,
+                attrs: _,
+            }) if kind.is_modify() => {
+                info!("Certificate has been updated");
+                *reload_certs.lock().unwrap() = true;
+            }
+            Ok(event) => {
+                info!("Ignoring iNotify event: {:?}", event);
+            }
+            Err(e) => {
+                info!("iNotify error: {:?}", e);
+            }
+        }
+    }
+    Ok(())
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     debug!("Initializing logger");
-    log4rs::init_file("/opt/sdp-injector/log4rs.yaml", Default::default()).unwrap();
+    log4rs::init_file(get_log_config_path(), Default::default()).unwrap();
 
     let mut k8s_host = String::from("https://");
     k8s_host.push_str(&std::env::var(SDP_K8S_HOST_ENV).unwrap_or(SDP_K8S_HOST_DEFAULT.to_string()));
@@ -78,8 +154,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
         sdp_sidecars: Arc::new(sdp_sidecars),
         ns_api: Api::all(k8s_client.clone()),
         services_api: Api::namespaced(k8s_client, KUBE_SYSTEM_NAMESPACE),
-        identity_store: Mutex::new(store),
-        attempts_store: Mutex::new(HashMap::new()),
+        identity_store: AsyncMutex::new(store),
+        attempts_store: AsyncMutex::new(HashMap::new()),
     });
 
     let ssl_config = load_ssl()?;
@@ -98,7 +174,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         })
     };
 
-    let mut reload_certs: bool = false;
+    let reload_certs: Arc<Mutex<bool>> = Arc::new(Mutex::new(false));
     let mut tls_listener = TlsListener::new(tls_acceptor, AddrIncoming::bind(&addr)?);
 
     // Thread to watch ServiceIdentity entities
@@ -170,8 +246,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
     });
 
     info!("Starting SDP Injector server");
+    let reload_certs_lock = Arc::clone(&reload_certs);
     let acceptor = accept::poll_fn(move |cx| {
-        if reload_certs {
+        if *reload_certs_lock.lock().unwrap() {
             info!("Reloading TLS certificates");
             let ssl_config = load_ssl().map_err(|e| {
                 tls_listener::Error::ListenerError(std::io::Error::new(
@@ -181,6 +258,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
             })?;
             let tls_acceptor: Acceptor = Arc::new(ssl_config).into();
             tls_listener.replace_acceptor(tls_acceptor);
+            *reload_certs_lock.lock().unwrap() = false;
         }
         match tls_listener.poll_next_unpin(cx) {
             Poll::Ready(Some(Err(e))) => {
@@ -188,6 +266,17 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 Poll::Ready(Some(Err(e)))
             }
             v => v,
+        }
+    });
+
+    // Thread to watch for notify
+    tokio::spawn(async move {
+        let file_watchers = FileWatcher::new(vec![&get_cert_path(), &get_key_path()]);
+        if let Err(e) = file_watchers {
+            panic!("Unable to create FileWatcher: {}", e);
+        }
+        if let Err(e) = watch_files(file_watchers.unwrap(), Arc::clone(&reload_certs)).await {
+            panic!("Unable to watch files: {}", e);
         }
     });
 
