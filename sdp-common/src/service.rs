@@ -1,5 +1,7 @@
 use crate::annotations::{SDP_INJECTOR_ANNOTATION_ENABLED, SDP_INJECTOR_ANNOTATION_STRATEGY};
-use crate::constants::IDENTITY_MANAGER_SECRET_NAME;
+use crate::constants::{
+    IDENTITY_MANAGER_SECRET_NAME, SDP_LOG_CONFIG_FILE, SDP_LOG_CONFIG_FILE_ENV,
+};
 pub use crate::crd::ServiceIdentity;
 use crate::errors::SDPServiceError;
 use crate::sdp::{auth::SDPUser, system::ClientProfileUrl};
@@ -508,6 +510,10 @@ pub fn volumes(pod: &Pod) -> Option<&Vec<Volume>> {
 
 pub fn volume_names(pod: &Pod) -> Option<Vec<String>> {
     volumes(pod).map(|vs| vs.iter().map(|v| v.name.clone()).collect())
+}
+
+pub fn get_log_config_path() -> String {
+    std::env::var(SDP_LOG_CONFIG_FILE_ENV).unwrap_or(SDP_LOG_CONFIG_FILE.to_string())
 }
 
 #[cfg(test)]

@@ -4,6 +4,7 @@ use clap::{Parser, Subcommand};
 use kube::{Api, CustomResourceExt};
 use sdp_common::crd::{DeviceId, ServiceIdentity};
 use sdp_common::kubernetes::{self, SDP_K8S_NAMESPACE};
+use sdp_common::service::get_log_config_path;
 use sdp_common::watcher::{watch, Watcher, WatcherWaitReady};
 use tokio::sync::mpsc::channel;
 
@@ -61,7 +62,7 @@ async fn run() {
 
 #[tokio::main]
 async fn main() -> () {
-    log4rs::init_file("/opt/sdp-device-id-service/log4rs.yaml", Default::default()).unwrap();
+    log4rs::init_file(get_log_config_path(), Default::default()).unwrap();
 
     let args = DeviceIdService::parse();
     match args.command {

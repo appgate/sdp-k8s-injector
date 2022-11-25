@@ -7,10 +7,10 @@ use clap::{Parser, Subcommand};
 use k8s_openapi::api::{apps::v1::Deployment, core::v1::Namespace};
 use kube::{Api, CustomResourceExt};
 use log::error;
-use sdp_common::kubernetes::get_k8s_client;
 use sdp_common::sdp::system::get_sdp_system;
 use sdp_common::watcher::{watch, WatcherWaitReady};
 use sdp_common::{crd::ServiceIdentity, watcher::Watcher};
+use sdp_common::{kubernetes::get_k8s_client, service::get_log_config_path};
 use std::{panic, process::exit};
 use tokio::sync::mpsc::channel;
 
@@ -44,7 +44,7 @@ struct IdentityService {
 
 #[tokio::main]
 async fn main() -> () {
-    log4rs::init_file("/opt/sdp-identity-service/log4rs.yaml", Default::default()).unwrap();
+    log4rs::init_file(get_log_config_path(), Default::default()).unwrap();
 
     // Exit on panics from other threads
     panic::set_hook(Box::new(|info| {

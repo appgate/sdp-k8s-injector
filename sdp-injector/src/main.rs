@@ -1,7 +1,7 @@
 use crate::deviceid::{DeviceIdProvider, DeviceIdProviderRequestProtocol};
 use crate::injector::{
-    get_cert_path, get_key_path, get_log_config_path, injector_handler, load_sidecar_containers,
-    load_ssl, KubeIdentityStore, SDPInjectorContext, SDPSidecars,
+    get_cert_path, get_key_path, injector_handler, load_sidecar_containers, load_ssl,
+    KubeIdentityStore, SDPInjectorContext, SDPSidecars,
 };
 use futures::executor::block_on;
 use futures_util::stream::StreamExt;
@@ -18,6 +18,7 @@ use notify::{
 };
 use sdp_common::crd::{DeviceId, ServiceIdentity};
 use sdp_common::kubernetes::{KUBE_SYSTEM_NAMESPACE, SDP_K8S_NAMESPACE};
+use sdp_common::service::get_log_config_path;
 use sdp_common::watcher::{watch, Watcher};
 use sdp_macros::{logger, sdp_debug, sdp_error, sdp_info, sdp_log, sdp_warn, with_dollar_sign};
 use std::collections::HashMap;
@@ -73,7 +74,7 @@ impl FileWatcher {
             TokioSenderHandler { sender: tx },
             NotifyConfig::default()
                 .with_compare_contents(true)
-                .with_poll_interval(Duration::from_secs(15*60)),
+                .with_poll_interval(Duration::from_secs(15 * 60)),
         )?;
 
         for p in paths {
