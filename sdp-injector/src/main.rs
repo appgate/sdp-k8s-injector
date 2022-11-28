@@ -1,4 +1,5 @@
 use crate::deviceid::{DeviceIdProvider, DeviceIdProviderRequestProtocol};
+use crate::files_watcher::{watch_files, FilesWatcher};
 use crate::injector::{
     get_cert_path, get_key_path, injector_handler, load_sidecar_containers, load_ssl,
     KubeIdentityStore, SDPInjectorContext, SDPSidecars,
@@ -12,10 +13,6 @@ use hyper::service::{make_service_fn, service_fn};
 use hyper::Server;
 use k8s_openapi::api::core::v1::Pod;
 use kube::{Api, Client, Config};
-use notify::{
-    Config as NotifyConfig, Event as NotifyEvent, EventHandler, PollWatcher, RecursiveMode,
-    Result as NotifyResult, Watcher as INotifyWatcher,
-};
 use sdp_common::crd::{DeviceId, ServiceIdentity};
 use sdp_common::kubernetes::{KUBE_SYSTEM_NAMESPACE, SDP_K8S_NAMESPACE};
 use sdp_common::service::get_log_config_path;
@@ -24,7 +21,6 @@ use sdp_macros::{logger, sdp_debug, sdp_error, sdp_info, sdp_log, sdp_warn, with
 use std::collections::HashMap;
 use std::convert::Infallible;
 use std::error::Error;
-use std::path::Path;
 use std::sync::Arc;
 use std::task::Poll;
 use std::time::Duration;
@@ -40,6 +36,7 @@ const SDP_K8S_NO_VERIFY_ENV: &str = "SDP_K8S_NO_VERIFY";
 mod device_id_watcher;
 mod deviceid;
 mod errors;
+mod files_watcher;
 mod injector;
 mod pod_watcher;
 mod service_identity_watcher;
@@ -47,75 +44,6 @@ mod service_identity_watcher;
 pub type Acceptor = tokio_rustls::TlsAcceptor;
 
 logger!("Main");
-
-struct TokioSenderHandler {
-    pub sender: tokio::sync::mpsc::Sender<NotifyResult<NotifyEvent>>,
-}
-
-impl EventHandler for TokioSenderHandler {
-    fn handle_event(&mut self, event: NotifyResult<NotifyEvent>) {
-        debug!("Got iNotify event: {:?}", event);
-        block_on(async {
-            let _ = self.sender.send(event).await;
-        });
-    }
-}
-
-#[derive(Debug)]
-struct FileWatcher {
-    _watcher: PollWatcher,
-    pub receiver: tokio::sync::mpsc::Receiver<NotifyResult<NotifyEvent>>,
-}
-
-impl FileWatcher {
-    fn new<'a>(paths: Vec<&'a str>) -> NotifyResult<Self> {
-        let (tx, rx) = tokio::sync::mpsc::channel::<NotifyResult<NotifyEvent>>(1);
-        let mut watcher = PollWatcher::new(
-            TokioSenderHandler { sender: tx },
-            NotifyConfig::default()
-                .with_compare_contents(true)
-                .with_poll_interval(Duration::from_secs(15 * 60)),
-        )?;
-
-        for p in paths {
-            if let Err(e) = watcher.watch(Path::new(p), RecursiveMode::Recursive) {
-                panic!("Error when watching changes in file {:?}: {}", p, e);
-            };
-            info!("Watching for changes on path: {}", p);
-        }
-        Ok(FileWatcher {
-            _watcher: watcher,
-            receiver: rx,
-        })
-    }
-}
-
-async fn watch_files(
-    mut file_watcher: FileWatcher,
-    reload_certs: Arc<AsyncMutex<bool>>,
-) -> NotifyResult<()> {
-    info!("Waiting now for events! {:?}", file_watcher.receiver);
-
-    while let Some(res) = file_watcher.receiver.recv().await {
-        match res {
-            Ok(NotifyEvent {
-                kind,
-                paths: _,
-                attrs: _,
-            }) if kind.is_modify() => {
-                info!("Certificate has been updated");
-                *reload_certs.lock().await = true;
-            }
-            Ok(event) => {
-                info!("Ignoring iNotify event: {:?}", event);
-            }
-            Err(e) => {
-                info!("iNotify error: {:?}", e);
-            }
-        }
-    }
-    Ok(())
-}
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
@@ -284,7 +212,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     // Thread to watch for notify
     tokio::spawn(async move {
-        let file_watchers = FileWatcher::new(vec![&get_cert_path(), &get_key_path()]);
+        let file_watchers = FilesWatcher::new(vec![&get_cert_path(), &get_key_path()]);
         if let Err(e) = file_watchers {
             panic!("Unable to create FileWatcher: {}", e);
         }
