@@ -124,8 +124,8 @@ spec:
         {{ end }}
         - name: {{ .Chart.Name }}-identity-service
           env:
-            - name: RUST_LOG
-              value: {{ .Values.sdp.identityService.logLevel | default "info" }}
+            - name: SDP_LOG_CONFIG_FILE
+              value: /opt/sdp-identity-service/log4rs.yaml
             - name: SDP_SYSTEM_HOSTS
               valueFrom:
                 configMapKeyRef:
