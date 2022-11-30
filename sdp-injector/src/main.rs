@@ -1,5 +1,7 @@
 use crate::deviceid::{DeviceIdProvider, DeviceIdProviderRequestProtocol};
-use crate::files_watcher::{watch_files, FilesWatcher};
+use crate::files_watcher::{
+    watch_files, FilesWatcher, SDP_FILE_WATCHER_POLL_INTERVAL, SDP_FILE_WATCHER_POLL_INTERVAL_ENV,
+};
 use crate::injector::{
     get_cert_path, get_key_path, injector_handler, load_sidecar_containers, load_ssl,
     KubeIdentityStore, SDPInjectorContext, SDPSidecars,
@@ -217,7 +219,24 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     // Thread to watch for notify
     tokio::spawn(async move {
-        let file_watchers = FilesWatcher::new(vec![&get_cert_path(), &get_key_path()]);
+        let poll_interval: u64 = std::env::var(SDP_FILE_WATCHER_POLL_INTERVAL_ENV)
+            .map(|s| {
+                let secs = s.trim().parse::<u64>();
+                if let Err(_) = secs {
+                    error!(
+                        "Wrong value {} for file watcher poll interval, it must be seconds.",
+                        s
+                    );
+                    SDP_FILE_WATCHER_POLL_INTERVAL
+                } else {
+                    secs.unwrap()
+                }
+            })
+            .unwrap_or(SDP_FILE_WATCHER_POLL_INTERVAL);
+        let file_watchers = FilesWatcher::new(
+            vec![&get_cert_path(), &get_key_path()],
+            Duration::from_secs(poll_interval),
+        );
         if let Err(e) = file_watchers {
             panic!("Unable to create FileWatcher: {}", e);
         }

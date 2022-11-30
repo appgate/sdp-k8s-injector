@@ -10,6 +10,9 @@ use tokio::sync::Mutex as AsyncMutex;
 
 logger!("FilesWatcher");
 
+pub const SDP_FILE_WATCHER_POLL_INTERVAL_ENV: &str = "SDP_FILE_WATCHER_POLL_INTERVAL";
+pub const SDP_FILE_WATCHER_POLL_INTERVAL: u64 = 900;
+
 struct TokioSenderHandler {
     pub sender: tokio::sync::mpsc::Sender<NotifyResult<NotifyEvent>>,
 }
@@ -29,13 +32,13 @@ pub struct FilesWatcher {
 }
 
 impl FilesWatcher {
-    pub fn new<'a>(paths: Vec<&'a str>) -> NotifyResult<Self> {
+    pub fn new<'a>(paths: Vec<&'a str>, interval: Duration) -> NotifyResult<Self> {
         let (tx, rx) = tokio::sync::mpsc::channel::<NotifyResult<NotifyEvent>>(1);
         let mut watcher = PollWatcher::new(
             TokioSenderHandler { sender: tx },
             NotifyConfig::default()
                 .with_compare_contents(true)
-                .with_poll_interval(Duration::from_secs(15 * 60)),
+                .with_poll_interval(interval),
         )?;
 
         for p in paths {
