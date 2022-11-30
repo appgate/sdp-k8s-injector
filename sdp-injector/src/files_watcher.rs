@@ -45,7 +45,11 @@ impl FilesWatcher {
             if let Err(e) = watcher.watch(Path::new(p), RecursiveMode::Recursive) {
                 panic!("Error when watching changes in file {:?}: {}", p, e);
             };
-            info!("Watching for changes on path: {}", p);
+            info!(
+                "Watching for changes on path: {} [every {} seconds]",
+                p,
+                interval.as_secs()
+            );
         }
         Ok(FilesWatcher {
             _watcher: watcher,
@@ -58,8 +62,7 @@ pub async fn watch_files(
     mut file_watcher: FilesWatcher,
     reload_certs: Arc<AsyncMutex<bool>>,
 ) -> NotifyResult<()> {
-    info!("Waiting now for events! {:?}", file_watcher.receiver);
-
+    info!("Waiting now for events");
     while let Some(res) = file_watcher.receiver.recv().await {
         match res {
             Ok(NotifyEvent {
