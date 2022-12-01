@@ -155,19 +155,4 @@ spec:
           volumeMounts:
             - mountPath: /opt/sdp-identity-service
               name: sdp-identity-service-log
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: {{ include "sdp-k8s-client.fullname" . }}-identity-service
-  namespace: {{ include "sdp-k8s-client.namespace" . }}
-  labels:
-    {{- include "sdp-k8s-client.labels" . | nindent 4 }}
-spec:
-  type: {{ .Values.service.type }}
-  ports:
-    - port: {{ .Values.service.port }}
-      targetPort: 8443
-      name: https
-  selector:
-    {{- include "sdp-k8s-client.selectorLabels" . | nindent 4 }}-identity-service
+
