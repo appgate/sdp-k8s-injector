@@ -11,7 +11,7 @@ use tokio::sync::Mutex as AsyncMutex;
 logger!("FilesWatcher");
 
 pub const SDP_FILE_WATCHER_POLL_INTERVAL_ENV: &str = "SDP_FILE_WATCHER_POLL_INTERVAL";
-pub const SDP_FILE_WATCHER_POLL_INTERVAL: u64 = 120;
+pub const SDP_FILE_WATCHER_POLL_INTERVAL: u64 = 900;
 
 struct TokioSenderHandler {
     pub sender: tokio::sync::mpsc::Sender<NotifyResult<NotifyEvent>>,
