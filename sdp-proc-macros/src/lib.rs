@@ -204,7 +204,7 @@ pub fn derive_device_id_provider(input: proc_macro::TokenStream) -> proc_macro::
             }
         }
     } else {
-        panic!("#[derive(DeviceIdProider)] is only defined for structs!");
+        panic!("#[derive(DeviceIdProvider)] is only defined for structs!");
     }
 
     let ms: Vec<NestedMeta> = input

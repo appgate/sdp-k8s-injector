@@ -308,7 +308,7 @@ impl IdentityStore<ServiceIdentity> for KubeIdentityStore {
     > {
         Box::pin(async move {
             Err(SDPServiceError::from(
-                "Registry does not support unregister if service identities",
+                "Registry does not support deregistration of service identities",
             ))
         })
     }
@@ -320,7 +320,7 @@ impl IdentityStore<ServiceIdentity> for KubeIdentityStore {
     ) -> Pin<Box<dyn Future<Output = Result<Option<Uuid>, SDPServiceError>> + Send + '_>> {
         Box::pin(async move {
             Err(SDPServiceError::from(
-                "Registry does not support regitery device ids",
+                "Registry does not support registration of device ids",
             ))
         })
     }
@@ -2378,12 +2378,12 @@ pub async fn injector_handler<E: IdentityStore<ServiceIdentity>>(
                 }
                 Err(SDPPatchError::WithResponse(response, e)) => {
                     error!("Patch failed: {}", e);
-                    // We got an error with a reponse, fail with that response
+                    // We got an error with a response, fail with that response
                     fail_admission_response!(response => response)
                 }
                 Err(SDPPatchError::WithoutResponse(e)) => {
                     error!("Patch failed: {}", e);
-                    // We got an error without a reponse, fail
+                    // We got an error without a response, fail
                     fail_admission_response!(error => e)
                 }
             }
