@@ -48,12 +48,14 @@ sdp:
 
   ## @param sdp.injector.logLevel SDP Injector log level.
   ## @param sdp.injector.replica Number of Device ID Service replicas to deploy
+  ## @param sdp.injector.certificatePollingInterval Polling interval in seconds to watch for changes to the certificate
   ## @param sdp.injector.image.repository SDP Injector image repository. If set, it overrides `.global.image.repository`.
   ## @param sdp.injector.image.tag SDP Injector image tag. If set, it overrides `chart.appVersion`.
   ## @param sdp.injector.image.pullPolicy SDP Injector pull policy. If set, it overrides `.global.image.pullPolicy`.
   injector:
     logLevel: info
     replica: 1
+    certificatePollingInterval: 120
     image:
       repository: ""
       tag: ""
