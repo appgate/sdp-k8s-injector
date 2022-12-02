@@ -1,11 +1,9 @@
 #[macro_export]
-macro_rules! queue_debug {
+macro_rules! queue_info {
     ($msg:expr => $q:ident) => {
-        if cfg!(debug_assertions) {
-            if let Some(ref q) = $q {
-                if let Err(err) = q.send($msg).await {
-                    log::error!("Error notifying external watcher:{:?} => {}", $msg, err)
-                }
+        if let Some(ref q) = $q {
+            if let Err(err) = q.send($msg).await {
+                log::error!("Error notifying external watcher:{:?} => {}", $msg, err)
             }
         }
     };
@@ -127,17 +125,13 @@ macro_rules! with_dollar_sign {
 macro_rules! sdp_log {
     ($logger:ident | $protocol:path | $module:literal | ($target:expr $(, $arg:expr)*) => $q:ident) => {
         let t = format!($target $(, $arg)*);
-        if cfg!(debug_assertions) {
-            queue_debug!($protocol(t.to_string()) => $q);
-        }
+        queue_info!($protocol(t.to_string()) => $q);
         log::$logger!("[{}] {}", $module, t);
     };
 
     ($logger:ident | $protocol:path | ($target:expr $(, $arg:expr)*) => $q:ident) => {
-        if cfg!(debug_assertions) {
-            let t = format!($target $(, $arg)*);
-            queue_debug!($protocol(t.to_string()) => $q);
-        }
+        let t = format!($target $(, $arg)*);
+        queue_info!($protocol(t.to_string()) => $q);
         log::$logger!($target $(, $arg)*);
     };
 
