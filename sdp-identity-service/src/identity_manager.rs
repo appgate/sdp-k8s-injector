@@ -10,7 +10,7 @@ use sdp_common::traits::{
     HasCredentials, Labeled, MaybeNamespaced, MaybeService, Named, Namespaced, Service,
 };
 use sdp_macros::{
-    logger, queue_debug, sdp_error, sdp_info, sdp_log, sdp_warn, when_ok, with_dollar_sign,
+    logger, queue_info, sdp_error, sdp_info, sdp_log, sdp_warn, when_ok, with_dollar_sign,
 };
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fmt;
@@ -379,7 +379,7 @@ impl IdentityManagerRunner<ServiceLookup, ServiceIdentity> {
         let mut existing_activated_credentials: HashSet<String> = HashSet::new();
         let mut existing_deactivated_credentials: HashSet<String> = HashSet::new();
 
-        queue_debug! {
+        queue_info! {
             IdentityManagerProtocol::<F, ServiceIdentity>::IdentityManagerStarted => external_queue_tx
         };
 
@@ -769,7 +769,7 @@ impl IdentityManagerRunner<ServiceLookup, ServiceIdentity> {
         info!("Starting Identity Manager service");
         IdentityManagerRunner::initialize(&mut self.im).await;
 
-        queue_debug! {
+        queue_info! {
             IdentityManagerProtocol::<Deployment, ServiceIdentity>::IdentityManagerInitialized => external_queue_tx
         };
 

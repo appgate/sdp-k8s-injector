@@ -6,7 +6,7 @@ use kube::{Api, Client, Resource};
 use sdp_common::crd::{DeviceId, DeviceIdSpec, ServiceIdentity};
 use sdp_common::kubernetes::SDP_K8S_NAMESPACE;
 use sdp_common::traits::{HasCredentials, Named, Namespaced, Service};
-use sdp_macros::{logger, queue_debug, sdp_error, sdp_info, sdp_log, with_dollar_sign};
+use sdp_macros::{logger, queue_info, sdp_error, sdp_info, sdp_log, with_dollar_sign};
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::future::Future;
@@ -283,7 +283,7 @@ impl DeviceIdManagerRunner<ServiceIdentity, DeviceId> {
         queue_tx: Option<&Sender<DeviceIdManagerProtocol<F>>>,
     ) {
         info!("Starting Device ID Manager loop");
-        queue_debug!(DeviceIdManagerProtocol::<F>::DeviceIdManagerStarted => queue_tx);
+        queue_info!(DeviceIdManagerProtocol::<F>::DeviceIdManagerStarted => queue_tx);
 
         while let Some(message) = manager_proto_rx.recv().await {
             match message {
@@ -340,7 +340,9 @@ impl DeviceIdManagerRunner<ServiceIdentity, DeviceId> {
     ) -> () {
         info!("Starting Device ID Manager");
         DeviceIdManagerRunner::initialize(&mut self.dm).await;
-        queue_debug!(DeviceIdManagerProtocol::<ServiceIdentity>::DeviceIdManagerInitialized => queue_tx);
+        queue_info! {
+            DeviceIdManagerProtocol::<ServiceIdentity>::DeviceIdManagerInitialized => queue_tx
+        };
 
         watcher_proto_tx
             .send(ServiceIdentityWatcherProtocol::DeviceIdManagerReady)
