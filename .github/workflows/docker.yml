@@ -19,9 +19,11 @@ jobs:
       - uses: actions-rs/cargo@v1
         with:
           command: check
+          args: --release
       - uses: actions-rs/cargo@v1
         with:
           command: test
+          args: --release
 
   docker-rust:
     needs:
