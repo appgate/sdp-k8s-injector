@@ -95,7 +95,7 @@ jobs:
           - "sdp-headless-driver"
           - "sdp-headless-service"
         client-version:
-          - "5.5.1"
+          - "5.5.8"
           - "6.0.3"
     steps:
       - uses: actions/checkout@v2
