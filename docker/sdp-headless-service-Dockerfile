@@ -1,5 +1,5 @@
-ARG MAJOR_VERSION=5
-ARG MINOR_VERSION=5
+ARG MAJOR_VERSION=6
+ARG MINOR_VERSION=0
 ARG MAINTENANCE_VERSION=1
 ARG CLIENT_VERSION="${MAJOR_VERSION}.${MINOR_VERSION}"
 ARG CLIENT_FULL_VERSION="${MAJOR_VERSION}.${MINOR_VERSION}.${MAINTENANCE_VERSION}"
@@ -16,6 +16,11 @@ FROM ubuntu:18.04
 LABEL sdp=true
 LABEL project=sdp-client-headless
 ARG CLIENT_DEB
+
+ARG MAJOR_VERSION
+ARG MINOR_VERSION
+ENV MAJOR=${MAJOR_VERSION}
+ENV MINOR=${MINOR_VERSION}
 
 COPY --from=sdp-headless-client "/tmp/${CLIENT_DEB}" "/tmp/${CLIENT_DEB}"
 
@@ -37,7 +42,9 @@ RUN rm -rf \
         /etc/machine-id \
         /tmp/$CLIENT_DEB
 
+# /opt/appgate/sdp-client-headless-service is required for client version < 6.0
 COPY assets/sdp-client-headless-service /opt/appgate/sdp-client-headless-service
+
 COPY assets/sdp-driver-pod-info /opt/appgate/pod_info
 RUN chmod +x /opt/appgate/sdp-client-headless-service && \
     touch /etc/machine-id && \
@@ -46,7 +53,9 @@ RUN chmod +x /opt/appgate/sdp-client-headless-service && \
     mkdir /var/run/appgate && \
     chown 103:102 /sdp-service && \
     chown 103:102 /var/run/appgate && \
+    mkdir -p /var/log/appgate && \
+    chown -R 103:102 /var/log/appgate && \
     chmod +x /opt/appgate/pod_info
 WORKDIR /sdp-service
 USER appgate
-CMD ["/opt/appgate/sdp-client-headless-service"]
+ENTRYPOINT ["/opt/appgate/sdp-client-headless-service"]

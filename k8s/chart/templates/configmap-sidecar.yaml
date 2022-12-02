@@ -5,16 +5,43 @@ metadata:
   namespace: {{ include "sdp-k8s-client.namespace" . }}
   labels:
   {{- include "sdp-k8s-client.labels" . | nindent 4 }}
-  annotations:
-    "helm.sh/hook": pre-install
-    "helm.sh/hook-weight": "1"
 data:
   sdp-sidecars.json: |-
     {
+      "initContainers": [
+        {
+          "name": "sdp-init-container-0",
+          "image": "busybox",
+          "imagePullPolicy": "IfNotPresent",
+          "securityContext": {
+            "allowPrivilegeEscalation": false,
+            "runAsUser": 0
+          },
+          "command" : [
+            "sh",
+            "-c",
+            "echo \"nameserver $K8S_DNS_SERVICE\n$K8S_DNS_SEARCHES\"> /etc/resolv.conf"
+          ]
+        },
+        {
+          "name": "sdp-init-container-f",
+          "image": "busybox",
+          "imagePullPolicy": "IfNotPresent",
+          "securityContext": {
+            "allowPrivilegeEscalation": false,
+            "runAsUser": 0
+          },
+          "command" : [
+            "sh",
+            "-c",
+            "echo \"nameserver 127.0.0.1\n$K8S_DNS_SEARCHES\"> /etc/resolv.conf"
+          ]
+        }
+      ],
       "containers": [
         {
           "name": "sdp-service",
-          "image": "{{ default .Values.global.image.repository .Values.sdp.headlessService.image.repository }}/sdp-headless-service:{{ default (include "sdp-k8s-client.defaultTag" .) .Values.sdp.headlessService.image.tag}}",
+          "image": "{{ default .Values.global.image.repository .Values.sdp.headlessService.image.repository }}/sdp-headless-service:{{ default .Values.sdp.clientVersion  .Values.sdp.headlessService.image.tag }}",
           "imagePullPolicy": "{{.Values.sdp.headlessService.image.pullPolicy}}",
           "securityContext": {
             "runAsGroup": 102,
@@ -30,6 +57,10 @@ data:
               "name": "run-sdp-driver"
             },
             {
+              "mountPath": "/var/log/appgate",
+              "name": "sdp-driver-logs"
+            },
+            {
               "mountPath": "/etc/pod-info",
               "name": "pod-info"
             }
@@ -37,7 +68,7 @@ data:
         },
         {
           "name": "sdp-driver",
-          "image": "{{ default .Values.global.image.repository .Values.sdp.headlessDriver.image.repository }}/sdp-headless-driver:{{ default (include "sdp-k8s-client.defaultTag" .) .Values.sdp.headlessDriver.image.tag}}",
+          "image": "{{ default .Values.global.image.repository .Values.sdp.headlessDriver.image.repository }}/sdp-headless-driver:{{ default .Values.sdp.clientVersion .Values.sdp.headlessDriver.image.tag }}",
           "imagePullPolicy": "{{.Values.sdp.headlessDriver.image.pullPolicy}}",
           "securityContext": {
             "runAsGroup": 101,
@@ -61,6 +92,10 @@ data:
               "name": "run-sdp-dnsmasq"
             },
             {
+              "mountPath": "/var/log/appgate",
+              "name": "sdp-driver-logs"
+            },
+            {
               "mountPath": "/dev/net/tun",
               "name": "tun-device"
             }
@@ -68,7 +103,7 @@ data:
         },
         {
           "name": "sdp-dnsmasq",
-          "image": "{{ default .Values.global.image.repository .Values.sdp.dnsmasq.image.repository }}/sdp-dnsmasq:{{ default (include "sdp-k8s-client.defaultTag" .) .Values.sdp.dnsmasq.image.tag}}",
+          "image": "{{ default .Values.global.image.repository .Values.sdp.dnsmasq.image.repository }}/sdp-dnsmasq:{{ default .Values.sdp.clientVersion .Values.sdp.dnsmasq.image.tag }}",
           "imagePullPolicy": "{{.Values.sdp.dnsmasq.image.pullPolicy}}",
           "securityContext": {
             "runAsGroup": 101,
@@ -92,12 +127,16 @@ data:
         }
       ],
       "dnsConfig": {
-        "searches": {{ .Values.sdp.dnsmasq.dnsConfig.searches | quote }}
+        "searches": "{{ join " " .Values.sdp.dnsmasq.dnsConfig.searches}}"
       },
       "volumes": [
         {
           "mountPath": "/var/run/sdp-driver",
           "name": "run-sdp-driver"
+        },
+        {
+          "mountPath": "/var/log/appgate",
+          "name": "sdp-driver-logs"
         },
         {
           "mountPath": "/var/run/sdp-dnsmasq",

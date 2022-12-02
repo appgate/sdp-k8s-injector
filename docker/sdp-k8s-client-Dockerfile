@@ -1,0 +1,55 @@
+FROM rust:1.63 as chef
+LABEL sdp=true
+LABEL project=sdp-k8s-client
+LABEL image=chef
+WORKDIR /sdp-build
+RUN cargo install cargo-chef
+
+### planner next
+FROM chef as sdp-planner
+LABEL sdp=true
+LABEL project=sdp-k8s-client
+LABEL image=sdp-planner
+WORKDIR /sdp-build
+COPY . .
+RUN cargo chef prepare  --recipe-path recipe.json
+
+### builder next
+FROM sdp-planner as sdp-cacher
+LABEL sdp=true
+LABEL project=sdp-k8s-client
+LABEL image=sdp-cacher
+ARG PROFILE
+ENV PROFILE=${PROFILE:-debug}
+WORKDIR /sdp-build
+COPY --from=sdp-planner /sdp-build/recipe.json recipe.json
+
+# Build dependencies - this is the caching Docker layer!
+RUN --mount=type=cache,target=/usr/local/cargo/registry,id=k8s-client-registry \
+    --mount=type=cache,target=/sdp-build/target,id=k8s-client-deps \
+    cargo chef cook $([ "$PROFILE" = "release" ] && echo --release) --recipe-path recipe.json && \
+    ls -la /sdp-build/target > /sdp-build/out
+
+FROM rust:1.63
+LABEL sdp=true
+LABEL project=sdp-k8s-client
+LABEL image=sdp-k8s-client-build
+ARG PROFILE
+ENV PROFILE=${PROFILE:-debug}
+WORKDIR /sdp-build
+COPY . .
+# Copy built dependencies over cache
+COPY --from=sdp-cacher /sdp-build/target target
+# Copy cargo folder from cache. This includes the package registry and downloaded sources
+COPY --from=sdp-cacher $CARGO_HOME $CARGO_HOME
+# Build the binary
+RUN --mount=type=cache,target=/usr/local/cargo/registry,id=k8s-client-registry \
+    --mount=type=cache,target=/sdp-build/target,id=k8s-client-deps \
+    cargo test $([ "$PROFILE" = "release" ] && echo --release) && \
+    cargo build $([ "$PROFILE" = "release" ] && echo --release)
+RUN --mount=type=cache,target=/usr/local/cargo/registry,id=k8s-client-registry \
+    --mount=type=cache,target=/sdp-build/target,id=k8s-client-deps \
+    mkdir -p /sdp-build/bin && \
+    cp /sdp-build/target/$PROFILE/sdp-injector /sdp-build/bin && \
+    cp /sdp-build/target/$PROFILE/sdp-identity-service /sdp-build/bin && \
+    cp /sdp-build/target/$PROFILE/sdp-device-id-service /sdp-build/bin

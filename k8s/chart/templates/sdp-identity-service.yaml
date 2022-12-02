@@ -1,0 +1,158 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "sdp-k8s-client.fullname" . }}-identity-service
+  namespace: {{ include "sdp-k8s-client.namespace" . }}
+  labels:
+  {{- include "sdp-k8s-client.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.sdp.identityService.replica }}
+  selector:
+    matchLabels:
+      {{- include "sdp-k8s-client.selectorLabels" . | nindent 6 }}-identity-service
+  template:
+    metadata:
+      labels:
+        {{- include "sdp-k8s-client.selectorLabels" . | nindent 8 }}-identity-service
+    spec:
+      {{- with .Values.global.image.pullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "sdp-k8s-client.serviceAccountName" .}}-identity-service
+      {{ if .Values.sdp.metaClient.enabled }}
+      dnsPolicy: None
+      dnsConfig:
+        nameservers:
+          - 127.0.0.1
+        searches:
+          {{ toYaml .Values.sdp.metaClient.dnsConfig.searches | nindent 8 }}
+      {{ end }}
+      volumes:
+        - name: sdp-identity-service-log
+          configMap:
+            name: {{ include "sdp-k8s-client.fullname" . }}-log
+            items:
+              - key: sdp-identity-service-log4rs.yaml
+                path: log4rs.yaml
+      {{- if .Values.sdp.metaClient.enabled }}
+        - name: run-sdp-driver
+        - name: run-sdp-dnsmasq
+        - name: tun-device
+          hostPath:
+            path: /dev/net/tun
+        - name: pod-info
+          downwardAPI:
+            items:
+              - path: "labels"
+                fieldRef:
+                  fieldPath: metadata.labels
+              - path: "annotations"
+                fieldRef:
+                  fieldPath: metadata.annotations
+      {{- end }}
+      containers:
+        {{ if .Values.sdp.metaClient.enabled }}
+        - name: {{ .Chart.Name }}-sdp-service
+          image: {{ default .Values.global.image.repository .Values.sdp.headlessService.image.repository }}/sdp-headless-service:{{ default .Values.sdp.clientVersion  .Values.sdp.headlessService.image.tag }}
+          imagePullPolicy: {{ .Values.sdp.headlessService.image.pullPolicy }}
+          securityContext:
+            runAsGroup: 102
+            runAsUser: 103
+            runAsNonRoot: true
+          volumeMounts:
+            - mountPath: /var/run/sdp-driver
+              name: run-sdp-driver
+            - mountPath: /etc/pod-info
+              name: pod-info
+          env:
+            - name: APPGATE_LOGLEVEL
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ required ".Values.sdp.metaClient.adminConfig is required" .Values.sdp.metaClient.adminConfig }}
+                  key: meta-client-log-level
+            - name: APPGATE_DEVICE_ID
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ required ".Values.sdp.metaClient.adminConfig is required" .Values.sdp.metaClient.adminConfig }}
+                  key: meta-client-device-id
+            - name: APPGATE_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: {{ required ".Values.sdp.metaClient.adminSecret is required" .Values.sdp.metaClient.adminSecret }}
+                  key: meta-client-username
+            - name: APPGATE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ required ".Values.sdp.metaClient.adminSecret is required" .Values.sdp.metaClient.adminSecret }}
+                  key: meta-client-password
+            - name: APPGATE_PROFILE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ required ".Values.sdp.metaClient.adminSecret is required" .Values.sdp.metaClient.adminSecret }}
+                  key: meta-client-profile-url
+        - name: {{ .Chart.Name }}-sdp-driver
+          image: {{ default .Values.global.image.repository .Values.sdp.headlessDriver.image.repository }}/sdp-headless-driver:{{ default .Values.sdp.clientVersion  .Values.sdp.headlessService.image.tag }}
+          imagePullPolicy: {{ .Values.sdp.headlessDriver.image.pullPolicy }}
+          securityContext:
+            runAsGroup: 101
+            runAsUser: 103
+            runAsNonRoot: true
+            capabilities:
+              add: [ "NET_ADMIN", "NET_BIND_SERVICE" ]
+          volumeMounts:
+            - mountPath: /var/run/sdp-driver
+              name: run-sdp-driver
+            - mountPath: /var/run/sdp-dnsmasq
+              name: run-sdp-dnsmasq
+            - mountPath: /dev/net/tun
+              name: tun-device
+        - name: {{ .Chart.Name }}-sdp-dnsmasq
+          image: {{ default .Values.global.image.repository .Values.sdp.dnsmasq.image.repository }}/sdp-dnsmasq:{{ default .Values.sdp.clientVersion  .Values.sdp.headlessService.image.tag }}
+          imagePullPolicy: {{ .Values.sdp.dnsmasq.image.pullPolicy }}
+          securityContext:
+            runAsGroup: 101
+            runAsUser: 100
+            runAsNonRoot: true
+          env:
+            - name: K8S_DNS_SERVICE
+              value: {{ required ".Values.sdp.metaClient.dnsService is required" .Values.sdp.metaClient.dnsService }}
+          volumeMounts:
+              - mountPath: /var/run/sdp-dnsmasq
+                name: run-sdp-dnsmasq
+          command: ["/sdp-dnsmasq/sdp-dnsmasq"]
+        {{ end }}
+        - name: {{ .Chart.Name }}-identity-service
+          env:
+            - name: SDP_LOG_CONFIG_FILE
+              value: /opt/sdp-identity-service/log4rs.yaml
+            - name: SDP_SYSTEM_HOSTS
+              valueFrom:
+                configMapKeyRef:
+                  name: sdp-injector-client-config
+                  key: client-controller-url
+            - name: SDP_K8S_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: {{ required ".Values.sdp.adminSecret is required" .Values.sdp.adminSecret }}
+                  key: sdp-k8s-client-username
+            - name: SDP_K8S_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ required ".Values.sdp.adminSecret is required" .Values.sdp.adminSecret }}
+                  key: sdp-k8s-client-password
+            - name: SDP_K8S_PROVIDER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ required ".Values.sdp.adminSecret is required" .Values.sdp.adminSecret }}
+                  key: sdp-k8s-client-provider
+            - name: SDP_CLUSTER_ID
+              value: {{ required ".Values.sdp.clusterID is required" .Values.sdp.clusterID }}
+          image: "{{ default .Values.global.image.repository .Values.sdp.identityService.image.repository }}/sdp-identity-service:{{ default .Chart.AppVersion .Values.sdp.identityService.image.tag }}"
+          imagePullPolicy: {{ default .Values.global.image.pullPolicy .Values.sdp.identityService.image.pullPolicy }}
+          args:
+            - run
+          volumeMounts:
+            - mountPath: /opt/sdp-identity-service
+              name: sdp-identity-service-log
+

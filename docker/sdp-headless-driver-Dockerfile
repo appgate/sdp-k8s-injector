@@ -1,5 +1,5 @@
-ARG MAJOR_VERSION=5
-ARG MINOR_VERSION=5
+ARG MAJOR_VERSION=6
+ARG MINOR_VERSION=0
 ARG MAINTENANCE_VERSION=1
 ARG CLIENT_VERSION="${MAJOR_VERSION}.${MINOR_VERSION}"
 ARG CLIENT_FULL_VERSION="${MAJOR_VERSION}.${MINOR_VERSION}.${MAINTENANCE_VERSION}"
@@ -39,6 +39,8 @@ RUN mkdir /var/run/sdp-driver && \
     chmod +x /opt/appgate/linux/set_dns && \
     chmod +x /opt/appgate/sdp-client-headless-driver && \
     chown -R 103:102 /opt/appgate && \
+    mkdir -p /var/log/appgate && \
+    chown -R 103:102 /var/log/appgate && \
     rm -rf \
         /usr/share/doc \
         /usr/share/man \

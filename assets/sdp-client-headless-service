@@ -1,18 +1,46 @@
 #!/usr/bin/env sh
 
+# Backwards compatibility for alpha version
+if [ -n "$CLIENT_LOGLEVEL" ]; then
+    APPGATE_LOGLEVEL=$CLIENT_LOGLEVEL
+fi
+
+if [ -n "$CLIENT_PROFILE_URL" ]; then
+    APPGATE_PROFILE_URL=$CLIENT_PROFILE_URL
+fi
+
+if [ -n "$CLIENT_USERNAME" ]; then
+    APPGATE_USERNAME=$CLIENT_USERNAME
+fi
+
+if [ -n "$CLIENT_PASSWORD" ]; then
+    APPGATE_PASSWORD=$CLIENT_PASSWORD
+fi
+
 if [ -n "$CLIENT_DEVICE_ID" ]; then
-    echo "Using custom device-id: $CLIENT_DEVICE_ID"
-    echo "$CLIENT_DEVICE_ID" | sed 's|-||g' > /etc/machine-id
+    APPGATE_DEVICE_ID=$CLIENT_DEVICE_ID
+fi
+
+# Set Device ID into /etc/machine-id
+if [ -n "$APPGATE_DEVICE_ID" ]; then
+    echo "Device ID: $APPGATE_DEVICE_ID"
+    echo "$APPGATE_DEVICE_ID" | sed 's|-||g' > /etc/machine-id
 fi
 
 cat > /sdp-service/appgate.conf <<EOF
 [Settings]
-LogLevel = $CLIENT_LOGLEVEL
+LogLevel = $APPGATE_LOGLEVEL
 [Credentials]
-ControllerUrl = $CLIENT_CONTROLLER_URL
-Username = $CLIENT_USERNAME
-Password = $CLIENT_PASSWORD
+ControllerUrl = $APPGATE_PROFILE_URL
+Username = $APPGATE_USERNAME
+Password = $APPGATE_PASSWORD
 EOF
-echo Running service
-exec /opt/appgate/service/appgateservice -f /sdp-service/appgate.conf \
-     -t /var/run/sdp-driver/.driver.sock --service
+
+CMD="/opt/appgate/service/appgateservice --config /sdp-service/appgate.conf --tun /var/run/sdp-driver/.driver.sock --service"
+
+# If v6.1+ client, add -l flag
+if [ "$MAJOR" -ge 6 ] && [ "$MINOR" -ge 1 ]; then
+    CMD="$CMD -l /var/log/appgate/driver.log"
+fi
+
+eval "${CMD}"

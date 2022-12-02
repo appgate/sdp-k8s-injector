@@ -2,25 +2,15 @@
 Expand the name of the chart.
 */}}
 {{- define "sdp-k8s-client.name" -}}
-{{- default .Chart.Name .Values.nameOverride | trunc 63 | trimSuffix "-" }}
+{{- .Chart.Name | trunc 63 }}
 {{- end }}
 
 {{/*
 Create a default fully qualified app name.
-We truncate at 63 chars because some Kubernetes name fields are limited to this (by the DNS naming spec).
-If release name contains chart name it will be used as a full name.
+Truncate at 63 chars because some Kubernetes name fields are limited to this (by the DNS naming spec)
 */}}
 {{- define "sdp-k8s-client.fullname" -}}
-{{- if .Values.fullnameOverride }}
-{{- .Values.fullnameOverride | trunc 63 | trimSuffix "-" }}
-{{- else }}
-{{- $name := default .Chart.Name .Values.nameOverride }}
-{{- if contains $name .Release.Name }}
-{{- .Release.Name | trunc 63 | trimSuffix "-" }}
-{{- else }}
-{{- printf "%s-%s" .Release.Name $name | trunc 63 | trimSuffix "-" }}
-{{- end }}
-{{- end }}
+{{- printf "%s" .Release.Name | trunc 63 }}
 {{- end }}
 
 {{/*
@@ -54,11 +44,7 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 ServiceAccount
 */}}
 {{- define "sdp-k8s-client.serviceAccountName" -}}
-{{- if .Values.serviceAccount.create }}
-{{- default (include "sdp-k8s-client.fullname" .) .Values.serviceAccount.name }}
-{{- else }}
-{{- default "default" .Values.serviceAccount.name }}
-{{- end }}
+{{- include "sdp-k8s-client.fullname" .}}
 {{- end }}
 
 {{/*
@@ -70,6 +56,14 @@ Secret
 
 {{- define "sdp-k8s-client.injector-secret" -}}
 {{- printf "sdp-client-secret-%s" .Release.Name }}
+{{- end }}
+
+{{- define "sdp-k8s-client.injector-certificate" -}}
+{{- printf "sdp-client-certificate-%s" .Release.Name }}
+{{- end }}
+
+{{- define "sdp-k8s-client.injector-issuer" -}}
+{{- printf "sdp-client-issuer-%s" .Release.Name }}
 {{- end }}
 
 {{/*

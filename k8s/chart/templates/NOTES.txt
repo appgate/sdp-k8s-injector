@@ -8,34 +8,20 @@
 |  ##     ## ##        ##         ######   ##     ##    ##    ########     ######  ########  ##          |
 ----------------------------------------------------------------------------------------------------------
 
-Thank you for installing {{ .Chart.Name }}
-Your release is named {{ .Release.Name }}
+Thank you for installing the SDP Kubernetes Client
 
-### Getting Started
+To try out the SDP Kubernetes Client, follow the guide below:
 
-1. Create and label the namespace for SDP Client injection
-$ kubectl create namespace sdp-demo
-$ kubectl label namespace sdp-demo --overwrite sdp-injection=enabled
+1. Create `sdp-demo` namespace and label the namespace with `sdp-injection="enabled"`
 
+    $ kubectl create namespace sdp-demo
+    $ kubectl label namespace sdp-demo --overwrite sdp-injection="enabled"
 
-2. Create a secret containing username, password, and Client profile for SDP Injector authentication
-$ kubectl create secret generic sdp-injector-client-secrets \
-    --namespace sdp-demo \
-    --from-literal=client-username=<USERNAME> \
-    --from-literal=client-password=<PASSWORD> \
-    --from-literal=client-controller-url=<PROFILE_URL>
+2. Test the installation by verifying a route through a gateway (via tun0), and ping a resource protected by SDP
 
+    $ kubectl create deployment pingtest --namespace sdp-demo --image=busybox --replicas=1 -- sleep infinity
+    $ kubectl exec -it $(kubectl get pod -n sdp-demo -l app=pingtest -o name --no-headers) -- sh
+    $ /# ip route | grep tun0
+    $ /# ping <IP_ADDRESS>
 
-3. Create a configmap containing SDP Injector configuration
-$ kubectl create configmap sdp-injector-client-config \
-    --namespace sdp-demo \
-    --from-literal=client-log-level=Debug
-
-The following configurations are currently supported:
-* client-log-level - The log level of the Client
-* client-device-id - Specific device ID in UUID v4 format to use for the Client. If unspecified, a random UUID is generated
-
-
-4. Create a busybox pod and ping an IP address protected by SDP
-$ kubectl run --namespace sdp-demo -i --tty busybox --image=busybox -- sh
-$ / # ping <IP_ADDRESS>
+For more information, please visit https://github.com/appgate/sdp-k8s-client

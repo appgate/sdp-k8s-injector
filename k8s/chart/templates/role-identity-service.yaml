@@ -1,0 +1,90 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "sdp-k8s-client.name" . }}-identity-service
+  namespace: sdp-system
+  labels:
+    {{- include "sdp-k8s-client.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [ "injector.sdp.com" ]
+    resources: [ "serviceidentities" ]
+    verbs: [ "get", "list", "create", "delete", "update" ]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "sdp-k8s-client.name" . }}-identity-service
+  namespace: sdp-system
+  labels:
+  {{- include "sdp-k8s-client.labels" . | nindent 4 }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "sdp-k8s-client.serviceAccountName" . }}-identity-service
+    namespace: {{ include "sdp-k8s-client.namespace" . }}
+roleRef:
+  kind: Role
+  name: {{ include "sdp-k8s-client.name" . }}-identity-service
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "sdp-k8s-client.name" . }}-identity-service-dns-discover
+  namespace: kube-system
+  labels:
+    {{- include "sdp-k8s-client.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [ "" ]
+    resources: [ "services" ]
+    verbs: [ "get", "list", ]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "sdp-k8s-client.name" . }}-identity-service-dns-discover
+  namespace: kube-system
+  labels:
+  {{- include "sdp-k8s-client.labels" . | nindent 4 }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "sdp-k8s-client.serviceAccountName" . }}-identity-service
+    namespace: {{ include "sdp-k8s-client.namespace" . }}
+roleRef:
+  kind: Role
+  name: {{ include "sdp-k8s-client.name" . }}-identity-service-dns-discover
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "sdp-k8s-client.name" . }}-identity-service
+  labels:
+  {{- include "sdp-k8s-client.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [ "apps" ]
+    resources: [ "deployments"]
+    verbs: [ "list", "watch" ]
+  - apiGroups: [ "" ]
+    resources: [ "secrets"]
+    verbs: [ "get", "create", "delete", "patch" ]
+  - apiGroups: [ "" ]
+    resources: [ "configmaps"]
+    verbs: [ "get", "create", "delete" ]
+  - apiGroups: [ "" ]
+    resources: [ "namespaces"]
+    verbs: [ "get" ]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "sdp-k8s-client.name" . }}-identity-service
+  labels:
+  {{- include "sdp-k8s-client.labels" . | nindent 4 }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "sdp-k8s-client.serviceAccountName" . }}-identity-service
+    namespace: {{ include "sdp-k8s-client.namespace" . }}
+roleRef:
+  kind: ClusterRole
+  name: {{ include "sdp-k8s-client.name" . }}-identity-service
+  apiGroup: rbac.authorization.k8s.io
