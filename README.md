@@ -41,7 +41,7 @@ SDP Kubernetes Client requires several configuration on the SDP Controller:
 ### Installation
 > Browse the available versions on [Appgate GitHub Container Registry](https://github.com/appgate/sdp-k8s-client/pkgs/container/charts%2Fsdp-k8s-client)
 
-1. Install [cert-manager](https://cert-manager.io/docs/installation/helm/) via Helm
+1. Install [cert-manager](https://cert-manager.io/docs/installation/helm/) and their CRDs with Helm
    ```bash
    $ helm repo add jetstack https://charts.jetstack.io
    $ helm repo update
@@ -59,29 +59,36 @@ SDP Kubernetes Client requires several configuration on the SDP Controller:
          --create-namespace \
          --version <VERSION>
     ```
-3. Create a secret containing the username and password for admin authentication
+3. Create a secret containing the username and password for admin authentication. For this example, we will name the secret `sdp-k8s-client-demo-secret`
    ```bash
-   $ kubectl create secret generic <SECRET> \
+   $ kubectl create secret generic sdp-k8s-client-demo-secret \
         --namespace sdp-system \
         --from-literal=sdp-k8s-client-username="<USERNAME>" \
         --from-literal=sdp-k8s-client-password="<PASSWORD>" \
         --from-literal=sdp-k8s-client-provider="<PROVIDER>"
    ```
-4. Install the SDP Kubernetes Client with Helm
+4. Generate a values.yaml. Below is an example of the most basic configuration. For other parameters, see [Parameters](#Parameters)
+   ```yaml
+   # values.yaml
+   sdp:
+     host: https://sdp-k8s-client-demo.com:8443
+     adminSecret: sdp-k8s-client-demo-secret
+     clusterID: demo
+   ```
+5. Install the SDP Kubernetes Client with Helm using the values.yaml
     ```bash
     $ export HELM_EXPERIMENTAL_OCI=1
     $ helm install sdp-k8s-client oci://ghcr.io/appgate/charts/sdp-k8s-client \
         --namespace sdp-system \
         --version <VERSION> \
-        --set .sdp.host="<SDP_HOSTNAME>" \
-        --set .sdp.adminSecret="<SECRET>" 
+        --values values.yaml
     ```
-5. To test the sidecar injection using default settings, create an example namespace `sdp-demo` and label it with `sdp-injection="enabled"`
+6. To test the sidecar injection using default settings, create an example namespace `sdp-demo` and label it with `sdp-injection="enabled"`
     ```bash
     $ kubectl create namespace sdp-demo
     $ kubectl label namespace sdp-demo --overwrite sdp-injection="enabled"
     ```
-6. Create busybox deployment in the same namespace and verify:
+7. Create busybox deployment in the same namespace and verify the following checklist:
    1. There is a route through the gateway (via tun0)
    2. A resource protected by SDP is reachable
     ```bash
@@ -241,12 +248,12 @@ You can connect multiple Kubernetes clusters to a single SDP system by installin
 ## Annotations
 SDP Kubernetes Client supports various annotation-based behavior customization
 
-| Annotation                                             | Available Options                                                 | Description                                                                                                                                                                                                                                                                                                                                                                                                                        |
-|--------------------------------------------------------|-------------------------------------------------------------------|:-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `k8s.appgate.com/sdp-injector.strategy`                | `enabledByDefault`, `disabledByDefault`                           | Defines the default injection strategy of the namespace. Use this annotation with `k8s.appgate.com/sdp-injector.enabled`. If `enabledByDefault`, the injector will always inject sidecars to deployment. If `disabledByDefault`, the injector will only inject sidecars to deployments annotated with `k8s.appgate.com/sdp-injector.enabled`. If the annotation is not specified in the namespace, it will use `enabledByDefault`. | 
-| `k8s.appgate.com/sdp-injector.enabled`                 | `true`, `false`                                                   | Defines whether the sidecar can be injected in the pod. Use this annotation with `k8s.appgate.com/sdp-injector.strategy`. In a `enabledByDefault` namespace, the default value will be `true`. In a `disabledByDefault` namespace, the default value will be `false`.                                                                                                                                                              |
-| `k8s.appgate.com/sdp-injector.client-version`          | `5.5.1`, `6.0.3`                                                  | Specifies the SDP Client version to inject as a sidecar. The default client version is specified by the helm value `sdp.clientVersion`. When this annotation is used on a deployment, it will override the helm value.                                                                                                                                                                                                             |
-| `k8s.appgate.com/sdp-injector.disable-init-containers` | `true`, `false`                                                   | When `initContainers` are present in a pod, the injector loads extra init-containers for DNS resolution. This annotation will disable the injection of init-containers if set to `false`                                                                                                                                                                                                                                           |
+| Annotation                                             | Available Options                                                          | Description                                                                                                                                                                                                                                                                                                                                                                                                                        |
+|--------------------------------------------------------|----------------------------------------------------------------------------|:-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `k8s.appgate.com/sdp-injector.strategy`                | `enabledByDefault`, `disabledByDefault`                                    | Defines the default injection strategy of the namespace. Use this annotation with `k8s.appgate.com/sdp-injector.enabled`. If `enabledByDefault`, the injector will always inject sidecars to deployment. If `disabledByDefault`, the injector will only inject sidecars to deployments annotated with `k8s.appgate.com/sdp-injector.enabled`. If the annotation is not specified in the namespace, it will use `enabledByDefault`. | 
+| `k8s.appgate.com/sdp-injector.enabled`                 | `true`, `false`                                                            | Defines whether the sidecar can be injected in the pod. Use this annotation with `k8s.appgate.com/sdp-injector.strategy`. In a `enabledByDefault` namespace, the default value will be `true`. In a `disabledByDefault` namespace, the default value will be `false`.                                                                                                                                                              |
+| `k8s.appgate.com/sdp-injector.client-version`          | `5.5.1`, `6.0.3`                                                           | Specifies the SDP Client version to inject as a sidecar. The default client version is specified by the helm value `sdp.clientVersion`. When this annotation is used on a deployment, it will override the helm value.                                                                                                                                                                                                             |
+| `k8s.appgate.com/sdp-injector.disable-init-containers` | `true`, `false`                                                            | When `initContainers` are present in a pod, the injector loads extra init-containers for DNS resolution. This annotation will disable the injection of init-containers if set to `false`                                                                                                                                                                                                                                           |
 | `k8s.appgate.com/sdp-injector.custom-dns-search`       | Space-separated string of domains (e.g. `svc.cluster.local cluster.local`) | Additional domains to the list of domains in the DNS resolution.                                                                                                                                                                                                                                                                                                                                                                   |
 
 ## Parameters
@@ -254,7 +261,7 @@ SDP Kubernetes Client supports various annotation-based behavior customization
 ### SDP parameters
 
 | Name                                      | Description                                                                              | Value                                   |
-| ----------------------------------------- | ---------------------------------------------------------------------------------------- | --------------------------------------- |
+|-------------------------------------------|------------------------------------------------------------------------------------------|-----------------------------------------|
 | `global.image.repository`                 | Image registry to use for all SDP images.                                                | `ghcr.io/appgate/sdp-k8s-client`        |
 | `global.image.tag`                        | Image tag to use for all SDP images. If not set, it defaults to `.Chart.appVersion`.     | `""`                                    |
 | `global.image.pullPolicy`                 | Image pull policy to use for all SDP images.                                             | `IfNotPresent`                          |
@@ -299,7 +306,7 @@ SDP Kubernetes Client supports various annotation-based behavior customization
 ### Kubernetes parameters
 
 | Name           | Description         | Value       |
-| -------------- | ------------------- | ----------- |
+|----------------|---------------------|-------------|
 | `service.type` | Type of the service | `ClusterIP` |
 | `service.port` | Port of the service | `443`       |
 
