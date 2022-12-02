@@ -21,21 +21,21 @@ SDP Kubernetes Client requires several configuration on the SDP Controller:
   * Device IDs are only freed when they are unused for some amount of time defined in the IP Pool.
 * User
   * `Service User Management Preset` for its Admin Role, which includes the following privileges:
-    * View all Service Users
-    * Create all Service Users
-    * Edit all Service Users
-    * Delete all Service Users
-    * View all Client Profiles
-    * Create all Client Profiles
-    * Edit all Client Profiles
-    * Delete all Client Profiles
-    * Export all Client Profiles
+	* View all Service Users
+	* Create all Service Users
+	* Edit all Service Users
+	* Delete all Service Users
+	* View all Client Profiles
+	* Create all Client Profiles
+	* Edit all Client Profiles
+	* Delete all Client Profiles
+	* Export all Client Profiles
   * If the Admin API is protected behind SDP, the user additionally needs
-    * Policy/Entitlement to access the DNS
-      * `ALLOW TCP up to <INTERNAL CONTROLLER IP> - port 53`
-      * `ALLOW UDP up to <INTERNAL CONTROLLER IP> - port 53`
-    * Policy/Entitlement to access the Admin API:
-      * `ALLOW TCP up to <HOSTNAME> - port 8443`
+	* Policy/Entitlement to access the DNS
+	  * `ALLOW TCP up to <INTERNAL CONTROLLER IP> - port 53`
+	  * `ALLOW UDP up to <INTERNAL CONTROLLER IP> - port 53`
+	* Policy/Entitlement to access the Admin API:
+	  * `ALLOW TCP up to <HOSTNAME> - port 8443`
 
 ## Getting Started
 ### Installation
@@ -46,63 +46,63 @@ SDP Kubernetes Client requires several configuration on the SDP Controller:
    $ helm repo add jetstack https://charts.jetstack.io
    $ helm repo update
    $ helm install cert-manager jetstack/cert-manager \
-         --namespace cert-manager \
-         --create-namespace \
-         --version v1.10.1 \
-         --set installCRDs=true
+		 --namespace cert-manager \
+		 --create-namespace \
+		 --version v1.10.1 \
+		 --set installCRDs=true
    ```
 2. Install the SDP Kubernetes Client CRD with Helm
-    ```bash
-    $ export HELM_EXPERIMENTAL_OCI=1
-    $ helm install sdp-k8s-client-crd oci://ghcr.io/appgate/charts/sdp-k8s-client-crd \
-         --namespace sdp-system \
-         --create-namespace \
-         --version <VERSION>
-    ```
+	```bash
+	$ export HELM_EXPERIMENTAL_OCI=1
+	$ helm install sdp-k8s-client-crd oci://ghcr.io/appgate/charts/sdp-k8s-client-crd \
+		 --namespace sdp-system \
+		 --create-namespace \
+		 --version <VERSION>
+	```
 3. Create a secret containing the username and password for admin authentication. For this example, we will name the secret `sdp-k8s-client-demo-secret`
    ```bash
    $ kubectl create secret generic sdp-k8s-client-demo-secret \
-        --namespace sdp-system \
-        --from-literal=sdp-k8s-client-username="<USERNAME>" \
-        --from-literal=sdp-k8s-client-password="<PASSWORD>" \
-        --from-literal=sdp-k8s-client-provider="<PROVIDER>"
+		--namespace sdp-system \
+		--from-literal=sdp-k8s-client-username="<USERNAME>" \
+		--from-literal=sdp-k8s-client-password="<PASSWORD>" \
+		--from-literal=sdp-k8s-client-provider="<PROVIDER>"
    ```
 4. Generate a values.yaml. Below is an example of the most basic configuration. For other parameters, see [Parameters](#Parameters)
    ```yaml
    # values.yaml
    sdp:
-     host: https://sdp-k8s-client-demo.com:8443
-     adminSecret: sdp-k8s-client-demo-secret
-     clusterID: demo
+	 host: https://sdp-k8s-client-demo.com:8443
+	 adminSecret: sdp-k8s-client-demo-secret
+	 clusterID: demo
    ```
 5. Install the SDP Kubernetes Client with Helm using the values.yaml
-    ```bash
-    $ export HELM_EXPERIMENTAL_OCI=1
-    $ helm install sdp-k8s-client oci://ghcr.io/appgate/charts/sdp-k8s-client \
-        --namespace sdp-system \
-        --version <VERSION> \
-        --values values.yaml
-    ```
+	```bash
+	$ export HELM_EXPERIMENTAL_OCI=1
+	$ helm install sdp-k8s-client oci://ghcr.io/appgate/charts/sdp-k8s-client \
+		--namespace sdp-system \
+		--version <VERSION> \
+		--values values.yaml
+	```
 6. To test the sidecar injection using default settings, create an example namespace `sdp-demo` and label it with `sdp-injection="enabled"`
-    ```bash
-    $ kubectl create namespace sdp-demo
-    $ kubectl label namespace sdp-demo --overwrite sdp-injection="enabled"
-    ```
+	```bash
+	$ kubectl create namespace sdp-demo
+	$ kubectl label namespace sdp-demo --overwrite sdp-injection="enabled"
+	```
 7. Create busybox deployment in the same namespace and verify the following checklist:
    1. There is a route through the gateway (via tun0)
    2. A resource protected by SDP is reachable
-    ```bash
-    $ kubectl create deployment pingtest --namespace sdp-demo --image=busybox --replicas=1 -- sleep infinity
-    $ kubectl exec -it $(kubectl get pod -n sdp-demo -l app=pingtest -o name --no-headers) -- sh
-    $ /# ip route | grep tun0
-    $ /# ping <IP_ADDRESS>
-    ```
-   
+	```bash
+	$ kubectl create deployment pingtest --namespace sdp-demo --image=busybox --replicas=1 -- sleep infinity
+	$ kubectl exec -it $(kubectl get pod -n sdp-demo -l app=pingtest -o name --no-headers) -- sh
+	$ /# ip route | grep tun0
+	$ /# ping <IP_ADDRESS>
+	```
+
 ### Configuration
-#### Setting Policy for Deployments 
+#### Setting Policy for Deployments
 SDP Kubernetes Client allows SDP controller to become aware of labels in Kubernetes. By default, the Deployment name and namespace are exposed to SDP as `user.labels.name` and `user.labels.namespace` respectively.
 
-Assume that we have an injector installed in the cluster with clusterID=`demo` and we have also created deployment `sleep-forever` below in the `sdp-demo` namespace 
+Assume that we have an injector installed in the cluster with clusterID=`demo` and we have also created deployment `sleep-forever` below in the `sdp-demo` namespace
 ```yaml
 apiVersion: apps/v1
 kind: Deployment
@@ -112,15 +112,15 @@ metadata:
 spec:
   replicas: 1
   selector:
-    matchLabels:
-      app: sleep-forever
+	matchLabels:
+	  app: sleep-forever
   template:
-    spec:
-      containers:
-      - name: ubuntu
-        image: ubuntu:latest
-        command: [ "/bin/bash", "-c", "--" ]
-        args: [ "while true; do sleep 30; done;" ]
+	spec:
+	  containers:
+	  - name: ubuntu
+		image: ubuntu:latest
+		command: [ "/bin/bash", "-c", "--" ]
+		args: [ "while true; do sleep 30; done;" ]
 ```
 
 To create a Policy for this deployment, set the following Assignments:
@@ -146,7 +146,7 @@ sdp-demo      Active   1m     enabled
 ```
 
 ### Meta-Client (Sidecar for Injector)
-Because the injector (particularly, Identity Service) requires a connection to the Controller API, you may want to hide the connection via SPA. In that case, you can use the meta-client feature which loads an SDP client next to the Identity Service so the injector can establish a connection to the controller via SPA. 
+Because the injector (particularly, Identity Service) requires a connection to the Controller API, you may want to hide the connection via SPA. In that case, you can use the meta-client feature which loads an SDP client next to the Identity Service so the injector can establish a connection to the controller via SPA.
 
 To use the meta-client, you need the following:
 * Secret with the following keys:
@@ -175,31 +175,31 @@ $ kubectl create configmap sdp-k8s-meta-client-config --namespace sdp-system \
 Additionally, you must provide an Entitlement for this user on the controller:
 * Admin Policy/Entitlement to access Admin APi:
   * `ALLOW TCP up to <HOSTNAME> - port 8443`
-* DNS Policy/Entitlement to resolve Admin API: 
+* DNS Policy/Entitlement to resolve Admin API:
   * DNS Configuration
-    * Match Domain: `<DOMAIN>`
-    * DNS Servers: `<DNS_SERVER_IP>`
+	* Match Domain: `<DOMAIN>`
+	* DNS Servers: `<DNS_SERVER_IP>`
   * DNS Entitlement
-    * `ALLOW TCP up to <DNS_SERVER_IP> - port 53`
-    * `ALLOW UDP up to <DNS_SERVER_IP> - port 53`
+	* `ALLOW TCP up to <DNS_SERVER_IP> - port 53`
+	* `ALLOW UDP up to <DNS_SERVER_IP> - port 53`
 
 > Note: User for the meta-client can be the same user as the injector user
 
-After creating the secret/configmap and configuring the policy/entitlement on SDP, provide the name of these resources to the helm chart and set `sdp.metaClient.enabled=true`. 
+After creating the secret/configmap and configuring the policy/entitlement on SDP, provide the name of these resources to the helm chart and set `sdp.metaClient.enabled=true`.
 
 ```yaml
 sdp:
   metaClient:
-    enabled: true
-    adminSecret: sdp-k8s-meta-client-secret
-    adminConfig: sdp-k8s-meta-client-config
+	enabled: true
+	adminSecret: sdp-k8s-meta-client-secret
+	adminConfig: sdp-k8s-meta-client-config
 ```
 
 Upon installation of the chart, this secret and configmap will be passed to the sidecar injected next to the Identity Service.
 
 ### Default Injection Strategy
-You can specify the default injection strategy for a given namespace by specifying the annotation `k8s.appgate.com/sdp-injector.strategy`. 
-There are two supported types of strategy: 
+You can specify the default injection strategy for a given namespace by specifying the annotation `k8s.appgate.com/sdp-injector.strategy`.
+There are two supported types of strategy:
 1. `enabledByDefault` - Inject sidecars to all pods created within the namespace.
 2. `disabledByDefault` - Do not inject sidecars to pods automatically.
 
@@ -227,15 +227,15 @@ The injector takes the helm value `sdp.clientVersion` as the default client vers
 
 Assuming the default client version is 6.x.x, you can inject a 5.x.x client at a per-deployment basis by annotating the deployment with `k8s.appgate.com/sdp-injector.client-version=5.x.x`.
 ```bash
-$ kubectl annotate deployment <DEPLOYMENT> k8s.appgate.com/sdp-injector.client-version="5.5.8"
+$ kubectl annotate deployment <DEPLOYMENT> k8s.appgate.com/sdp-injector.client-version="5.5.5"
 ```
 
 ### Init Containers
-When the sidecar injection is enabled and the injector detects a new pod with init-containers, it loads extra containers at the head (`sdp-init-container-0`) and tail (`sdp-init-container-f`) of the init-containers list. 
+When the sidecar injection is enabled and the injector detects a new pod with init-containers, it loads extra containers at the head (`sdp-init-container-0`) and tail (`sdp-init-container-f`) of the init-containers list.
 
-The initial init-container `sdp-init-container-0` is meant to preserve the original DNS configuration of the pod by setting the nameserver to the kube DNS IP address and the nameservers specified in the helm value `sdp.dnsmasq.dnsConfig.search`. 
+The initial init-container `sdp-init-container-0` is meant to preserve the original DNS configuration of the pod by setting the nameserver to the kube DNS IP address and the nameservers specified in the helm value `sdp.dnsmasq.dnsConfig.search`.
 
-The last init-container `sdp-init-container-f` overwrite `/etc/resolv.conf` by setting the nameserver to `127.0.0.1` so the pod can use the DNS server provided by the injector's dnsmasq. 
+The last init-container `sdp-init-container-f` overwrite `/etc/resolv.conf` by setting the nameserver to `127.0.0.1` so the pod can use the DNS server provided by the injector's dnsmasq.
 
 You can disable the injection of these init-containers by annotation the deployment with `k8s.appgate.com/sdp-injector.strategy.disable-init-containers="true"`.
 ```bash
@@ -250,7 +250,7 @@ SDP Kubernetes Client supports various annotation-based behavior customization
 
 | Annotation                                             | Available Options                                                          | Description                                                                                                                                                                                                                                                                                                                                                                                                                        |
 |--------------------------------------------------------|----------------------------------------------------------------------------|:-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `k8s.appgate.com/sdp-injector.strategy`                | `enabledByDefault`, `disabledByDefault`                                    | Defines the default injection strategy of the namespace. Use this annotation with `k8s.appgate.com/sdp-injector.enabled`. If `enabledByDefault`, the injector will always inject sidecars to deployment. If `disabledByDefault`, the injector will only inject sidecars to deployments annotated with `k8s.appgate.com/sdp-injector.enabled`. If the annotation is not specified in the namespace, it will use `enabledByDefault`. | 
+| `k8s.appgate.com/sdp-injector.strategy`                | `enabledByDefault`, `disabledByDefault`                                    | Defines the default injection strategy of the namespace. Use this annotation with `k8s.appgate.com/sdp-injector.enabled`. If `enabledByDefault`, the injector will always inject sidecars to deployment. If `disabledByDefault`, the injector will only inject sidecars to deployments annotated with `k8s.appgate.com/sdp-injector.enabled`. If the annotation is not specified in the namespace, it will use `enabledByDefault`. |
 | `k8s.appgate.com/sdp-injector.enabled`                 | `true`, `false`                                                            | Defines whether the sidecar can be injected in the pod. Use this annotation with `k8s.appgate.com/sdp-injector.strategy`. In a `enabledByDefault` namespace, the default value will be `true`. In a `disabledByDefault` namespace, the default value will be `false`.                                                                                                                                                              |
 | `k8s.appgate.com/sdp-injector.client-version`          | `5.5.8`, `6.0.3`                                                           | Specifies the SDP Client version to inject as a sidecar. The default client version is specified by the helm value `sdp.clientVersion`. When this annotation is used on a deployment, it will override the helm value.                                                                                                                                                                                                             |
 | `k8s.appgate.com/sdp-injector.disable-init-containers` | `true`, `false`                                                            | When `initContainers` are present in a pod, the injector loads extra init-containers for DNS resolution. This annotation will disable the injection of init-containers if set to `false`                                                                                                                                                                                                                                           |
