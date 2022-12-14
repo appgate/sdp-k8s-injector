@@ -40,6 +40,16 @@ pub async fn get_k8s_client() -> Client {
 
 impl Named for Pod {
     fn name(&self) -> String {
+        /*
+        To get the name for a pod we do:
+         1. Use `name_any` from kube crate (we get something like deployment-replicaset-pod)
+         2. If `name_any` can not provide that info, get the first owner and get the 
+            name from there (we get something liek deployment-replicaset)
+         3. If none of those worked we just return a random name to make sure there
+            are not matches later in the registered services
+         3. If we got something we split by "-" and we remove 1 or 2 items from the right
+            (depending where the name is coming from)
+        */
         let name = self.name_any();
         let maybe_name = (name != "")
             .then_some((name, 2))
