@@ -1,12 +1,9 @@
 use std::collections::{BTreeMap, HashMap};
 
 use http::Uri;
-use k8s_openapi::{
-    api::{
-        apps::v1::Deployment,
-        core::v1::{Namespace, Pod},
-    },
-    Metadata,
+use k8s_openapi::api::{
+    apps::v1::Deployment,
+    core::v1::{Namespace, Pod},
 };
 use kube::{core::admission::AdmissionRequest, Client, Config, Resource, ResourceExt};
 use log::error;
@@ -43,39 +40,34 @@ pub async fn get_k8s_client() -> Client {
 
 impl Named for Pod {
     fn name(&self) -> String {
-        let name = self
-            .metadata
-            .name
-            .as_ref()
-            .map(|n| (n.split("-").collect::<Vec<&str>>(), 2))
+        let name = self.name_any();
+        let maybe_name = (name != "")
+            .then_some(name)
             .or_else(|| {
-                let os = self.owner_references();
-                (os.len() > 0).then_some((os[0].name.split("-").collect(), 1))
+                let owners = self.owner_references();
+                (owners.len() > 0).then_some(owners[0].name.clone())
             })
-            .or_else(|| {
-                self.metadata
-                    .generate_name
-                    .as_ref()
-                    .map(|s| (s.split("-").collect(), 2))
-            })
-            .map(|(xs, n)| xs[0..(xs.len() - n)].join("-"));
-        if let Some(name) = name {
-            name
-        } else {
-            error!("Unable to find service name for Pod, generating a random name");
-            uuid::Uuid::new_v4().to_string()
+            .map(|name| {
+                let xs: Vec<&str> = name.split("-").collect();
+                xs[0..(xs.len() - 2)].join("-")
+            });
+        match maybe_name {
+            Some(name) if name == "" => {
+                error!("Empty service name for Pod");
+                uuid::Uuid::new_v4().to_string()
+            }
+            Some(name) => name,
+            None => {
+                error!("Unable to find service name for Pod");
+                uuid::Uuid::new_v4().to_string()
+            }
         }
     }
 }
 
 impl MaybeNamespaced for Pod {
     fn namespace(&self) -> Option<String> {
-        if let Some(ns) = ResourceExt::namespace(self) {
-            Some(ns.clone())
-        } else {
-            error!("Unable to find service namespace for Pod inside admission request, generating a random name");
-            Some(uuid::Uuid::new_v4().to_string())
-        }
+        ResourceExt::namespace(self)
     }
 }
 
@@ -97,7 +89,11 @@ impl MaybeService for Pod {}
 
 impl Named for Deployment {
     fn name(&self) -> String {
-        self.name_any()
+        let name = self.name_any();
+        (name != "").then_some(name).unwrap_or_else(|| {
+            error!("Unable to find service name for Deployment");
+            uuid::Uuid::new_v4().to_string()
+        })
     }
 }
 
@@ -164,57 +160,27 @@ impl Annotated for AdmissionRequest<Pod> {
     }
 }
 
-fn admission_request_name<E: Resource + Metadata>(
-    admission_request: &AdmissionRequest<E>,
-) -> String {
-    let mut name = None;
-    if let Some(obj) = admission_request.object.as_ref() {
-        name = obj
-            .meta()
-            .name
-            .as_ref()
-            .map(|n| (n.split("-").collect::<Vec<&str>>(), 2))
-            .or_else(|| {
-                let os = obj.owner_references();
-                (os.len() > 0).then_some((os[0].name.split("-").collect(), 1))
-            })
-            .or_else(|| {
-                obj.meta()
-                    .generate_name
-                    .as_ref()
-                    .map(|s| (s.split("-").collect(), 2))
-            })
-            .map(|(xs, n)| xs[0..(xs.len() - n)].join("-"));
-    } else {
-        error!("Unable to find object inside admission request, ignoring it");
-    }
-    if let Some(name) = name {
-        name
-    } else {
-        error!("Unable to find service name for object, generating a random one!");
-        uuid::Uuid::new_v4().to_string()
-    }
+fn admission_request_name<E: Resource + Named>(admission_request: &AdmissionRequest<E>) -> String {
+    admission_request
+        .object
+        .as_ref()
+        .map(Named::name)
+        .unwrap_or_else(|| {
+            error!("Object not found in admission request");
+            uuid::Uuid::new_v4().to_string()
+        })
 }
 
-fn admission_request_namespace<E: Resource + Metadata>(
+fn admission_request_namespace<E: Resource + MaybeNamespaced + Clone>(
     admission_request: &AdmissionRequest<E>,
 ) -> Option<String> {
-    let ns = match (
-        admission_request.namespace.as_ref(),
-        admission_request
-            .object
-            .as_ref()
-            .and_then(|r| r.meta().namespace.as_ref()),
-    ) {
-        (_, Some(ns)) => Some(ns),
-        (Some(ns), None) => Some(ns),
-        _ => None,
-    };
-    if let Some(ns) = ns {
+    if let Some(ns) = admission_request.namespace.as_ref() {
         Some(ns.clone())
     } else {
-        error!("Unable to find service namespace for object inside admission request, generating a random one!");
-        Some(uuid::Uuid::new_v4().to_string())
+        admission_request
+        .object
+        .as_ref()
+        .and_then(MaybeNamespaced::namespace)
     }
 }
 
