@@ -42,14 +42,15 @@ impl Named for Pod {
     fn name(&self) -> String {
         let name = self.name_any();
         let maybe_name = (name != "")
-            .then_some(name)
+            .then_some((name, 2))
             .or_else(|| {
                 let owners = self.owner_references();
-                (owners.len() > 0).then_some(owners[0].name.clone())
+                (owners.len() > 0).then_some((owners[0].name.clone(), 1))
             })
-            .map(|name| {
+            .map(|(name, n)| {
                 let xs: Vec<&str> = name.split("-").collect();
-                xs[0..(xs.len() - 2)].join("-")
+                let n = xs.len() - n;
+                xs[0..n].join("-")
             });
         match maybe_name {
             Some(name) if name == "" => {
