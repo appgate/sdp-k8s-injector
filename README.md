@@ -30,11 +30,11 @@ SDP Kubernetes Client requires several configuration on the SDP Controller:
 	* Edit all Client Profiles
 	* Delete all Client Profiles
 	* Export all Client Profiles
-  * If the Admin API is protected behind SDP, the user additionally needs
+  * (Optional) If the Controller API is protected behind SDP, the user additionally needs
 	* Policy/Entitlement to access the DNS
 	  * `ALLOW TCP up to <INTERNAL CONTROLLER IP> - port 53`
 	  * `ALLOW UDP up to <INTERNAL CONTROLLER IP> - port 53`
-	* Policy/Entitlement to access the Admin API:
+	* Policy/Entitlement to access the Controller API:
 	  * `ALLOW TCP up to <HOSTNAME> - port 8443`
 
 ## Getting Started
@@ -59,7 +59,7 @@ SDP Kubernetes Client requires several configuration on the SDP Controller:
 		 --create-namespace \
 		 --version <VERSION>
 	```
-3. Create a secret containing the username and password for admin authentication. For this example, we will name the secret `sdp-k8s-client-demo-secret`
+3. Create a secret containing the username and password for Controller API authentication. For this example, we will name the secret `sdp-k8s-client-demo-secret`
    ```bash
    $ kubectl create secret generic sdp-k8s-client-demo-secret \
 		--namespace sdp-system \
@@ -83,17 +83,17 @@ SDP Kubernetes Client requires several configuration on the SDP Controller:
 		--version <VERSION> \
 		--values values.yaml
 	```
-6. To test the sidecar injection using default settings, create an example namespace `sdp-demo` and label it with `sdp-injection="enabled"`
+6. (Optional) To test the sidecar injection using default settings, create an example namespace `sdp-demo` and label it with `sdp-injection="enabled"`
 	```bash
 	$ kubectl create namespace sdp-demo
 	$ kubectl label namespace sdp-demo --overwrite sdp-injection="enabled"
 	```
-7. Create busybox deployment in the same namespace and verify the following checklist:
+7. (Optional) Create busybox deployment in the same namespace and verify the following checklist:
    1. There is a route through the gateway (via tun0)
    2. A resource protected by SDP is reachable
 	```bash
 	$ kubectl create deployment pingtest --namespace sdp-demo --image=busybox --replicas=1 -- sleep infinity
-	$ kubectl exec -it $(kubectl get pod -n sdp-demo -l app=pingtest -o name --no-headers) -- sh
+	$ kubectl -n sdp-demo exec -it $(kubectl get pod -n sdp-demo -l app=pingtest -o name --no-headers) -- sh
 	$ /# ip route | grep tun0
 	$ /# ping <IP_ADDRESS>
 	```
@@ -173,9 +173,9 @@ $ kubectl create configmap sdp-k8s-meta-client-config --namespace sdp-system \
 ```
 
 Additionally, you must provide an Entitlement for this user on the controller:
-* Admin Policy/Entitlement to access Admin APi:
-  * `ALLOW TCP up to <HOSTNAME> - port 8443`
-* DNS Policy/Entitlement to resolve Admin API:
+* Admin Policy/Entitlement to access Controller API:
+  * `ALLOW TCP up to <CONTROLLER_ADMIN_HOSTNAME> - port 8443`
+* DNS Policy/Entitlement to resolve Controller API:
   * DNS Configuration
 	* Match Domain: `<DOMAIN>`
 	* DNS Servers: `<DNS_SERVER_IP>`
