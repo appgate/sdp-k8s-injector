@@ -436,7 +436,7 @@ impl ServiceEnvironment {
             .object()
             .ok_or_else(|| "Pod was not found in the request")?;
         let service_id = request.service_id()?;
-        let service_name = pod.service_name().unwrap();
+        let service_name = request.service_name()?;
         let config = pod.annotation(SDP_ANNOTATION_CLIENT_CONFIG);
         let secret = pod.annotation(SDP_ANNOTATION_CLIENT_SECRETS);
         let device_id = pod.annotation(SDP_ANNOTATION_CLIENT_DEVICE_ID);
@@ -1117,7 +1117,8 @@ mod tests {
     use sdp_common::crd::{DeviceId, DeviceIdSpec, ServiceIdentity, ServiceIdentitySpec};
     use sdp_common::service::{containers, init_containers, volume_names, ServiceUser};
     use sdp_common::traits::{
-        Annotated, Candidate, MaybeNamespaced, MaybeService, Named, ObjectRequest, Validated,
+        Annotated, Candidate, MaybeNamespaced, MaybeService, Named, Namespaced, ObjectRequest,
+        Validated,
     };
     use sdp_macros::{service_device_ids, service_identity, service_user};
     use sdp_test_macros::{pod, set_pod_field};
@@ -1896,7 +1897,7 @@ Pod is missing required volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-
         }
 
         let mut results: Vec<TestResult> = vec![];
-        for test in patch_tests(&sdp_sidecars) {
+        for (n, test) in patch_tests(&sdp_sidecars).iter().enumerate() {
             let pod_value =
                 serde_json::to_value(&test.pod).expect(&format!("Unable to parse test input"));
             let admission_review_value = json!({
@@ -1908,8 +1909,8 @@ Pod is missing required volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-
                     "resource":{"group":"","version":"v1","resource":"pods"},
                     "requestKind":{"group":"","version": "v1","kind":"Pod"},
                     "requestResource":{"group":"","version":"v1","resource":"pods"},
-                    "name": "my-deployment",
-                    "namespace": "my-namespace",
+                    "name": service_identity!(n).name(),
+                    "namespace": service_identity!(n).namespace(),
                     "operation": "UPDATE",
                     "userInfo": {
                         "username": "admin",
@@ -1938,7 +1939,7 @@ Pod is missing required volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-
                 let sdp_patch_context = SDPPatchContext {
                     sdp_sidecars: Arc::clone(&sdp_sidecars),
                     identity_store: identity_storage.lock().await,
-                    k8s_dns_service: Some(test.service),
+                    k8s_dns_service: Some(test.service.clone()),
                 };
                 patch_pod(request, sdp_patch_context)
                     .await
