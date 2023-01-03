@@ -1,10 +1,10 @@
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
-  name: {{ include "sdp-k8s-client.name" . }}-device-id-service
+  name: {{ include "sdp-injector.name" . }}-device-id-service
   namespace: sdp-system
   labels:
-    {{- include "sdp-k8s-client.labels" . | nindent 4 }}
+    {{- include "sdp-injector.labels" . | nindent 4 }}
 rules:
   - apiGroups: [ "injector.sdp.com" ]
     resources: [ "deviceids" ]
@@ -16,25 +16,25 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
-  name: {{ include "sdp-k8s-client.name" . }}-device-id-service
+  name: {{ include "sdp-injector.name" . }}-device-id-service
   namespace: sdp-system
   labels:
-  {{- include "sdp-k8s-client.labels" . | nindent 4 }}
+  {{- include "sdp-injector.labels" . | nindent 4 }}
 subjects:
   - kind: ServiceAccount
-    name: {{ include "sdp-k8s-client.serviceAccountName" . }}-device-id-service
-    namespace: {{ include "sdp-k8s-client.namespace" . }}
+    name: {{ include "sdp-injector.serviceAccountName" . }}-device-id-service
+    namespace: {{ include "sdp-injector.namespace" . }}
 roleRef:
   kind: Role
-  name: {{ include "sdp-k8s-client.name" . }}-device-id-service
+  name: {{ include "sdp-injector.name" . }}-device-id-service
   apiGroup: rbac.authorization.k8s.io
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: {{ include "sdp-k8s-client.name" . }}-device-id-service
+  name: {{ include "sdp-injector.name" . }}-device-id-service
   labels:
-  {{- include "sdp-k8s-client.labels" . | nindent 4 }}
+  {{- include "sdp-injector.labels" . | nindent 4 }}
 rules:
   - apiGroups: [ "apps" ]
     resources: [ "replicasets"]
@@ -43,14 +43,14 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: {{ include "sdp-k8s-client.name" . }}-device-id-service
+  name: {{ include "sdp-injector.name" . }}-device-id-service
   labels:
-  {{- include "sdp-k8s-client.labels" . | nindent 4 }}
+  {{- include "sdp-injector.labels" . | nindent 4 }}
 subjects:
   - kind: ServiceAccount
-    name: {{ include "sdp-k8s-client.serviceAccountName" . }}-device-id-service
-    namespace: {{ include "sdp-k8s-client.namespace" . }}
+    name: {{ include "sdp-injector.serviceAccountName" . }}-device-id-service
+    namespace: {{ include "sdp-injector.namespace" . }}
 roleRef:
   kind: ClusterRole
-  name: {{ include "sdp-k8s-client.name" . }}-device-id-service
+  name: {{ include "sdp-injector.name" . }}-device-id-service
   apiGroup: rbac.authorization.k8s.io

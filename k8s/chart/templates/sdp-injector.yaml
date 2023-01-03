@@ -1,29 +1,29 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "sdp-k8s-client.fullname" . }}-injector
-  namespace: {{ include "sdp-k8s-client.namespace" . }}
+  name: {{ include "sdp-injector.fullname" . }}-injector
+  namespace: {{ include "sdp-injector.namespace" . }}
   labels:
-  {{- include "sdp-k8s-client.labels" . | nindent 4 }}
+  {{- include "sdp-injector.labels" . | nindent 4 }}
 spec:
   replicas: {{ .Values.sdp.injector.replica }}
   selector:
     matchLabels:
-      {{- include "sdp-k8s-client.selectorLabels" . | nindent 6 }}-injector
+      {{- include "sdp-injector.selectorLabels" . | nindent 6 }}-injector
   template:
     metadata:
       labels:
-        {{- include "sdp-k8s-client.selectorLabels" . | nindent 8 }}-injector
+        {{- include "sdp-injector.selectorLabels" . | nindent 8 }}-injector
     spec:
       {{- with .Values.global.image.pullSecrets }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      serviceAccountName: {{ include "sdp-k8s-client.serviceAccountName" .}}-injector
+      serviceAccountName: {{ include "sdp-injector.serviceAccountName" .}}-injector
       volumes:
         - name: sdp-injector-log
           configMap:
-            name: {{ include "sdp-k8s-client.fullname" . }}-log
+            name: {{ include "sdp-injector.fullname" . }}-log
             items:
               - key: sdp-injector-log4rs.yaml
                 path: log4rs.yaml
@@ -31,14 +31,14 @@ spec:
           projected:
             sources:
               - secret:
-                  name: {{ include "sdp-k8s-client.injector-secret" . }}
+                  name: {{ include "sdp-injector.injector-secret" . }}
                   items:
                     - key: ca.crt
                       path: sdp-injector.crt
                     - key: tls.key
                       path: sdp-injector.key
               - configMap:
-                  name: {{ include "sdp-k8s-client.sidecar-config" . }}
+                  name: {{ include "sdp-injector.sidecar-config" . }}
                   items:
                     - key: sdp-sidecars.json
                       path: sdp-sidecars.json
@@ -63,10 +63,10 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ include "sdp-k8s-client.fullname" . }}
-  namespace: {{ include "sdp-k8s-client.namespace" . }}
+  name: {{ include "sdp-injector.fullname" . }}
+  namespace: {{ include "sdp-injector.namespace" . }}
   labels:
-    {{- include "sdp-k8s-client.labels" . | nindent 4 }}
+    {{- include "sdp-injector.labels" . | nindent 4 }}
 spec:
   type: {{ .Values.service.type }}
   ports:
@@ -74,4 +74,4 @@ spec:
       targetPort: 8443
       name: https-webhooks
   selector:
-    {{- include "sdp-k8s-client.selectorLabels" . | nindent 4 }}-injector
+    {{- include "sdp-injector.selectorLabels" . | nindent 4 }}-injector

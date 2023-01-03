@@ -1,29 +1,29 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "sdp-k8s-client.fullname" . }}-device-id-service
-  namespace: {{ include "sdp-k8s-client.namespace" . }}
+  name: {{ include "sdp-injector.fullname" . }}-device-id-service
+  namespace: {{ include "sdp-injector.namespace" . }}
   labels:
-  {{- include "sdp-k8s-client.labels" . | nindent 4 }}
+  {{- include "sdp-injector.labels" . | nindent 4 }}
 spec:
   replicas: {{ .Values.sdp.deviceIdService.replica }}
   selector:
     matchLabels:
-      {{- include "sdp-k8s-client.selectorLabels" . | nindent 6 }}-device-id-service
+      {{- include "sdp-injector.selectorLabels" . | nindent 6 }}-device-id-service
   template:
     metadata:
       labels:
-        {{- include "sdp-k8s-client.selectorLabels" . | nindent 8 }}-device-id-service
+        {{- include "sdp-injector.selectorLabels" . | nindent 8 }}-device-id-service
     spec:
       {{- with .Values.global.image.pullSecrets }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      serviceAccountName: {{ include "sdp-k8s-client.serviceAccountName" .}}-device-id-service
+      serviceAccountName: {{ include "sdp-injector.serviceAccountName" .}}-device-id-service
       volumes:
         - name: sdp-device-id-service-log
           configMap:
-            name: {{ include "sdp-k8s-client.fullname" . }}-log
+            name: {{ include "sdp-injector.fullname" . }}-log
             items:
               - key: sdp-device-id-service-log4rs.yaml
                 path: log4rs.yaml

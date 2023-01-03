@@ -1,10 +1,10 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: {{ include "sdp-k8s-client.fullname" . }}-log
-  namespace: {{ include "sdp-k8s-client.namespace" . }}
+  name: {{ include "sdp-injector.fullname" . }}-log
+  namespace: {{ include "sdp-injector.namespace" . }}
   labels:
-  {{- include "sdp-k8s-client.labels" . | nindent 4 }}
+  {{- include "sdp-injector.labels" . | nindent 4 }}
 data:
   sdp-device-id-service-log4rs.yaml: |
     refresh_rate: 30 seconds

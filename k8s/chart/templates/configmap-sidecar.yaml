@@ -1,10 +1,10 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: {{ include "sdp-k8s-client.sidecar-config" . }}
-  namespace: {{ include "sdp-k8s-client.namespace" . }}
+  name: {{ include "sdp-injector.sidecar-config" . }}
+  namespace: {{ include "sdp-injector.namespace" . }}
   labels:
-  {{- include "sdp-k8s-client.labels" . | nindent 4 }}
+  {{- include "sdp-injector.labels" . | nindent 4 }}
 data:
   sdp-sidecars.json: |-
     {
