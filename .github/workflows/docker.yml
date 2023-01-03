@@ -58,9 +58,9 @@ jobs:
         with:
           build-args: PROFILE=${{ env.PROFILE }}
           context: .
-          file: docker/sdp-k8s-client-Dockerfile
+          file: docker/sdp-k8s-injector-Dockerfile
           push: false
-          tags: sdp-k8s-client-build:latest
+          tags: sdp-k8s-injector-build:latest
       - name: Build sdp-device-id-service
         uses: docker/build-push-action@v3
         with:
@@ -153,9 +153,9 @@ jobs:
         run: helm package k8s/crd --dependency-update
       - name: Push chart
         if: ${{ github.ref == 'refs/heads/main' }}
-        run: helm push sdp-k8s-client-crd-${{ steps.chartVersion.outputs.result }}.tgz oci://ghcr.io/appgate/charts
+        run: helm push sdp-k8s-injector-crd-${{ steps.chartVersion.outputs.result }}.tgz oci://ghcr.io/appgate/charts
 
-  helm-k8s-client:
+  helm-k8s-injector:
     runs-on: ubuntu-latest
     needs:
       - helm-crd
@@ -178,4 +178,4 @@ jobs:
         run: helm package k8s/chart --dependency-update
       - name: Push chart
         if: ${{ github.ref == 'refs/heads/main' }}
-        run: helm push sdp-k8s-client-${{ steps.chartVersion.outputs.result }}.tgz oci://ghcr.io/appgate/charts
+        run: helm push sdp-k8s-injector-${{ steps.chartVersion.outputs.result }}.tgz oci://ghcr.io/appgate/charts

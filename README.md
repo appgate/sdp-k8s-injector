@@ -39,7 +39,7 @@ SDP Kubernetes Injector requires several configuration on the SDP Controller:
 
 ## Getting Started
 ### Installation
-> Browse the available versions on [Appgate GitHub Container Registry](https://github.com/appgate/sdp-k8s-client/pkgs/container/charts%2Fsdp-k8s-client)
+> Browse the available versions on [Appgate GitHub Container Registry](https://github.com/appgate/sdp-k8s-injector/pkgs/container/charts%2Fsdp-k8s-injector)
 
 1. Install [cert-manager](https://cert-manager.io/docs/installation/helm/) and their CRDs with Helm
    ```bash
@@ -54,14 +54,14 @@ SDP Kubernetes Injector requires several configuration on the SDP Controller:
 2. Install the SDP Kubernetes Injector CRD with Helm
 	```bash
 	$ export HELM_EXPERIMENTAL_OCI=1
-	$ helm install sdp-k8s-client-crd oci://ghcr.io/appgate/charts/sdp-k8s-client-crd \
+	$ helm install sdp-k8s-injector-crd oci://ghcr.io/appgate/charts/sdp-k8s-injector-crd \
 		 --namespace sdp-system \
 		 --create-namespace \
 		 --version <VERSION>
 	```
-3. Create a secret containing the username and password for Controller API authentication. For this example, we will name the secret `sdp-k8s-client-demo-secret`
+3. Create a secret containing the username and password for Controller API authentication. For this example, we will name the secret `sdp-k8s-injector-demo-secret`
    ```bash
-   $ kubectl create secret generic sdp-k8s-client-demo-secret \
+   $ kubectl create secret generic sdp-k8s-injector-demo-secret \
 		--namespace sdp-system \
 		--from-literal=sdp-k8s-client-username="<USERNAME>" \
 		--from-literal=sdp-k8s-client-password="<PASSWORD>" \
@@ -71,14 +71,14 @@ SDP Kubernetes Injector requires several configuration on the SDP Controller:
    ```yaml
    # values.yaml
    sdp:
-	 host: https://sdp-k8s-client-demo.com:8443
-	 adminSecret: sdp-k8s-client-demo-secret
-	 clusterID: demo
+     host: https://sdp-k8s-injector-demo.com:8443
+     adminSecret: sdp-k8s-injector-demo-secret
+     clusterID: demo
    ```
 5. Install the SDP Kubernetes Injector with Helm using the values.yaml
 	```bash
 	$ export HELM_EXPERIMENTAL_OCI=1
-	$ helm install sdp-k8s-client oci://ghcr.io/appgate/charts/sdp-k8s-client \
+	$ helm install sdp-k8s-injector oci://ghcr.io/appgate/charts/sdp-k8s-injector \
 		--namespace sdp-system \
 		--version <VERSION> \
 		--values values.yaml
@@ -262,7 +262,7 @@ SDP Kubernetes Injector supports various annotation-based behavior customization
 
 | Name                                      | Description                                                                              | Value                                   |
 |-------------------------------------------|------------------------------------------------------------------------------------------|-----------------------------------------|
-| `global.image.repository`                 | Image registry to use for all SDP images.                                                | `ghcr.io/appgate/sdp-k8s-client`        |
+| `global.image.repository`                 | Image registry to use for all SDP images.                                                | `ghcr.io/appgate/sdp-k8s-injector`        |
 | `global.image.tag`                        | Image tag to use for all SDP images. If not set, it defaults to `.Chart.appVersion`.     | `""`                                    |
 | `global.image.pullPolicy`                 | Image pull policy to use for all SDP images.                                             | `IfNotPresent`                          |
 | `global.image.pullSecrets`                | Image pull secret to use for all SDP images.                                             | `[]`                                    |

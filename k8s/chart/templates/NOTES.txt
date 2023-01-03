@@ -24,4 +24,4 @@ To try out the SDP Kubernetes Injector, follow the guide below:
     $ /# ip route | grep tun0
     $ /# ping <IP_ADDRESS>
 
-For more information, please visit https://github.com/appgate/sdp-k8s-client
+For more information, please visit https://github.com/appgate/sdp-k8s-injector

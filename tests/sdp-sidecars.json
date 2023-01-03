@@ -31,7 +31,7 @@
   "containers": [
     {
       "name": "sdp-service",
-      "image": "ghcr.io/appgate/sdp-k8s-client/sdp-headless-service:5.5.1",
+      "image": "ghcr.io/appgate/sdp-k8s-injector/sdp-headless-service:5.5.1",
       "imagePullPolicy": "Always",
       "securityContext": {
         "runAsGroup": 102,
@@ -54,7 +54,7 @@
     },
     {
       "name": "sdp-driver",
-      "image": "ghcr.io/appgate/sdp-k8s-client/sdp-headless-driver:5.5.1",
+      "image": "ghcr.io/appgate/sdp-k8s-injector/sdp-headless-driver:5.5.1",
       "imagePullPolicy": "Always",
       "securityContext": {
         "runAsGroup": 101,
@@ -85,7 +85,7 @@
     },
     {
       "name": "sdp-dnsmasq",
-      "image": "ghcr.io/appgate/sdp-k8s-client/sdp-dnsmasq:5.5.1",
+      "image": "ghcr.io/appgate/sdp-k8s-injector/sdp-dnsmasq:5.5.1",
       "imagePullPolicy": "Always",
       "securityContext": {
         "runAsGroup": 101,
