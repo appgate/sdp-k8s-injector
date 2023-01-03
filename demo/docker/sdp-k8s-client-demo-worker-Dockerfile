@@ -1,4 +1,0 @@
-FROM python:3.9-slim
-COPY worker.py /bin/worker.py
-CMD ["python3", "/bin/worker.py"]
-
