@@ -63,9 +63,9 @@ SDP Kubernetes Injector requires several configuration on the SDP Controller:
    ```bash
    $ kubectl create secret generic sdp-k8s-injector-demo-secret \
 		--namespace sdp-system \
-		--from-literal=sdp-k8s-client-username="<USERNAME>" \
-		--from-literal=sdp-k8s-client-password="<PASSWORD>" \
-		--from-literal=sdp-k8s-client-provider="<PROVIDER>"
+		--from-literal=sdp-injector-api-username="<USERNAME>" \
+		--from-literal=sdp-injector-api-password="<PASSWORD>" \
+		--from-literal=sdp-injector-api-provider="<PROVIDER>"
    ```
 4. Generate a values.yaml. Below is an example of the most basic configuration. For other parameters, see [Parameters](#Parameters)
    ```yaml
@@ -150,26 +150,26 @@ Because the injector (particularly, Identity Service) requires a connection to t
 
 To use the meta-client, you need the following:
 * Secret with the following keys:
-  * `meta-client-username` - Username
-  * `meta-client-password` - Password
-  * `meta-client-provider` - Provider
-  * `meta-client-profile-url` - Profile URL
+  * `sdp-injector-mc-username` - Username
+  * `sdp-injector-mc-password` - Password
+  * `sdp-injector-mc-provider` - Provider
+  * `sdp-injector-mc-profile-url` - Profile URL
 * ConfigMap with the following keys:
-  * `meta-client-log-level` - Log level of the meta-client
-  * `meta-client-device-id` - Device ID (UUID v4) of the meta-client
+  * `sdp-injector-mc-log-level` - Log level of the meta-client
+  * `sdp-injector-mc-device-id` - Device ID (UUID v4) of the meta-client
 
 ```bash
-$ kubectl create secret generic sdp-k8s-meta-client-secret --namespace sdp-system \
-	--from-literal=meta-client-username="" \
-	--from-literal=meta-client-password="" \
-	--from-literal=meta-client-provider="" \
-	--from-literal=meta-client-profile-url=""
+$ kubectl create secret generic sdp-injector-mc-secret --namespace sdp-system \
+	--from-literal=sdp-injector-mc-username="" \
+	--from-literal=sdp-injector-mc-password="" \
+	--from-literal=sdp-injector-mc-provider="" \
+	--from-literal=sdp-injector-mc-profile-url=""
 ```
 
 ```bash
-$ kubectl create configmap sdp-k8s-meta-client-config --namespace sdp-system \
-	--from-literal=meta-client-log-level=<LOG_LEVEL> \
-	--from-literal=meta-client-device-id=<UUID>
+$ kubectl create configmap sdp-injector-mc-config --namespace sdp-system \
+	--from-literal=sdp-injector-mc-log-level=<LOG_LEVEL> \
+	--from-literal=sdp-injector-mc-device-id=<UUID>
 ```
 
 Additionally, you must provide an Entitlement for this user on the controller:
@@ -190,9 +190,9 @@ After creating the secret/configmap and configuring the policy/entitlement on SD
 ```yaml
 sdp:
   metaClient:
-	enabled: true
-	adminSecret: sdp-k8s-meta-client-secret
-	adminConfig: sdp-k8s-meta-client-config
+    enabled: true
+    adminSecret: sdp-injector-mc-secret
+    adminConfig: sdp-injector-mc-config
 ```
 
 Upon installation of the chart, this secret and configmap will be passed to the sidecar injected next to the Identity Service.
