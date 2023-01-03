@@ -1,4 +1,4 @@
-name: SDP Kubernetes Client
+name: SDP Kubernetes Injector
 
 on:
   push:

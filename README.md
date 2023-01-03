@@ -1,17 +1,17 @@
-# SDP Kubernetes Client
-SDP Kubernetes Client is a member of the Appgate SDP Client family that enables it to be used in Kubernetes clusters. By injecting a sidecar into pods on-demand, egress traffic from Kubernetes workloads can now be captured and sent to protected resources behind an SDP Gateway. It captures traffic in much the same way as other SDP Clients. The Entitlements will be defined in the Policy which in this case is likely to be assigned based on the use of the 'Services' identity provider combined with any labels that were used when the SDP Kubernetes Client was injected.
+# SDP Kubernetes Injector
+SDP Kubernetes Injector is a member of the Appgate SDP Client family that enables it to be used in Kubernetes clusters. By injecting a sidecar into pods on-demand, egress traffic from Kubernetes workloads can now be captured and sent to protected resources behind an SDP Gateway. It captures traffic in much the same way as other SDP Clients. The Entitlements will be defined in the Policy which in this case is likely to be assigned based on the use of the 'Services' identity provider combined with any labels that were used when the SDP Kubernetes Injector was injected.
 
 Remember you can already control ingress access to specific Kubernetes workloads using the URL access feature (HTTP up action type).
 
 ## Requirements
 
 ### Tool Requirements
-The following tools are required to install the SDP Kubernetes Client:
+The following tools are required to install the SDP Kubernetes Injector:
 * helm v3.7.0+ - https://helm.sh/docs/intro/install/
 * kubectl - https://kubernetes.io/docs/tasks/tools/#kubectl
 
 ### SDP Requirements
-SDP Kubernetes Client requires several configuration on the SDP Controller:
+SDP Kubernetes Injector requires several configuration on the SDP Controller:
 * Service User License
   * 1 Service User license is consumed per Kubernetes workload (e.g. Deployment)
   * 10 inactive Service Users are created at the initialization of the Identity Service
@@ -51,7 +51,7 @@ SDP Kubernetes Client requires several configuration on the SDP Controller:
 		 --version v1.10.1 \
 		 --set installCRDs=true
    ```
-2. Install the SDP Kubernetes Client CRD with Helm
+2. Install the SDP Kubernetes Injector CRD with Helm
 	```bash
 	$ export HELM_EXPERIMENTAL_OCI=1
 	$ helm install sdp-k8s-client-crd oci://ghcr.io/appgate/charts/sdp-k8s-client-crd \
@@ -75,7 +75,7 @@ SDP Kubernetes Client requires several configuration on the SDP Controller:
 	 adminSecret: sdp-k8s-client-demo-secret
 	 clusterID: demo
    ```
-5. Install the SDP Kubernetes Client with Helm using the values.yaml
+5. Install the SDP Kubernetes Injector with Helm using the values.yaml
 	```bash
 	$ export HELM_EXPERIMENTAL_OCI=1
 	$ helm install sdp-k8s-client oci://ghcr.io/appgate/charts/sdp-k8s-client \
@@ -100,7 +100,7 @@ SDP Kubernetes Client requires several configuration on the SDP Controller:
 
 ### Configuration
 #### Setting Policy for Deployments
-SDP Kubernetes Client allows SDP controller to become aware of labels in Kubernetes. By default, the Deployment name and namespace are exposed to SDP as `user.labels.name` and `user.labels.namespace` respectively.
+SDP Kubernetes Injector allows SDP controller to become aware of labels in Kubernetes. By default, the Deployment name and namespace are exposed to SDP as `user.labels.name` and `user.labels.namespace` respectively.
 
 Assume that we have an injector installed in the cluster with clusterID=`demo` and we have also created deployment `sleep-forever` below in the `sdp-demo` namespace
 ```yaml
@@ -129,12 +129,12 @@ To create a Policy for this deployment, set the following Assignments:
 * `user.labels.namespace` === `sdp-demo` (labels - Expression: `namespace === "sdp-demo"`)
 * `The array tags has item matching demo` (tags - Operator: `match` Value: `demo`)
 
-In addition to the name and namespace, the SDP Kubernetes Client is able to expose `metadata.labels` as conditions for Assignment. For example, if we add `metadata.labels.role="sleeper"` to the example above, that label will be available as `users.labels.role` in the Policy. You can additionally set the following Assignment:
+In addition to the name and namespace, the SDP Kubernetes Injector is able to expose `metadata.labels` as conditions for Assignment. For example, if we add `metadata.labels.role="sleeper"` to the example above, that label will be available as `users.labels.role` in the Policy. You can additionally set the following Assignment:
 * `users.labels.role` === `sleeper` (labels - Expression: `role === "sleeper"`)
 
 ## Advanced Usage
 ### Namespace Labels
-SDP injection is bound to namespaces. Adding the label `sdp-injection="enabled"` to a namespace will instruct the SDP Kubernetes Client to inject a sidecar to all pods in the namespace.
+SDP injection is bound to namespaces. Adding the label `sdp-injection="enabled"` to a namespace will instruct the SDP Kubernetes Injector to inject a sidecar to all pods in the namespace.
 ```bash
 $ kubectl label --overwrite namespace sdp-demo sdp-injection="enabled"
 ```
@@ -246,7 +246,7 @@ $ kubectl annotate deployment <DEPLOYMENT> k8s.appgate.com/sdp-injector.disable-
 You can connect multiple Kubernetes clusters to a single SDP system by installing an injector on each cluster. When installing the injector, set a unique cluster ID in the helm value `sdp.clusterID`. To prevent collision of resources created by the injector, the SDP system will use this ID as a tag or prefix (e.g. client profiles, service users). It is advised to tag your admin users for each injector with the cluster ID.
 
 ## Annotations
-SDP Kubernetes Client supports various annotation-based behavior customization
+SDP Kubernetes Injector supports various annotation-based behavior customization
 
 | Annotation                                             | Available Options                                                          | Description                                                                                                                                                                                                                                                                                                                                                                                                                        |
 |--------------------------------------------------------|----------------------------------------------------------------------------|:-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
@@ -316,7 +316,7 @@ This table above was generated using [readme-generator-for-helm](https://github.
 
 ## How It Works
 ### Overview
-SDP Kubernetes Client consists of three components:
+SDP Kubernetes Injector consists of three components:
 * Identity Service
 * Device ID Service
 * Injector
@@ -346,7 +346,7 @@ When patching the pod, the Injector reads the ServiceIdentity and DeviceID (crea
 ### sdp-dnsmasq
 SDP Clients can make DNS queries for specific hosts to specific DNS servers behind the SDP Gateways. This is configured by the sdp-driver which notifies the system about which domains should use the DNS servers behind the SDP Gateways.
 
-In the case of the SDP Kubernetes Client, a dnsmasq instance is configured according to the instructions that the sdp-driver sends. Since only sdp-driver container can modify `/etc/resolv.conf`, the setup is done in the following steps:
+In the case of the SDP Kubernetes Injector, a dnsmasq instance is configured according to the instructions that the sdp-driver sends. Since only sdp-driver container can modify `/etc/resolv.conf`, the setup is done in the following steps:
 
 1. The sdp-dnsmasq container grabs the address of the kube-dns service and starts a new dnsmasq instance using that DNS server as upstream. This allows the dnsmasq instance to forward everything into the kube-dns service.
 2. The sdp-dnsmasq container opens a UNIX socket to receive instructions from the sdp-driver container for when there are specific domain based DNS settings.

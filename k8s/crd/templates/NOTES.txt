@@ -8,9 +8,9 @@
 |  ##     ## ##        ##         ######   ##     ##    ##    ########     ######  ########  ##          |
 ----------------------------------------------------------------------------------------------------------
 
-Thank you for installing the CRDs for the SDP Kubernetes Client
+Thank you for installing the CRDs for the SDP Kubernetes Injector
 
-Please proceed with the installation of the SDP Kubernetes Client
+Please proceed with the installation of the SDP Kubernetes Injector
 
 1. Create a secret containing the username and password for admin authentication
 
