@@ -268,7 +268,7 @@ SDP Kubernetes Injector supports various annotation-based behavior customization
 | `global.image.pullSecrets`                | Image pull secret to use for all SDP images.                                             | `[]`                                    |
 | `sdp.host`                                | Hostname of the SDP controller                                                           | `""`                                    |
 | `sdp.adminSecret`                         | Name of the secret for initial authentication                                            | `""`                                    |
-| `sdp.clientVersion`                       | Version of the SDP client to inject as sidecars.                                         | `6.0.3`                                 |
+| `sdp.clientVersion`                       | Version of the SDP client to inject as sidecars.                                         | `6.1.0`                                 |
 | `sdp.clusterID`                           | An identifier to prefix service users and client profiles                                | `""`                                    |
 | `sdp.metaClient.enabled`                  | Whether to set up an SDP client on the Identity Service                                  | `false`                                 |
 | `sdp.metaClient.adminSecret`              | Name of the secret for initial authentication                                            | `""`                                    |
