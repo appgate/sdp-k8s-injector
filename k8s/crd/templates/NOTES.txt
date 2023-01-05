@@ -8,25 +8,25 @@
 |  ##     ## ##        ##         ######   ##     ##    ##    ########     ######  ########  ##          |
 ----------------------------------------------------------------------------------------------------------
 
-Thank you for installing the CRDs for the SDP Kubernetes Client
+Thank you for installing the CRDs for the SDP Kubernetes Injector
 
-Please proceed with the installation of the SDP Kubernetes Client
+Please proceed with the installation of the SDP Kubernetes Injector
 
 1. Create a secret containing the username and password for admin authentication
 
     $ kubectl create secret generic <SECRET> \
         --namespace sdp-system \
-        --from-literal=sdp-k8s-client-username="<USERNAME>" \
-        --from-literal=sdp-k8s-client-password="<PASSWORD>" \
-        --from-literal=sdp-k8s-client-provider="<PROVIDER>"
+        --from-literal=sdp-injector-api-username="<USERNAME>" \
+        --from-literal=sdp-injector-api-password="<PASSWORD>" \
+        --from-literal=sdp-injector-api-provider="<PROVIDER>"
 
 2. Install the SDP Kubernetes Client with Helm
 
     $ export HELM_EXPERIMENTAL_OCI=1
-    $ helm install sdp-k8s-client oci://ghcr.io/appgate/charts/sdp-k8s-client \
+    $ helm install sdp-k8s-injector oci://ghcr.io/appgate/charts/sdp-k8s-injector \
         --namespace sdp-system \
         --version <VERSION> \
         --set .sdp.host="<SDP_HOSTNAME>" \
         --set .sdp.adminSecret="<SECRET>"
 
-For more information, please visit https://github.com/appgate/sdp-k8s-client
+For more information, please visit https://github.com/appgate/sdp-k8s-injector

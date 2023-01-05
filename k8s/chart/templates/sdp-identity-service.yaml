@@ -1,25 +1,25 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "sdp-k8s-client.fullname" . }}-identity-service
-  namespace: {{ include "sdp-k8s-client.namespace" . }}
+  name: {{ include "sdp-injector.fullname" . }}-identity-service
+  namespace: {{ include "sdp-injector.namespace" . }}
   labels:
-  {{- include "sdp-k8s-client.labels" . | nindent 4 }}
+  {{- include "sdp-injector.labels" . | nindent 4 }}
 spec:
   replicas: {{ .Values.sdp.identityService.replica }}
   selector:
     matchLabels:
-      {{- include "sdp-k8s-client.selectorLabels" . | nindent 6 }}-identity-service
+      {{- include "sdp-injector.selectorLabels" . | nindent 6 }}-identity-service
   template:
     metadata:
       labels:
-        {{- include "sdp-k8s-client.selectorLabels" . | nindent 8 }}-identity-service
+        {{- include "sdp-injector.selectorLabels" . | nindent 8 }}-identity-service
     spec:
       {{- with .Values.global.image.pullSecrets }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      serviceAccountName: {{ include "sdp-k8s-client.serviceAccountName" .}}-identity-service
+      serviceAccountName: {{ include "sdp-injector.serviceAccountName" .}}-identity-service
       {{ if .Values.sdp.metaClient.enabled }}
       dnsPolicy: None
       dnsConfig:
@@ -31,7 +31,7 @@ spec:
       volumes:
         - name: sdp-identity-service-log
           configMap:
-            name: {{ include "sdp-k8s-client.fullname" . }}-log
+            name: {{ include "sdp-injector.fullname" . }}-log
             items:
               - key: sdp-identity-service-log4rs.yaml
                 path: log4rs.yaml
@@ -54,7 +54,7 @@ spec:
       containers:
         {{ if .Values.sdp.metaClient.enabled }}
         - name: {{ .Chart.Name }}-sdp-service
-          image: {{ default .Values.global.image.repository .Values.sdp.headlessService.image.repository }}/sdp-headless-service:{{ default .Values.sdp.clientVersion  .Values.sdp.headlessService.image.tag }}
+          image: "{{ default .Values.global.image.repository .Values.sdp.headlessService.image.repository }}/sdp-headless-service:{{ default .Values.sdp.clientVersion .Values.sdp.headlessService.image.tag }}"
           imagePullPolicy: {{ .Values.sdp.headlessService.image.pullPolicy }}
           securityContext:
             runAsGroup: 102
@@ -70,27 +70,32 @@ spec:
               valueFrom:
                 configMapKeyRef:
                   name: {{ required ".Values.sdp.metaClient.adminConfig is required" .Values.sdp.metaClient.adminConfig }}
-                  key: meta-client-log-level
+                  key: sdp-injector-mc-log-level
             - name: APPGATE_DEVICE_ID
               valueFrom:
                 configMapKeyRef:
                   name: {{ required ".Values.sdp.metaClient.adminConfig is required" .Values.sdp.metaClient.adminConfig }}
-                  key: meta-client-device-id
+                  key: sdp-injector-mc-device-id
             - name: APPGATE_USERNAME
               valueFrom:
                 secretKeyRef:
                   name: {{ required ".Values.sdp.metaClient.adminSecret is required" .Values.sdp.metaClient.adminSecret }}
-                  key: meta-client-username
+                  key: sdp-injector-mc-username
             - name: APPGATE_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: {{ required ".Values.sdp.metaClient.adminSecret is required" .Values.sdp.metaClient.adminSecret }}
-                  key: meta-client-password
+                  key: sdp-injector-mc-password
+            - name: APPGATE_PROVIDER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ required ".Values.sdp.metaClient.adminSecret is required" .Values.sdp.metaClient.adminSecret }}
+                  key: sdp-injector-mc-provider
             - name: APPGATE_PROFILE_URL
               valueFrom:
                 secretKeyRef:
                   name: {{ required ".Values.sdp.metaClient.adminSecret is required" .Values.sdp.metaClient.adminSecret }}
-                  key: meta-client-profile-url
+                  key: sdp-injector-mc-profile-url
         - name: {{ .Chart.Name }}-sdp-driver
           image: {{ default .Values.global.image.repository .Values.sdp.headlessDriver.image.repository }}/sdp-headless-driver:{{ default .Values.sdp.clientVersion  .Values.sdp.headlessService.image.tag }}
           imagePullPolicy: {{ .Values.sdp.headlessDriver.image.pullPolicy }}
@@ -135,17 +140,17 @@ spec:
               valueFrom:
                 secretKeyRef:
                   name: {{ required ".Values.sdp.adminSecret is required" .Values.sdp.adminSecret }}
-                  key: sdp-k8s-client-username
+                  key: sdp-injector-api-username
             - name: SDP_K8S_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: {{ required ".Values.sdp.adminSecret is required" .Values.sdp.adminSecret }}
-                  key: sdp-k8s-client-password
+                  key: sdp-injector-api-password
             - name: SDP_K8S_PROVIDER
               valueFrom:
                 secretKeyRef:
                   name: {{ required ".Values.sdp.adminSecret is required" .Values.sdp.adminSecret }}
-                  key: sdp-k8s-client-provider
+                  key: sdp-injector-api-provider
             - name: SDP_CLUSTER_ID
               value: {{ required ".Values.sdp.clusterID is required" .Values.sdp.clusterID }}
           image: "{{ default .Values.global.image.repository .Values.sdp.identityService.image.repository }}/sdp-identity-service:{{ default .Chart.AppVersion .Values.sdp.identityService.image.tag }}"

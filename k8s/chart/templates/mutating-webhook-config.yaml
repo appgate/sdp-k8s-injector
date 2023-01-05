@@ -3,15 +3,15 @@ kind: MutatingWebhookConfiguration
 metadata:
   name: sdp-admission-webhook-{{ .Release.Name }}
   labels:
-    app: {{ include "sdp-k8s-client.fullname" . }}
+    app: {{ include "sdp-injector.fullname" . }}
   annotations:
-    cert-manager.io/inject-ca-from: {{ include "sdp-k8s-client.namespace" . }}/{{ include "sdp-k8s-client.injector-certificate" . }}
+    cert-manager.io/inject-ca-from: {{ include "sdp-injector.namespace" . }}/{{ include "sdp-injector.injector-certificate" . }}
 webhooks:
   - name: sdp-injector.appgate.com
     clientConfig:
       service:
-        name: {{ include "sdp-k8s-client.fullname" . }}
-        namespace: {{ include "sdp-k8s-client.namespace" . }}
+        name: {{ include "sdp-injector.fullname" . }}
+        namespace: {{ include "sdp-injector.namespace" . }}
         path: "/mutate"
     namespaceSelector:
       matchLabels:

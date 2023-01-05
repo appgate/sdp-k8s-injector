@@ -1,7 +1,7 @@
 ## @section SDP parameters
 
 ## SDP
-## ref: https://github.com/appgate/sdp-k8s-client
+## ref: https://github.com/appgate/sdp-k8s-injector
 ##
 
 global:
@@ -10,7 +10,7 @@ global:
   ## @param global.image.pullPolicy Image pull policy to use for all SDP images.
   ## @param global.image.pullSecrets Image pull secret to use for all SDP images.
   image:
-    repository: ghcr.io/appgate/sdp-k8s-client
+    repository: ghcr.io/appgate/sdp-k8s-injector
     tag: ""
     pullPolicy: IfNotPresent
     ## Optionally specify an array of imagePullSecrets.

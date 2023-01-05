@@ -8,9 +8,9 @@
 |  ##     ## ##        ##         ######   ##     ##    ##    ########     ######  ########  ##          |
 ----------------------------------------------------------------------------------------------------------
 
-Thank you for installing the SDP Kubernetes Client
+Thank you for installing the SDP Kubernetes Injector
 
-To try out the SDP Kubernetes Client, follow the guide below:
+To try out the SDP Kubernetes Injector, follow the guide below:
 
 1. Create `sdp-demo` namespace and label the namespace with `sdp-injection="enabled"`
 
@@ -24,4 +24,4 @@ To try out the SDP Kubernetes Client, follow the guide below:
     $ /# ip route | grep tun0
     $ /# ping <IP_ADDRESS>
 
-For more information, please visit https://github.com/appgate/sdp-k8s-client
+For more information, please visit https://github.com/appgate/sdp-k8s-injector

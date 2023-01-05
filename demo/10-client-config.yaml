@@ -1,7 +1,0 @@
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: sdp-injector-client-config
-data:
-  client-log-level: Info
- 

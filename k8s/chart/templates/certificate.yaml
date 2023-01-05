@@ -1,22 +1,22 @@
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
-  name: {{ include "sdp-k8s-client.injector-certificate" . }}
-  namespace: {{ include "sdp-k8s-client.namespace" . }}
+  name: {{ include "sdp-injector.injector-certificate" . }}
+  namespace: {{ include "sdp-injector.namespace" . }}
 spec:
-  secretName: {{ include "sdp-k8s-client.injector-secret" . }}
+  secretName: {{ include "sdp-injector.injector-secret" . }}
   dnsNames:
-    - {{ include "sdp-k8s-client.fullname" . }}
-    - {{ include "sdp-k8s-client.fullname" . }}.{{ include "sdp-k8s-client.namespace" . }}
-    - {{ include "sdp-k8s-client.fullname" . }}.{{ include "sdp-k8s-client.namespace" . }}.svc
-    - {{ include "sdp-k8s-client.fullname" . }}.{{ include "sdp-k8s-client.namespace" . }}.svc.cluster.local
+    - {{ include "sdp-injector.fullname" . }}
+    - {{ include "sdp-injector.fullname" . }}.{{ include "sdp-injector.namespace" . }}
+    - {{ include "sdp-injector.fullname" . }}.{{ include "sdp-injector.namespace" . }}.svc
+    - {{ include "sdp-injector.fullname" . }}.{{ include "sdp-injector.namespace" . }}.svc.cluster.local
   issuerRef:
-    name: {{ include "sdp-k8s-client.injector-issuer" . }}
+    name: {{ include "sdp-injector.injector-issuer" . }}
 ---
 apiVersion: cert-manager.io/v1
 kind: Issuer
 metadata:
-  name: {{ include "sdp-k8s-client.injector-issuer" . }}
-  namespace: {{ include "sdp-k8s-client.namespace" . }}
+  name: {{ include "sdp-injector.injector-issuer" . }}
+  namespace: {{ include "sdp-injector.namespace" . }}
 spec:
   selfSigned: {}

@@ -97,7 +97,7 @@ mk_yaml () {
     export CA_BUNDLE=$(cat ${CA_CERT_FILE} | base64 | tr -d '\n')
     export SDP_INJECTOR_KEY=$(cat ${KEY_FILE} | base64 | tr -d '\n')
     export SDP_INJECTOR_CERT=$(cat ${CERT_FILE} | base64 | tr -d '\n')
-    DOCKER_REGISTRY=${DOCKER_REGISTRY:-ghcr.io/appgate/sdp-k8s-client}
+    DOCKER_REGISTRY=${DOCKER_REGISTRY:-ghcr.io/appgate/sdp-k8s-injector}
     mkdir -p k8s/yaml
     export DOCKER_REGISTRY
     for f in $K8S_DIR/*.json.tmpl; do
