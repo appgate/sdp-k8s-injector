@@ -262,7 +262,7 @@ SDP Kubernetes Injector supports various annotation-based behavior customization
 
 | Name                                      | Description                                                                              | Value                                   |
 |-------------------------------------------|------------------------------------------------------------------------------------------|-----------------------------------------|
-| `global.image.repository`                 | Image registry to use for all SDP images.                                                | `ghcr.io/appgate/sdp-k8s-injector`        |
+| `global.image.repository`                 | Image registry to use for all SDP images.                                                | `ghcr.io/appgate/sdp-k8s-injector`      |
 | `global.image.tag`                        | Image tag to use for all SDP images. If not set, it defaults to `.Chart.appVersion`.     | `""`                                    |
 | `global.image.pullPolicy`                 | Image pull policy to use for all SDP images.                                             | `IfNotPresent`                          |
 | `global.image.pullSecrets`                | Image pull secret to use for all SDP images.                                             | `[]`                                    |
@@ -306,7 +306,7 @@ SDP Kubernetes Injector supports various annotation-based behavior customization
 ### Kubernetes parameters
 
 | Name           | Description         | Value       |
-|----------------|---------------------|-------------|
+| -------------- | ------------------- | ----------- |
 | `service.type` | Type of the service | `ClusterIP` |
 | `service.port` | Port of the service | `443`       |
 
