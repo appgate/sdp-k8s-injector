@@ -1,26 +1,22 @@
-ARG MAJOR_VERSION=6
-ARG MINOR_VERSION=0
-ARG MAINTENANCE_VERSION=1
+ARG MAJOR_VERSION
+ARG MINOR_VERSION
 ARG CLIENT_VERSION="${MAJOR_VERSION}.${MINOR_VERSION}"
-ARG CLIENT_FULL_VERSION="${MAJOR_VERSION}.${MINOR_VERSION}.${MAINTENANCE_VERSION}"
-ARG CLIENT_DEB="appgate-sdp-headless_${CLIENT_FULL_VERSION}_amd64.deb"
+ARG CLIENT_DEB="appgate-sdp-headless_amd64.deb"
 
-FROM curlimages/curl:7.81.0 AS sdp-headless-client
+FROM alpine AS sdp-headless-client
 ARG CLIENT_VERSION
-ARG CLIENT_FULL_VERSION
 ARG CLIENT_DEB
-ARG URL="https://bin.appgate-sdp.com/${CLIENT_VERSION}/client/${CLIENT_DEB}"
-RUN curl "${URL}" --output "/tmp/${CLIENT_DEB}"
+
+RUN apk add --no-cache jq curl
+RUN curl "https://bin.appgate-sdp.com/latest/client.json" --output "/tmp/latest.json"
+ARG LINK_QUERY='.releases.'\"${CLIENT_VERSION}\"'[0].link'
+ARG VERSION_QUERY='.releases.'\"${CLIENT_VERSION}\"'[0].version'
+RUN curl $(jq ${LINK_QUERY} /tmp/latest.json --raw-output) --output "/tmp/${CLIENT_DEB}"
 
 FROM ubuntu:18.04
 LABEL sdp=true
 LABEL project=sdp-client-headless
 ARG CLIENT_DEB
-
-ARG MAJOR_VERSION
-ARG MINOR_VERSION
-ENV MAJOR=${MAJOR_VERSION}
-ENV MINOR=${MINOR_VERSION}
 
 COPY --from=sdp-headless-client "/tmp/${CLIENT_DEB}" "/tmp/${CLIENT_DEB}"
 

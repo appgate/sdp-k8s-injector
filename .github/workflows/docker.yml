@@ -97,8 +97,9 @@ jobs:
           - "sdp-headless-driver"
           - "sdp-headless-service"
         client-version:
-          - "6.0.4"
-          - "6.1.0"
+          - "5.5"
+          - "6.0"
+          - "6.1"
     steps:
       - uses: actions/checkout@v2
       - uses: actions-rs/toolchain@v1
@@ -125,7 +126,6 @@ jobs:
           build-args: |
             MAJOR_VERSION=${{ steps.split.outputs._0 }}
             MINOR_VERSION=${{ steps.split.outputs._1 }}
-            MAINTENANCE_VERSION=${{ steps.split.outputs._2 }}
           tags: |
             ghcr.io/${{ github.repository }}/${{ matrix.bin }}:${{ matrix.client-version }}
 
