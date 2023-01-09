@@ -473,3 +473,7 @@ $ kubectl logs pingtest-c66bb48f9-s7n8j sdp-driver -n sdp-demo
 ```shell
 $ kubectl logs pingtest-c66bb48f9-s7n8j sdp-dnsmasq -n sdp-demo
 ```
+
+# Support
+
+You can open a [github issue](https://github.com/appgate/sdp-k8s-injector/issues) or contact support@appgate.com
