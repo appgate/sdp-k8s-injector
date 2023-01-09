@@ -9,8 +9,8 @@ ARG CLIENT_DEB
 
 RUN apk add --no-cache jq curl
 RUN curl "https://bin.appgate-sdp.com/latest/client.json" --output "/tmp/latest.json"
-ARG LINK_QUERY='.releases.'\"${CLIENT_VERSION}\"'[] | select(.os == "ubuntu") | .link'
-RUN curl $(jq "${LINK_QUERY}" /tmp/latest.json --raw-output) --output "/tmp/${CLIENT_DEB}"
+ARG QUERY='.releases.'\"${CLIENT_VERSION}\"'[] | select(.os == "ubuntu") | .link'
+RUN curl $(jq "${QUERY}" /tmp/latest.json --raw-output) --output "/tmp/${CLIENT_DEB}"
 
 FROM ubuntu:18.04
 LABEL sdp=true
