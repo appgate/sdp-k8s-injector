@@ -3,7 +3,7 @@ SDP Kubernetes Injector provides **egress access**, from Kubernetes workloads to
 
 The Injector automatically manages identities for the injected Clients and enables Policy assignment based on Kubernetes labels.
 
-For ingress access, from external clients to SDP Gateway protected workloads in a Kubernetes cluster, use [URL access](https://sdphelp.appgate.com/adminguide/v6.1/defining-hosts.html) instead.
+For ingress access, from external clients to SDP Gateway protected workloads in a Kubernetes cluster, use [URL access](https://sdphelp.appgate.com/adminguide/v6.1/defining-hosts.html?anchor=url-access) instead.
 
 ## Requirements
 ### Tool Requirements
@@ -18,8 +18,7 @@ SDP Kubernetes Injector requires following configurations on the SDP Controller:
   * 10 inactive Service Users are created at the initialization of the Identity Service.
 * IP Pool assigned on `service` Identity Provider
   * 1 IP is assigned from the IP Pool for every Pod in the Kubernetes workload.
-  * Each Pod is assigned a UUID by the Device ID Service. UUIDs are reused if the Pod is restarted.
-  * Device IDs are only freed when they are unused for some amount of time defined in the IP Pool.
+  * Each Pod is assigned a Device ID by the Injector's Device ID service. Device IDs are persistent so will survive Pod restarts.
 * API User with required privileges
   * Admin Role with `Service User Management Preset` in the Admin UI.
   * See [Injector](#injector) section for individual privileges required.
@@ -38,7 +37,7 @@ SDP Kubernetes Injector requires following configurations on the SDP Controller:
 
 ## Getting Started
 ### Installation
-Currently only supported way of installing the Injector is to use the official [Helm charts](https://helm.sh/docs/topics/charts/).
+Currently the only supported way of installing the Injector is to use the official [Helm charts](https://helm.sh/docs/topics/charts/).
 
 1.  Configure the SDP Collective per [SDP Requirements](#sdp-requirements). Verify:
     - Service User License
@@ -110,10 +109,10 @@ This section explains how to test egress access, end to end. We'll create a dedi
 
 Note that this will consume 1 Service User license.
 
-We'll assume there is an icmp entitlement for a test server: `192.168.111.5`
+We'll assume there is an ICMP Entitlement for a test server: `192.168.111.5`
 
 1.  Create an Access Policy named "PingTest K8s Workload".
-    - Use following criteria for assigment:
+    - Use following criteria for assignment:
       - **Identity Provider** is `service`
       - **labels** expression `namespace === "sdp-demo"`
       - **labels** expression `name === "pingtest"`
