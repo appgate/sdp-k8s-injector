@@ -7,21 +7,4 @@
 |  ##     ## ##        ##        ##    ##  ##     ##    ##    ##          ##    ## ##     ## ##          |
 |  ##     ## ##        ##         ######   ##     ##    ##    ########     ######  ########  ##          |
 ----------------------------------------------------------------------------------------------------------
-
-Thank you for installing the SDP Kubernetes Injector
-
-To try out the SDP Kubernetes Injector, follow the guide below:
-
-1. Create `sdp-demo` namespace and label the namespace with `sdp-injection="enabled"`
-
-    $ kubectl create namespace sdp-demo
-    $ kubectl label namespace sdp-demo --overwrite sdp-injection="enabled"
-
-2. Test the installation by verifying a route through a gateway (via tun0), and ping a resource protected by SDP
-
-    $ kubectl create deployment pingtest --namespace sdp-demo --image=busybox --replicas=1 -- sleep infinity
-    $ kubectl exec -it $(kubectl get pod -n sdp-demo -l app=pingtest -o name --no-headers) -- sh
-    $ /# ip route | grep tun0
-    $ /# ping <IP_ADDRESS>
-
 For more information, please visit https://github.com/appgate/sdp-k8s-injector
