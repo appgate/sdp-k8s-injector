@@ -59,7 +59,6 @@ Currently the only supported way of installing the Injector is to use the offici
     ```
 1.  Install the SDP Kubernetes Injector CRD with Helm.
     ```shell
-    $ export HELM_EXPERIMENTAL_OCI=1
     $ helm install sdp-k8s-injector-crd oci://ghcr.io/appgate/charts/sdp-k8s-injector-crd \
         --namespace sdp-system \
         --create-namespace
@@ -214,7 +213,7 @@ $ kubectl create secret generic sdp-injector-mc-secret --namespace sdp-system \
 ```
 
 ```shell
-$ kubectl create configmap sdp-injector-config --namespace sdp-system \
+$ kubectl create configmap sdp-injector-mc-config --namespace sdp-system \
   --from-literal=sdp-injector-mc-log-level="<LOG_LEVEL>" \
   --from-literal=sdp-injector-mc-device-id="<UUID>"
 ```
