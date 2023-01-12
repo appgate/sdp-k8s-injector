@@ -8,7 +8,7 @@ For ingress access, from external clients to SDP Gateway protected workloads in 
 ## Requirements
 ### Tool Requirements
 The following tools are required to install the SDP Kubernetes Injector:
-* [helm v3.7.0+](https://helm.sh/docs/intro/install)
+* [helm v3.8.0+](https://helm.sh/docs/intro/install)
 * [kubectl](https://kubernetes.io/docs/tasks/tools/#kubectl)
 
 ### SDP Requirements
@@ -43,9 +43,9 @@ Currently the only supported way of installing the Injector is to use the offici
     - Service User License
     - An IP Pool assigned to `service` Identity Provider
     - An API user with `Service User Management Preset` privileges
-1.  Check if a supported version of the cert-manager is already installed.
+1.  Check if a supported version of the cert-manager (1.9 or newer) is already installed.
     ```shell
-    $ kubectl get pods --namespace cert-manager
+    $ kubectl get pods --namespace cert-manager -o jsonpath="{.items[*].spec.containers[*].image}"
     ```
     If not, install [cert-manager](https://cert-manager.io/docs/installation/helm/) and its CRDs with Helm.
 
@@ -81,7 +81,6 @@ Currently the only supported way of installing the Injector is to use the offici
     ```
 1.  Install the SDP Kubernetes Injector with Helm.
     ```shell
-    $ export HELM_EXPERIMENTAL_OCI=1
     $ helm install sdp-k8s-injector oci://ghcr.io/appgate/charts/sdp-k8s-injector \
       --namespace sdp-system \
       --values values.yaml
