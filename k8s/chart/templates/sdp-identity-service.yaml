@@ -86,11 +86,6 @@ spec:
                 secretKeyRef:
                   name: {{ required ".Values.sdp.metaClient.adminSecret is required" .Values.sdp.metaClient.adminSecret }}
                   key: sdp-injector-mc-password
-            - name: APPGATE_PROVIDER
-              valueFrom:
-                secretKeyRef:
-                  name: {{ required ".Values.sdp.metaClient.adminSecret is required" .Values.sdp.metaClient.adminSecret }}
-                  key: sdp-injector-mc-provider
             - name: APPGATE_PROFILE_URL
               valueFrom:
                 secretKeyRef:
