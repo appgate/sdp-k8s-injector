@@ -201,7 +201,6 @@ To use the meta-client, you need the following:
 * Secret with the following keys:
   * `sdp-injector-mc-username` - Username
   * `sdp-injector-mc-password` - Password
-  * `sdp-injector-mc-provider` - Provider
   * `sdp-injector-mc-profile-url` - Profile URL
 * ConfigMap with the following keys:
   * `sdp-injector-mc-log-level` - Log level of the meta-client
@@ -211,7 +210,6 @@ To use the meta-client, you need the following:
 $ kubectl create secret generic sdp-injector-mc-secret --namespace sdp-system \
   --from-literal=sdp-injector-mc-username="<USERNAME>" \
   --from-literal=sdp-injector-mc-password="<PASSWORD>" \
-  --from-literal=sdp-injector-mc-provider="<PROVIDER>" \
   --from-literal=sdp-injector-mc-profile-url="<URL>"
 ```
 
