@@ -1481,6 +1481,7 @@ dependencies = [
  "k8s-openapi",
  "kube",
  "log",
+ "rand",
  "reqwest",
  "schemars",
  "sdp-macros",
