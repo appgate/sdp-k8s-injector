@@ -1,4 +1,5 @@
 use crate::service::ServiceUser;
+use k8s_openapi::chrono::{DateTime, Utc, Duration};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use uuid::Uuid;
@@ -18,12 +19,13 @@ type Token = String;
 pub struct Login {
     pub user: LoginUser,
     pub(crate) token: Token,
-    pub expires: String,
+    pub expires: DateTime<Utc>,
 }
 
 impl Login {
     pub fn has_expired(&self) -> bool {
-        false
+        self.expires.checked_add_signed(Duration::minutes(15))
+        .map(|dt| Utc::now() > dt).unwrap_or(false)
     }
 }
 
