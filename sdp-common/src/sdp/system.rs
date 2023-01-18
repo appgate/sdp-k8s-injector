@@ -173,7 +173,7 @@ impl System {
         if self
             .login
             .as_ref()
-            .and_then(|l| l.has_expired().then(|| l))
+            .and_then(|l| l.is_expired(None).then(|| l))
             .is_some()
             || self.login.is_none()
         {
