@@ -43,7 +43,7 @@ impl Named for Pod {
         /*
         To get the name for a pod we do:
          1. Use `name_any` from kube crate (we get something like deployment-replicaset-pod)
-         2. If `name_any` can not provide that info, get the first owner and get the 
+         2. If `name_any` can not provide that info, get the first owner and get the
             name from there (we get something like deployment-replicaset)
          3. If none of those worked we just return a random name to make sure there
             are not matches later in the registered services
@@ -189,9 +189,9 @@ fn admission_request_namespace<E: Resource + MaybeNamespaced + Clone>(
         Some(ns.clone())
     } else {
         admission_request
-        .object
-        .as_ref()
-        .and_then(MaybeNamespaced::namespace)
+            .object
+            .as_ref()
+            .and_then(MaybeNamespaced::namespace)
     }
 }
 
