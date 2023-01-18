@@ -10,6 +10,8 @@ use k8s_openapi::api::core::v1::{ConfigMap, Container, Pod, Volume};
 use k8s_openapi::{api::core::v1::Secret, ByteString};
 use kube::api::{DeleteParams, Patch as KubePatch, PatchParams, PostParams};
 use kube::Api;
+use rand::distributions::Alphanumeric;
+use rand::Rng;
 use schemars::JsonSchema;
 use sdp_macros::{logger, sdp_error, sdp_info, sdp_log, sdp_warn, with_dollar_sign};
 use serde::{Deserialize, Serialize};
@@ -491,7 +493,15 @@ pub fn get_service_username(cluster_name: &str, service_ns: &str, service_name: 
 }
 
 pub fn get_profile_client_url_name(cluster_name: &str) -> String {
-    format!("{}_k8s-service", cluster_name)
+    // SDP only allows max 20 characters
+    let mut short_name: String = String::from(cluster_name);
+    short_name.truncate(10);
+    let random: String = rand::thread_rng()
+        .sample_iter(&Alphanumeric)
+        .take(5)
+        .map(char::from)
+        .collect();
+    format!("k8s-{}-{}", short_name, random)
 }
 
 pub fn containers(pod: &Pod) -> Option<&Vec<Container>> {
