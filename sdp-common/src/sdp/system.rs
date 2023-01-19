@@ -173,7 +173,7 @@ impl System {
         if self
             .login
             .as_ref()
-            .and_then(|l| l.has_expired().then(|| l))
+            .and_then(|l| l.is_expired(None).then(|| l))
             .is_some()
             || self.login.is_none()
         {
@@ -273,7 +273,6 @@ impl System {
     /// GET /service-users/id
     pub async fn get_user(&mut self, service_user_id: String) -> Result<SDPUser, SDPClientError> {
         info!("Getting user: {}", service_user_id);
-        let _ = self.maybe_refresh_login().await?;
         let mut url = Url::from(self.hosts[0].clone());
         url.set_path(&format!("/admin/service-users-id/{}", service_user_id));
         self.get(url).await
@@ -302,7 +301,6 @@ impl System {
 
     /// DELETE /service-users/id
     pub async fn delete_user(&mut self, service_user_id: &str) -> Result<(), SDPClientError> {
-        let _ = self.maybe_refresh_login().await?;
         let mut url = Url::from(self.hosts[0].clone());
         url.set_path(&format!("/admin/service-users/{}", service_user_id));
         info!("Deleting ServiceUser in SDP system: {}", service_user_id);
@@ -315,7 +313,6 @@ impl System {
         tag: Option<&str>,
     ) -> Result<Vec<ClientProfile>, SDPClientError> {
         info!("Getting client profiles");
-        let _ = self.maybe_refresh_login().await?;
         let mut url = Url::from(self.hosts[0].clone());
         url.set_path(&format!("/admin/client-profiles"));
         let xs: ClientProfiles = self.get(url).await?;
@@ -352,7 +349,6 @@ impl System {
         client_profile_id: &str,
     ) -> Result<ClientProfileUrl, SDPClientError> {
         info!("Getting client profile url for {}", client_profile_id);
-        let _ = self.maybe_refresh_login().await?;
         let mut url = Url::from(self.hosts[0].clone());
         url.set_path(&format!("/admin/client-profiles/{}/url", client_profile_id));
         self.get(url).await

@@ -11,6 +11,7 @@ sdp-test-macros = { path = "../sdp-test-macros" }
 
 serde_json = "1.0"
 tokio = { version = "~1.18", features = ["rt", "macros", "rt-multi-thread"] }
+chrono = { version = "0.4.23", features = ["serde"] }
 serde = { version = "1.0", features = ["derive"] }
 kube = { version = "0.74.0", default-features = false, features = ["admission", "rustls-tls", "derive", "client", "runtime"] }
 k8s-openapi = { version = "0.15.0", default-features = false, features = ["v1_24"] }
