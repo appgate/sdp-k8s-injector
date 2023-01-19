@@ -204,16 +204,18 @@ impl IdentityStore<ServiceIdentity> for InMemoryIdentityStore {
                         available_uuids,
                     )),
                 ) => {
-                    (*n_available_uuids > 0).then(|| ()).ok_or_else(|| {
+                    let (uuid, available_uuids) = if *n_available_uuids == 0 {
                         format!(
-                            "Requested device id for {} but no device ids are available",
+                            "Requested device id for {} but no device ids are available, creating dynamically a new one!",
                             service_id
-                        )
-                    })?;
-                    // Get first uuid and update current data
-                    let mut available_uuids = available_uuids.clone();
-                    let uuid = available_uuids.remove(0);
-                    let available_uuids = available_uuids.clone();
+                        );
+                        (Uuid::new_v4(), available_uuids.clone())
+                    } else {
+                        // Get first uuid
+                        let mut available_uuids = available_uuids.clone();
+                        let uuid = available_uuids.remove(0);
+                        (uuid, available_uuids)
+                    };
                     info!(
                         "[{}] DeviceID {} assigned to service {}",
                         service_id, uuid, service_id
@@ -225,6 +227,7 @@ impl IdentityStore<ServiceIdentity> for InMemoryIdentityStore {
                         available_uuids.len(),
                         &available_uuids
                     );
+                    // Update current data
                     self.device_ids.insert(
                         service_id.to_string(),
                         RegisteredDeviceId(
