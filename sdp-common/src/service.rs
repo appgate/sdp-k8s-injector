@@ -495,13 +495,13 @@ pub fn get_service_username(cluster_name: &str, service_ns: &str, service_name: 
 pub fn get_profile_client_url_name(cluster_name: &str) -> String {
     // SDP only allows max 20 characters
     let mut short_name: String = String::from(cluster_name);
-    short_name.truncate(10);
+    short_name.truncate(14);
     let random: String = rand::thread_rng()
         .sample_iter(&Alphanumeric)
         .take(5)
         .map(char::from)
         .collect();
-    format!("k8s-{}-{}", short_name, random)
+    format!("{}-{}", short_name, random)
 }
 
 pub fn containers(pod: &Pod) -> Option<&Vec<Container>> {
