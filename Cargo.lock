@@ -1844,9 +1844,9 @@ dependencies = [
 
 [[package]]
 name = "tokio"
-version = "1.18.3"
+version = "1.18.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fcf72287841541d34ead7e0739286b862e3bd03e5f4008c13f548277d9ce70d8"
+checksum = "8bfb875c82dc0a4f1f37a30e720dee181a2b3a06a428b0fc6873ea38d6407850"
 dependencies = [
  "bytes",
  "libc",
