@@ -32,7 +32,7 @@ fn get_device_id(
                 Ok(uuid) => {
                     info!(
                         "[{}] Deleted POD with DeviceID assigned {}",
-                        service_id, &service_id
+                        service_id, &uuid.to_string()
                     );
                     Some(DeviceIdProviderRequestProtocol::ReleasedDeviceId(
                         service_id.clone(),
