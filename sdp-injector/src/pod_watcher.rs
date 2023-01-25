@@ -53,9 +53,9 @@ impl SimpleWatchingProtocol<DeviceIdProviderRequestProtocol<ServiceIdentity>> fo
 
     fn applied(
         &self,
-        _ns: Option<Namespace>,
+        ns: Option<Namespace>,
     ) -> Option<DeviceIdProviderRequestProtocol<ServiceIdentity>> {
-        None
+        self.reapplied(ns)
     }
 
     fn reapplied(
