@@ -1,4 +1,4 @@
-#!/usr/bin/env sh
+#!/usr/bin/env bash
 
 # Backwards compatibility for alpha version
 if [ -n "$CLIENT_LOGLEVEL" ]; then
@@ -36,11 +36,19 @@ Username = $APPGATE_USERNAME
 Password = $APPGATE_PASSWORD
 EOF
 
-CMD="/opt/appgate/service/appgateservice --config /sdp-service/appgate.conf --tun /var/run/sdp-driver/.driver.sock --service"
+SDP_SERVICE="/opt/appgate/service/appgateservice --config /sdp-service/appgate.conf --tun /var/run/sdp-driver/.driver.sock --service"
 
 # If v6.1+ client, add -l flag
 if [ "$MAJOR" -ge 6 ] && [ "$MINOR" -ge 1 ]; then
-    CMD="$CMD -l /var/log/appgate/driver.log"
+    SDP_SERVICE="$SDP_SERVICE -l /var/log/appgate/driver.log"
 fi
 
-eval "${CMD}"
+# Run both process in the background
+SDP_SERVICE="$SDP_SERVICE &"
+QUIT_QUIT_QUIT="/opt/appgate/quitquitquit &"
+eval "$SDP_SERVICE"
+eval "$QUIT_QUIT_QUIT"
+
+# Wait for the whichever process to exit
+wait -n
+exit $?
