@@ -17,7 +17,7 @@ fn get_device_id(
         .then_some(true)
         .and_then(|_| pod.annotation(SDP_ANNOTATION_CLIENT_DEVICE_ID))
         .and_then(|uuid_str| {
-            let uuid = uuid::Uuid::parse_str(uuid_str);
+            let uuid = Uuid::parse_str(uuid_str);
             match uuid {
                 Err(e) => {
                     error!(
