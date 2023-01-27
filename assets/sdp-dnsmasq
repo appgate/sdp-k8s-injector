@@ -1,4 +1,4 @@
-#!/usr/bin/env sh
+#!/usr/bin/env bash
 
 SETDNS_SOCKET=/var/run/sdp-dnsmasq/dns-set.sock
 DNSMASQ_CONF_DIR=/sdp-dnsmasq/sdp-dnsmasq.d
@@ -40,4 +40,13 @@ fi
 # process. We set stdout to fd=4 so we can still use stdout in the forked process to log
 # stuff into stdout
 umask 007
-exec socat UNIX-LISTEN:$SETDNS_SOCKET,fork system:/sdp-dnsmasq/sdp-dnsmasq-set-dns,fdout=4
+
+SDP_DNSMASQ="socat UNIX-LISTEN:$SETDNS_SOCKET,fork system:/sdp-dnsmasq/sdp-dnsmasq-set-dns,fdout=4 &"
+QUIT_QUIT_QUIT="/opt/appgate/quitquitquit &"
+
+eval "$SDP_DNSMASQ"
+eval "$QUIT_QUIT_QUIT"
+
+# Wait for the whichever process to exit
+wait -n
+exit $?

@@ -1,13 +1,20 @@
+FROM rust:alpine as quitquitquit
+COPY quitquitquit/ /quitquitquit
+RUN apk add --no-cache musl-dev
+RUN cd /quitquitquit && cargo build
+
 FROM alpine:3.14.0
 LABEL sdp=true
 LABEL project=sdp-injector
 RUN apk upgrade --no-cache && \
-    apk add --no-cache --virtual=run-deps dnsmasq socat && \
+    apk add --no-cache --virtual=run-deps dnsmasq socat bash && \
     rm -rf /tmp/* \
            /var/cache/apk/* \
            /var/tmp/*
 COPY assets/sdp-dnsmasq /sdp-dnsmasq/sdp-dnsmasq
 COPY assets/sdp-dnsmasq-set-dns /sdp-dnsmasq/sdp-dnsmasq-set-dns
+COPY --from=quitquitquit "/quitquitquit/target/debug/quitquitquit" "/opt/appgate/quitquitquit"
+ENV ROCKET_PORT=8003
 RUN mkdir /var/run/sdp-dnsmasq && \
     mkdir -p /sdp-dnsmasq/dnsmasq.d && \
     chown 100:101 /var/run/sdp-dnsmasq -R && \
