@@ -1,4 +1,11 @@
-#!/usr/bin/env sh
+#!/usr/bin/env bash
 
-echo "Running driver"
-exec /opt/appgate/appgate-driver -d -p /var/run/sdp-driver/.driver.sock --container -l /var/log/appgate/driver.log
+# Run both process in the background
+SDP_DRIVER="/opt/appgate/appgate-driver -d -p /var/run/sdp-driver/.driver.sock --container -l /var/log/appgate/driver.log &"
+QUIT_QUIT_QUIT="/opt/appgate/quitquitquit &"
+eval "$SDP_DRIVER"
+eval "$QUIT_QUIT_QUIT"
+
+# Wait for the whichever process to exit
+wait -n
+exit $?
