@@ -7,5 +7,6 @@ members = [
     "sdp-test-macros",
     "sdp-injector",
     "sdp-identity-service",
-    "sdp-device-id-service"
+    "sdp-device-id-service",
+    "quitquitquit"
 ]
