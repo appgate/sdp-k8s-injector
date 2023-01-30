@@ -1,8 +1,10 @@
+use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
 
 use http::Uri;
 use k8s_openapi::api::{
     apps::v1::Deployment,
+    batch::v1::Job,
     core::v1::{Namespace, Pod},
 };
 use kube::{core::admission::AdmissionRequest, Client, Config, Resource, ResourceExt};
@@ -96,8 +98,165 @@ impl Candidate for Pod {
 
 impl MaybeService for Pod {}
 
-// Implement required traits for Deployment
+// Type to accept different resources as candidate
+#[derive(Debug, Deserialize, Serialize)]
+pub enum Target {
+    Deployment(Deployment),
+    Job(Job),
+}
 
+impl Target {
+    pub fn deployment(&self) -> Option<&Deployment> {
+        if let Target::Deployment(d) = self {
+            Some(d)
+        } else {
+            None
+        }
+    }
+
+    pub fn job(&self) -> Option<&Job> {
+        if let Target::Job(j) = self {
+            Some(j)
+        } else {
+            None
+        }
+    }
+}
+
+impl Default for Target {
+    fn default() -> Self {
+        Target::Deployment(Deployment::default())
+    }
+}
+
+impl Clone for Target {
+    fn clone(&self) -> Self {
+        match self {
+            Target::Deployment(d) => Target::Deployment(d.clone()),
+            Target::Job(j) => Target::Job(j.clone()),
+        }
+    }
+
+    fn clone_from(&mut self, source: &Self) {
+        match self {
+            Target::Deployment(d) => d.clone_from(source.deployment().unwrap()),
+            Target::Job(j) => j.clone_from(source.job().unwrap()),
+        }
+    }
+}
+
+impl Named for Target {
+    fn name(&self) -> String {
+        match self {
+            Target::Deployment(d) => {
+                let name = d.name_any();
+                (name != "").then_some(name).unwrap_or_else(|| {
+                    error!("Unable to find service name for Deployment");
+                    uuid::Uuid::new_v4().to_string()
+                })
+            }
+            Target::Job(j) => {
+                let name = j.name_any();
+                (name != "").then_some(name).unwrap_or_else(|| {
+                    error!("Unable to find service name for Job");
+                    uuid::Uuid::new_v4().to_string()
+                })
+            }
+        }
+    }
+}
+
+impl MaybeNamespaced for Target {
+    fn namespace(&self) -> Option<String> {
+        match self {
+            Target::Deployment(d) => ResourceExt::namespace(d),
+            Target::Job(j) => ResourceExt::namespace(j),
+        }
+    }
+}
+
+impl MaybeService for Target {
+    fn service_name(&self) -> Result<String, SDPServiceError> {
+        match self {
+            Target::Deployment(d) => d.service_name(),
+            Target::Job(j) => j.service_name(),
+        }
+    }
+
+    fn service_id(&self) -> Result<String, SDPServiceError> {
+        match self {
+            Target::Deployment(d) => d.service_id(),
+            Target::Job(j) => j.service_id(),
+        }
+    }
+}
+
+impl Candidate for Target {
+    fn is_candidate(&self) -> bool {
+        match self {
+            Target::Deployment(d) => needs_injection(d),
+            Target::Job(j) => needs_injection(j),
+        }
+    }
+}
+
+impl Labeled for Target {
+    fn labels(&self) -> Result<HashMap<String, String>, SDPServiceError> {
+        match self {
+            Target::Deployment(d) => {
+                let mut labels = HashMap::from_iter(
+                    ResourceExt::labels(d)
+                        .iter()
+                        .map(|(k, v)| (k.to_string(), v.to_string())),
+                );
+                let name = Named::name(d);
+                MaybeNamespaced::namespace(d)
+                    .map(|ns| {
+                        labels.extend([
+                            ("namespace".to_string(), ns),
+                            ("name".to_string(), name.clone()),
+                        ]);
+                        labels
+                    })
+                    .ok_or(SDPServiceError::from_string(format!(
+                        "Unable to find namespace for Deployment {}",
+                        &name
+                    )))
+            }
+            Target::Job(j) => {
+                let mut labels = HashMap::from_iter(
+                    ResourceExt::labels(j)
+                        .iter()
+                        .map(|(k, v)| (k.to_string(), v.to_string())),
+                );
+                let name = Named::name(j);
+                MaybeNamespaced::namespace(j)
+                    .map(|ns| {
+                        labels.extend([
+                            ("namespace".to_string(), ns),
+                            ("name".to_string(), name.clone()),
+                        ]);
+                        labels
+                    })
+                    .ok_or(SDPServiceError::from_string(format!(
+                        "Unable to find namespace for Job {}",
+                        &name
+                    )))
+            }
+        }
+    }
+}
+
+impl Annotated for Target {
+    fn annotations(&self) -> Option<&BTreeMap<String, String>> {
+        match self {
+            Target::Deployment(d) => Some(ResourceExt::annotations(d)),
+            Target::Job(j) => Some(ResourceExt::annotations(j)),
+        }
+    }
+}
+
+// Implement required traits for Deployment
 impl Named for Deployment {
     fn name(&self) -> String {
         let name = self.name_any();
@@ -157,8 +316,61 @@ impl Annotated for Deployment {
     }
 }
 
-// Implement required traits for AdmissionRequest<Pod>
+// Implement required traits for Job
+impl Named for Job {
+    fn name(&self) -> String {
+        let name = self.name_any();
+        (name != "").then_some(name).unwrap_or_else(|| {
+            error!("Unable to find service name for Job");
+            uuid::Uuid::new_v4().to_string()
+        })
+    }
+}
 
+impl MaybeNamespaced for Job {
+    fn namespace(&self) -> Option<String> {
+        ResourceExt::namespace(self)
+    }
+}
+
+impl MaybeService for Job {}
+
+impl Candidate for Job {
+    fn is_candidate(&self) -> bool {
+        needs_injection(self)
+    }
+}
+
+impl Labeled for Job {
+    fn labels(&self) -> Result<HashMap<String, String>, SDPServiceError> {
+        let mut labels = HashMap::from_iter(
+            ResourceExt::labels(self)
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string())),
+        );
+        let name = Named::name(self);
+        MaybeNamespaced::namespace(self)
+            .map(|ns| {
+                labels.extend([
+                    ("namespace".to_string(), ns),
+                    ("name".to_string(), name.clone()),
+                ]);
+                labels
+            })
+            .ok_or(SDPServiceError::from_string(format!(
+                "Unable to find namespace for Job {}",
+                &name
+            )))
+    }
+}
+
+impl Annotated for Job {
+    fn annotations(&self) -> Option<&BTreeMap<String, String>> {
+        Some(ResourceExt::annotations(self))
+    }
+}
+
+// Implement required traits for AdmissionRequest<Pod>
 impl ObjectRequest<Pod> for AdmissionRequest<Pod> {
     fn object(&self) -> Option<&Pod> {
         self.object.as_ref()
