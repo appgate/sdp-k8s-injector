@@ -1645,6 +1645,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "quitquitquit"
+version = "1.0.2"
+dependencies = [
+ "rocket",
+]
+
+[[package]]
 name = "quote"
 version = "1.0.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2106,13 +2113,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn",
-]
-
-[[package]]
-name = "sdp-terminator"
-version = "1.0.2"
-dependencies = [
- "rocket",
 ]
 
 [[package]]
