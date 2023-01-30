@@ -61,26 +61,26 @@ async fn main() -> () {
         }
         IdentityServiceCommands::Run => {
             let client = get_k8s_client().await;
-            let identity_manager_client = client.clone();
+
+            // Identity manager
+            let im_client = client.clone();
+            let im_runner = IdentityManagerRunner::kube_runner(im_client);
+            let (im_proto_tx, im_proto_rx) =
+                channel::<IdentityManagerProtocol<Target, ServiceIdentity>>(50);
+            let im_proto_tx2 = im_proto_tx.clone();
+
+            // Deployment Watcher
             let deployment_watcher_client = client.clone();
-            let identity_creator_client = client;
-            let identity_manager_runner =
-                IdentityManagerRunner::kube_runner(identity_manager_client);
-            let (identity_manager_proto_tx, identity_manager_proto_rx) =
-                channel::<IdentityManagerProtocol<Deployment, ServiceIdentity>>(50);
-            let identity_manager_proto_tx_cp = identity_manager_proto_tx.clone();
-            let identity_manager_proto_tx_cp2 = identity_manager_proto_tx.clone();
-            let (identity_creator_proto_tx, identity_creator_proto_rx) =
-                channel::<IdentityCreatorProtocol>(50);
-            let (deployment_watched_proto_tx, deployment_watcher_proto_rx) =
+            let (deployment_watcher_proto_tx, deployment_watcher_proto_rx) =
                 channel::<DeploymentWatcherProtocol>(50);
+            let im_proto_tx_deployment = im_proto_tx.clone();
             tokio::spawn(async move {
                 let deployment_api: Api<Deployment> = Api::all(deployment_watcher_client.clone());
                 let ns_api: Api<Namespace> = Api::all(deployment_watcher_client);
                 let watcher = Watcher {
                     api_ns: Some(ns_api),
                     api: deployment_api,
-                    queue_tx: identity_manager_proto_tx.clone(),
+                    queue_tx: im_proto_tx_deployment.clone(),
                     notification_message: Some(IdentityManagerProtocol::DeploymentWatcherReady),
                 };
                 let watcher_ready = WatcherWaitReady(deployment_watcher_proto_rx, |_| true);
@@ -94,17 +94,13 @@ async fn main() -> () {
                     IdentityCreator::new(system, identity_creator_client, CREDENTIALS_POOL_SIZE);
                 let mut system2 = get_sdp_system();
                 identity_creator
-                    .run(
-                        &mut system2,
-                        identity_creator_proto_rx,
-                        identity_manager_proto_tx_cp,
-                    )
+                    .run(&mut system2, identity_creator_proto_rx, im_proto_tx)
                     .await;
             });
-            identity_manager_runner
+            im_runner
                 .run(
-                    identity_manager_proto_rx,
-                    identity_manager_proto_tx_cp2,
+                    im_proto_rx,
+                    im_proto_tx2,
                     identity_creator_proto_tx.clone(),
                     deployment_watched_proto_tx,
                     None,
