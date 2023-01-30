@@ -2,12 +2,11 @@ use std::collections::{HashMap, HashSet};
 
 use json_patch::PatchOperation::Remove;
 use json_patch::{Patch, RemoveOperation};
-use k8s_openapi::api::apps::v1::Deployment;
 use k8s_openapi::api::core::v1::{ConfigMap, Secret};
 use kube::api::{Patch as KubePatch, PatchParams};
 use kube::{Api, Client};
 use sdp_common::constants::{IDENTITY_MANAGER_SECRET_NAME, SDP_CLUSTER_ID_ENV, SDP_IDP_NAME};
-use sdp_common::kubernetes::SDP_K8S_NAMESPACE;
+use sdp_common::kubernetes::{Target, SDP_K8S_NAMESPACE};
 use sdp_common::sdp::auth::SDPUser;
 use sdp_common::sdp::system::{ClientProfile, ClientProfileUrl, System};
 use sdp_common::service::{get_profile_client_url_name, get_service_username, ServiceUser};
@@ -248,7 +247,7 @@ impl IdentityCreator {
     pub async fn initialize(
         &mut self,
         system: &mut System,
-        identity_manager_proto_tx: Sender<IdentityManagerProtocol<Deployment, ServiceIdentity>>,
+        identity_manager_proto_tx: Sender<IdentityManagerProtocol<Target, ServiceIdentity>>,
     ) -> Result<ClientProfileUrl, IdentityServiceError> {
         let users = system.get_users().await?;
         let client_profile_url = get_or_create_client_profile_url(system, &self.cluster_id).await?;
@@ -314,7 +313,7 @@ impl IdentityCreator {
         mut self,
         system: &mut System,
         mut identity_creator_proto_rx: Receiver<IdentityCreatorProtocol>,
-        identity_manager_proto_tx: Sender<IdentityManagerProtocol<Deployment, ServiceIdentity>>,
+        identity_manager_proto_tx: Sender<IdentityManagerProtocol<Target, ServiceIdentity>>,
     ) -> () {
         while let Some(msg) = identity_creator_proto_rx.recv().await {
             match msg {

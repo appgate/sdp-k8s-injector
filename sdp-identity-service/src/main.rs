@@ -4,9 +4,11 @@ use crate::{
     identity_manager::{IdentityManagerProtocol, IdentityManagerRunner},
 };
 use clap::{Parser, Subcommand};
-use k8s_openapi::api::{apps::v1::Deployment, core::v1::Namespace};
+use k8s_openapi::api::apps::v1::Deployment;
+use k8s_openapi::api::core::v1::Namespace;
 use kube::{Api, CustomResourceExt};
 use log::error;
+use sdp_common::kubernetes::Target;
 use sdp_common::sdp::system::get_sdp_system;
 use sdp_common::watcher::{watch, WatcherWaitReady};
 use sdp_common::{crd::ServiceIdentity, watcher::Watcher};

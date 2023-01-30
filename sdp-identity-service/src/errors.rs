@@ -1,7 +1,7 @@
 use std::fmt::Display;
 
-use k8s_openapi::api::apps::v1::Deployment;
 use kube::Error;
+use sdp_common::kubernetes::Target;
 use sdp_common::{crd::ServiceIdentity, errors::SDPServiceError, sdp::errors::SDPClientError};
 use tokio::sync::mpsc::error::SendError;
 
@@ -11,10 +11,8 @@ const IDENTITY_SERVICE_MANAGER: &str = "IdentityServiceManager";
 
 pub struct IdentityServiceError(SDPServiceError);
 
-impl From<SendError<IdentityManagerProtocol<Deployment, ServiceIdentity>>>
-    for IdentityServiceError
-{
-    fn from(error: SendError<IdentityManagerProtocol<Deployment, ServiceIdentity>>) -> Self {
+impl From<SendError<IdentityManagerProtocol<Target, ServiceIdentity>>> for IdentityServiceError {
+    fn from(error: SendError<IdentityManagerProtocol<Target, ServiceIdentity>>) -> Self {
         IdentityServiceError(
             SDPServiceError::from_string(error.to_string())
                 .with_service(IDENTITY_SERVICE_MANAGER.to_string()),

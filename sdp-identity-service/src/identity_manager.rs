@@ -1,10 +1,9 @@
 use futures::Future;
-use k8s_openapi::api::apps::v1::Deployment;
 use kube::api::{DeleteParams, ListParams, PostParams};
 use kube::{Api, Client};
 use sdp_common::constants::SDP_CLUSTER_ID_ENV;
 pub use sdp_common::crd::{ServiceIdentity, ServiceIdentitySpec};
-use sdp_common::kubernetes::SDP_K8S_NAMESPACE;
+use sdp_common::kubernetes::{Target, SDP_K8S_NAMESPACE};
 use sdp_common::service::{ServiceLookup, ServiceUser};
 use sdp_common::traits::{
     HasCredentials, Labeled, MaybeNamespaced, MaybeService, Named, Namespaced, Service,
@@ -760,17 +759,17 @@ impl IdentityManagerRunner<ServiceLookup, ServiceIdentity> {
 
     pub async fn run(
         mut self,
-        identity_manager_proto_rx: Receiver<IdentityManagerProtocol<Deployment, ServiceIdentity>>,
-        identity_manager_proto_tx: Sender<IdentityManagerProtocol<Deployment, ServiceIdentity>>,
+        identity_manager_proto_rx: Receiver<IdentityManagerProtocol<Target, ServiceIdentity>>,
+        identity_manager_proto_tx: Sender<IdentityManagerProtocol<Target, ServiceIdentity>>,
         identity_creator_proto_tx: Sender<IdentityCreatorProtocol>,
         deployment_watcher_proto_tx: Sender<DeploymentWatcherProtocol>,
-        external_queue_tx: Option<Sender<IdentityManagerProtocol<Deployment, ServiceIdentity>>>,
+        external_queue_tx: Option<Sender<IdentityManagerProtocol<Target, ServiceIdentity>>>,
     ) -> () {
         info!("Starting Identity Manager service");
         IdentityManagerRunner::initialize(&mut self.im).await;
 
         queue_info! {
-            IdentityManagerProtocol::<Deployment, ServiceIdentity>::IdentityManagerInitialized => external_queue_tx
+            IdentityManagerProtocol::<Target, ServiceIdentity>::IdentityManagerInitialized => external_queue_tx
         };
 
         // Ask Identity Creator to awake
@@ -811,6 +810,7 @@ mod tests {
     use k8s_openapi::api::apps::v1::Deployment;
     use kube::{core::object::HasSpec, ResourceExt};
     use sdp_common::{
+        kubernetes::Target,
         service::ServiceLookup,
         traits::{HasCredentials, Service},
     };
@@ -833,13 +833,13 @@ mod tests {
     macro_rules! test_identity_manager {
         (($im:ident($vs:expr), $watcher_rx:ident, $identity_manager_proto_tx:ident, $identity_creator_proto_rx:ident, $deployment_watched_proto_rx:ident, $counters:ident) => $e:expr) => {
             let ($identity_manager_proto_tx, identity_manager_proto_rx) =
-                channel::<IdentityManagerProtocol<Deployment, ServiceIdentity>>(10);
+                channel::<IdentityManagerProtocol<Target, ServiceIdentity>>(10);
             let (identity_creator_proto_tx, mut $identity_creator_proto_rx) =
                 channel::<IdentityCreatorProtocol>(10);
             let (deployment_watched_proto_tx, mut $deployment_watched_proto_rx) =
                 channel::<DeploymentWatcherProtocol>(10);
             let (watcher_tx, mut $watcher_rx) =
-                channel::<IdentityManagerProtocol<Deployment, ServiceIdentity>>(10);
+                channel::<IdentityManagerProtocol<Target, ServiceIdentity>>(10);
             let mut $im = Box::new(TestIdentityManager::default());
             for i in $vs.clone() {
                 $im.register_identity(i);

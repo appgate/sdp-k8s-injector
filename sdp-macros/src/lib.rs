@@ -292,7 +292,7 @@ macro_rules! deployment {
         let mut d = Deployment::default();
         d.metadata.name = Some($name.to_string());
         d.metadata.namespace = Some($namespace.to_string());
-        d
+        Target::Deployment(d)
     }};
 }
 
