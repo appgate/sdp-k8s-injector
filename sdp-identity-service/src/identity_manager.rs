@@ -836,13 +836,14 @@ mod tests {
 
     use futures::Future;
     use k8s_openapi::api::apps::v1::Deployment;
+    use k8s_openapi::api::batch::v1::Job;
     use kube::{core::object::HasSpec, ResourceExt};
     use sdp_common::{
         kubernetes::Target,
         service::ServiceLookup,
         traits::{HasCredentials, Service},
     };
-    use sdp_macros::{deployment, service_identity, service_user};
+    use sdp_macros::{deployment, job, service_identity, service_user};
     use sdp_test_macros::{assert_message, assert_no_message};
     use tokio::sync::mpsc::channel;
     use tokio::time::{sleep, timeout, Duration};
@@ -1013,6 +1014,8 @@ mod tests {
         ];
         let d1 = deployment!("ns1", "dep1");
         let d2 = deployment!("ns1", "srv1");
+        let j1 = job!("ns2", "job1");
+        let j2 = job!("ns2", "srv2");
         test_service_identity_provider! {
             im(identities) => {
                 assert_eq!(im.identities().len(), 4);
@@ -1023,6 +1026,8 @@ mod tests {
                 assert_eq!(sorted_is0, sorted_is1);
                 assert!(im.identity(&ServiceLookup::try_from_service(&d1).unwrap()).is_none());
                 assert!(im.identity(&ServiceLookup::try_from_service(&d2).unwrap()).is_some());
+                assert!(im.identity(&ServiceLookup::try_from_service(&j1).unwrap()).is_none());
+                assert!(im.identity(&ServiceLookup::try_from_service(&j2).unwrap()).is_some());
             }
         }
     }
@@ -1046,15 +1051,15 @@ mod tests {
         let identities = vec![id1.clone()];
         let d1_1 = deployment!("ns1", "srv1");
         let d2_2 = deployment!("ns2", "srv2");
-        let d1_2 = deployment!("ns2", "srv1");
-        let d3_1 = deployment!("ns1", "srv3");
+        let j1_2 = job!("ns2", "srv1");
+        let j3_1 = job!("ns1", "srv3");
 
         test_service_identity_provider! {
             im(identities) => {
                 // service not registered but we don't have any credentials so we can not create
                 // new identities for it.
                 assert_eq!(im.identities().len(), 1);
-                assert!(im.next_identity(&ServiceLookup::try_from_service(&d1_2).unwrap()).is_none());
+                assert!(im.next_identity(&ServiceLookup::try_from_service(&j1_2).unwrap()).is_none());
                 assert!(im.next_identity(&ServiceLookup::try_from_service(&d2_2).unwrap()).is_none());
 
                 // service already registered, we just return the credentials we have for it
@@ -1082,18 +1087,18 @@ mod tests {
                 assert_eq!(d1_1_id.unwrap().0.spec(), id1.spec());
 
                 // ask for a new service identity, we can create it because we have creds
-                let d1_2_id = im.next_identity(&ServiceLookup::try_from_service(&d1_2).unwrap());
-                check_service_identity(d1_2_id, &c2, "srv1", "ns2");
+                let j1_2_id = im.next_identity(&ServiceLookup::try_from_service(&j1_2).unwrap());
+                check_service_identity(j1_2_id, &c2, "srv1", "ns2");
 
                 // service not registered but we don't have any credentials so we can not create
                 // new identities for it.
-                assert!(im.next_identity(&ServiceLookup::try_from_service(&d3_1).unwrap()).is_none());
+                assert!(im.next_identity(&ServiceLookup::try_from_service(&j3_1).unwrap()).is_none());
 
                 // We can still get the service identities we have registered
                 let d2_2_id = im.next_identity(&ServiceLookup::try_from_service(&d2_2).unwrap());
                 check_service_identity(d2_2_id, &c1, "srv2", "ns2");
-                let d1_2_id = im.next_identity(&ServiceLookup::try_from_service(&d1_2).unwrap());
-                check_service_identity(d1_2_id, &c2, "srv1", "ns2");
+                let j1_2_id = im.next_identity(&ServiceLookup::try_from_service(&j1_2).unwrap());
+                check_service_identity(j1_2_id, &c2, "srv1", "ns2");
 
                 // We have created 2 ServiceIdentity so they are now registered
                 assert_eq!(im.identities().len(), 3);

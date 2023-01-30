@@ -297,6 +297,16 @@ macro_rules! deployment {
 }
 
 #[macro_export]
+macro_rules! job {
+    ($namespace:literal, $name:literal) => {{
+        let mut j = Job::default();
+        j.metadata.name = Some($name.to_string());
+        j.metadata.namespace = Some($namespace.to_string());
+        Target::Job(j)
+    }};
+}
+
+#[macro_export]
 macro_rules! service_user {
     ($n:expr) => {
         ServiceUser {
