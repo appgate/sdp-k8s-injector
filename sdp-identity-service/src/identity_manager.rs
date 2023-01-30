@@ -20,6 +20,7 @@ use tokio::sync::mpsc::{Receiver, Sender};
 use crate::deployment_watcher::DeploymentWatcherProtocol;
 use crate::errors::IdentityServiceError;
 use crate::identity_creator::IdentityCreatorProtocol;
+use crate::job_watcher::JobWatcherProtocol;
 
 logger!("IdentityManager");
 
@@ -119,6 +120,7 @@ pub enum IdentityManagerProtocol<From: MaybeService, To: Service + HasCredential
     FoundServiceUser(ServiceUser, bool),
     IdentityCreatorReady,
     DeploymentWatcherReady,
+    JobWatcherReady,
     IdentityManagerInitialized,
     IdentityManagerStarted,
     IdentityManagerReady,
@@ -368,10 +370,12 @@ impl IdentityManagerRunner<ServiceLookup, ServiceIdentity> {
         identity_manager_tx: Sender<IdentityManagerProtocol<F, ServiceIdentity>>,
         identity_creator_tx: Sender<IdentityCreatorProtocol>,
         deployment_watcher_proto_tx: Sender<DeploymentWatcherProtocol>,
+        job_watcher_proto_tx: Sender<JobWatcherProtocol>,
         external_queue_tx: Option<&Sender<IdentityManagerProtocol<F, ServiceIdentity>>>,
     ) -> () {
         info!("Starting Identity Manager");
         let mut deployment_watcher_ready = false;
+        let mut job_watcher_ready = false;
         let mut identity_creator_ready = false;
         let mut existing_service_candidates: HashSet<String> = HashSet::new();
         let mut missing_service_candidates: HashMap<String, F> = HashMap::new();
@@ -580,13 +584,30 @@ impl IdentityManagerRunner<ServiceLookup, ServiceIdentity> {
                 IdentityManagerProtocol::DeploymentWatcherReady => {
                     info!("DeploymentWatcher is ready");
                     deployment_watcher_ready = true;
-                    if identity_creator_ready {
+                    if identity_creator_ready && job_watcher_ready {
                         if let Err(e) = identity_manager_tx
                             .send(IdentityManagerProtocol::IdentityManagerReady)
                             .await
                         {
                             let err_str = format!(
                                 "Unable to create deployment watcher: {}. Exiting.",
+                                e.to_string()
+                            );
+                            error!("{}", err_str);
+                            panic!("{}", err_str);
+                        }
+                    }
+                }
+                IdentityManagerProtocol::JobWatcherReady => {
+                    info!("Job Watcher is ready");
+                    job_watcher_ready = true;
+                    if identity_creator_ready && deployment_watcher_ready {
+                        if let Err(e) = identity_manager_tx
+                            .send(IdentityManagerProtocol::IdentityManagerReady)
+                            .await
+                        {
+                            let err_str = format!(
+                                "Unable to create Job Watcher: {}. Exiting.",
                                 e.to_string()
                             );
                             error!("{}", err_str);
@@ -698,6 +719,11 @@ impl IdentityManagerRunner<ServiceLookup, ServiceIdentity> {
                         .send(DeploymentWatcherProtocol::IdentityManagerReady)
                         .await
                         .expect("Unable to notify DeploymentWatcher!");
+
+                    job_watcher_proto_tx
+                        .send(JobWatcherProtocol::IdentityManagerReady)
+                        .await
+                        .expect("Unable to notify JobWatcher!");
                 }
                 IdentityManagerProtocol::DeletedServiceCandidate(service_candidate) => {
                     when_ok!((candidate_service_id = service_candidate.service_id()) {
@@ -763,6 +789,7 @@ impl IdentityManagerRunner<ServiceLookup, ServiceIdentity> {
         identity_manager_proto_tx: Sender<IdentityManagerProtocol<Target, ServiceIdentity>>,
         identity_creator_proto_tx: Sender<IdentityCreatorProtocol>,
         deployment_watcher_proto_tx: Sender<DeploymentWatcherProtocol>,
+        job_watcher_proto_tx: Sender<JobWatcherProtocol>,
         external_queue_tx: Option<Sender<IdentityManagerProtocol<Target, ServiceIdentity>>>,
     ) -> () {
         info!("Starting Identity Manager service");
@@ -791,6 +818,7 @@ impl IdentityManagerRunner<ServiceLookup, ServiceIdentity> {
             identity_manager_proto_tx,
             identity_creator_proto_tx,
             deployment_watcher_proto_tx,
+            job_watcher_proto_tx,
             external_queue_tx.as_ref(),
         )
         .await;
@@ -821,7 +849,7 @@ mod tests {
 
     use crate::{
         deployment_watcher::DeploymentWatcherProtocol, identity_creator::IdentityCreatorProtocol,
-        identity_manager::IdentityManagerProtocol,
+        identity_manager::IdentityManagerProtocol, job_watcher::JobWatcherProtocol,
     };
     use crate::{errors::IdentityServiceError, identity_manager::ServiceUser};
 
@@ -831,13 +859,15 @@ mod tests {
     };
 
     macro_rules! test_identity_manager {
-        (($im:ident($vs:expr), $watcher_rx:ident, $identity_manager_proto_tx:ident, $identity_creator_proto_rx:ident, $deployment_watched_proto_rx:ident, $counters:ident) => $e:expr) => {
+        (($im:ident($vs:expr), $watcher_rx:ident, $identity_manager_proto_tx:ident, $identity_creator_proto_rx:ident, $deployment_watched_proto_rx:ident, $job_watcher_proto_rx:ident, $counters:ident) => $e:expr) => {
             let ($identity_manager_proto_tx, identity_manager_proto_rx) =
                 channel::<IdentityManagerProtocol<Target, ServiceIdentity>>(10);
             let (identity_creator_proto_tx, mut $identity_creator_proto_rx) =
                 channel::<IdentityCreatorProtocol>(10);
             let (deployment_watched_proto_tx, mut $deployment_watched_proto_rx) =
                 channel::<DeploymentWatcherProtocol>(10);
+            let (job_watcher_proto_tx, mut $job_watcher_proto_rx) =
+                channel::<JobWatcherProtocol>(10);
             let (watcher_tx, mut $watcher_rx) =
                 channel::<IdentityManagerProtocol<Target, ServiceIdentity>>(10);
             let mut $im = Box::new(TestIdentityManager::default());
@@ -854,6 +884,7 @@ mod tests {
                         identity_manager_proto_tx_cp2,
                         identity_creator_proto_tx,
                         deployment_watched_proto_tx,
+                        job_watcher_proto_tx,
                         Some(watcher_tx),
                     )
                     .await
@@ -861,7 +892,7 @@ mod tests {
             $e
         };
 
-        (($watcher_rx:ident, $identity_manager_proto_tx:ident, $identity_creator_proto_rx:ident, $deployment_watched_proto_rx:ident, $counters:ident) => $e:expr) => {
+        (($watcher_rx:ident, $identity_manager_proto_tx:ident, $identity_creator_proto_rx:ident, $deployment_watched_proto_rx:ident, $job_watcher_proto_rx:ident, $counters:ident) => $e:expr) => {
             let vs = vec![
                 service_identity!(1),
                 service_identity!(2),
@@ -869,7 +900,7 @@ mod tests {
                 service_identity!(4),
             ];
             test_identity_manager! {
-                (im(vs), $watcher_rx, $identity_manager_proto_tx, $identity_creator_proto_rx, $deployment_watched_proto_rx, $counters) => {
+                (im(vs), $watcher_rx, $identity_manager_proto_tx, $identity_creator_proto_rx, $deployment_watched_proto_rx, $job_watcher_proto_rx, $counters) => {
                     $e
                }
             }
@@ -1267,7 +1298,7 @@ mod tests {
     #[tokio::test]
     async fn test_identity_manager_initialization() {
         test_identity_manager! {
-            (watcher_rx, _identity_manager_tx, _identity_creator_rx, _deployment_watched_rx, counters) => {
+            (watcher_rx, _identity_manager_tx, _identity_creator_rx, _deployment_watched_rx, _job_watcher_rx, counters) => {
                 assert_message! {
                     (m :: IdentityManagerProtocol::IdentityManagerInitialized in watcher_rx) => {
                         assert_eq!(counters.lock().unwrap().list_calls, 1);
@@ -1281,7 +1312,7 @@ mod tests {
     #[tokio::test]
     async fn test_identity_manager_delete_service_identity_0() {
         test_identity_manager! {
-            (im(vec![]), watcher_rx, identity_manager_tx, identity_creator_rx, _deployment_watched_rx, counters) => {
+            (im(vec![]), watcher_rx, identity_manager_tx, identity_creator_rx, _deployment_watched_rx, _job_watcher_rx, counters) => {
                 // Wait for IM to be initialized
                 assert_message!(m :: IdentityManagerProtocol::IdentityManagerInitialized in watcher_rx);
                 // Wait for the service to run
@@ -1330,7 +1361,7 @@ mod tests {
     async fn test_identity_manager_delete_service_identity_1() {
         let s1 = service_identity!(1);
         test_identity_manager! {
-            (im(vec![s1]), watcher_rx, identity_manager_tx, identity_creator_rx, _deployment_watched_rx, counters) => {
+            (im(vec![s1]), watcher_rx, identity_manager_tx, identity_creator_rx, _deployment_watched_rx, _job_watcher_rx, counters) => {
                 // Wait for IM to be initialized
                 assert_message!(m :: IdentityManagerProtocol::IdentityManagerInitialized in watcher_rx);
                 // Wait for the service to run
@@ -1378,7 +1409,7 @@ mod tests {
     #[tokio::test]
     async fn test_identity_manager_request_service_identity_0() {
         test_identity_manager! {
-            (im(vec![]), watcher_rx, identity_manager_tx, identity_creator_rx, _deployment_watched_rx, _counters) => {
+            (im(vec![]), watcher_rx, identity_manager_tx, identity_creator_rx, _deployment_watched_rx, _job_watcher_rx, _counters) => {
                 assert_message!(m :: IdentityManagerProtocol::IdentityManagerInitialized in watcher_rx);
                 assert_message!(m :: IdentityManagerProtocol::IdentityManagerStarted in watcher_rx);
                 // Request a new ServiceIdentity
@@ -1413,7 +1444,7 @@ mod tests {
     #[tokio::test]
     async fn test_identity_manager_request_service_identity_1() {
         test_identity_manager! {
-            (im(vec![]), watcher_rx, identity_manager_tx, identity_creator_rx, _deployment_watched_rx, counters) => {
+            (im(vec![]), watcher_rx, identity_manager_tx, identity_creator_rx, _deployment_watched_rx, _job_watcher_rx, counters) => {
                 assert_message!(m :: IdentityManagerProtocol::IdentityManagerInitialized in watcher_rx);
                 assert_message!(m :: IdentityManagerProtocol::IdentityManagerStarted in watcher_rx);
                 assert_message!(m :: IdentityCreatorProtocol::StartService in identity_creator_rx);
@@ -1585,7 +1616,7 @@ mod tests {
     #[tokio::test]
     async fn test_identity_manager_request_service_identity_2() {
         test_identity_manager! {
-            (im(vec![]), watcher_rx, identity_manager_tx, identity_creator_rx, _deployment_watched_rx, counters) => {
+            (im(vec![]), watcher_rx, identity_manager_tx, identity_creator_rx, _deployment_watched_rx, _job_watcher_rx, counters) => {
                 assert_message!(m :: IdentityManagerProtocol::IdentityManagerInitialized in watcher_rx);
                 assert_message!(m :: IdentityManagerProtocol::IdentityManagerStarted in watcher_rx);
                 assert_message!(m :: IdentityCreatorProtocol::StartService in identity_creator_rx);
@@ -1654,7 +1685,7 @@ mod tests {
     #[tokio::test]
     async fn test_identity_manager_request_service_identity_3() {
         test_identity_manager! {
-            (im(vec![]), watcher_rx, identity_manager_tx, identity_creator_rx, _deployment_watched_rx, _counters) => {
+            (im(vec![]), watcher_rx, identity_manager_tx, identity_creator_rx, _deployment_watched_rx, _job_watcher_rx, _counters) => {
                 assert_message!(m :: IdentityManagerProtocol::IdentityManagerInitialized in watcher_rx);
                 assert_message!(m :: IdentityManagerProtocol::IdentityManagerStarted in watcher_rx);
                 assert_message!(m :: IdentityCreatorProtocol::StartService in identity_creator_rx);
@@ -1717,7 +1748,7 @@ mod tests {
     #[tokio::test]
     async fn test_identity_manager_identity_creator_ready_0() {
         test_identity_manager! {
-            (_watcher_rx, identity_manager_tx, identity_creator_rx, _deployment_watched_rx, _counters) => {
+            (_watcher_rx, identity_manager_tx, identity_creator_rx, _deployment_watched_rx, _job_watcher_rx, _counters) => {
                 // Normal startup, nothing to cleanup
                 assert_message!(m :: IdentityCreatorProtocol::StartService in identity_creator_rx);
                 assert_no_message!(identity_creator_rx);
@@ -1728,7 +1759,7 @@ mod tests {
     #[tokio::test]
     async fn test_identity_manager_identity_creator_ready_1() {
         test_identity_manager! {
-            (im(vec![]), watcher_rx, identity_manager_tx, identity_creator_rx, _deployment_watched_rx, _counters) => {
+            (im(vec![]), watcher_rx, identity_manager_tx, identity_creator_rx, _deployment_watched_rx, _job_watcher_rx, _counters) => {
                 let tx = identity_manager_tx.clone();
                 assert_message!(m :: IdentityManagerProtocol::IdentityManagerInitialized in watcher_rx);
                 assert_message!(m :: IdentityManagerProtocol::IdentityManagerStarted in watcher_rx);
@@ -1753,6 +1784,8 @@ mod tests {
                 tx.send(IdentityManagerProtocol::IdentityCreatorReady).await.expect("Unable to send message!");
                 // Notify the DeploymentWatcher is ready
                 tx.send(IdentityManagerProtocol::DeploymentWatcherReady).await.expect("Unable to send message!");
+                // Notify the JobWatcher is ready
+                tx.send(IdentityManagerProtocol::JobWatcherReady).await.expect("Unable to send message!");
                 let mut extra_credentials_expected: HashSet<String> = HashSet::from_iter((1 .. 12).map(|i| format!("service_user_id{}", i)).collect::<Vec<_>>());
                 for _ in 1 .. 12 {
                     assert_message!(m :: IdentityCreatorProtocol::DeleteSDPUser(_) in identity_creator_rx);
@@ -1777,7 +1810,7 @@ mod tests {
         // In this test we have 4 IdentityService but no ServiceCandidate at all
         // This will remove those IdentityService and the ServiceUser instances associated
         test_identity_manager! {
-            (watcher_rx, identity_manager_tx, identity_creator_rx, _deployment_watched_rx, counters) => {
+            (watcher_rx, identity_manager_tx, identity_creator_rx, _deployment_watched_rx, _job_watcher_rx, counters) => {
                 // Notify that IdentityCreator is ready
                 assert_eq!(counters.lock().unwrap().delete_calls, 0);
                 assert_message!(m :: IdentityManagerProtocol::IdentityManagerInitialized in watcher_rx);
@@ -1785,6 +1818,7 @@ mod tests {
                 let tx = identity_manager_tx.clone();
                 tx.send(IdentityManagerProtocol::IdentityCreatorReady).await.expect("Unable to send message!");
                 tx.send(IdentityManagerProtocol::DeploymentWatcherReady).await.expect("Unable to send message!");
+                tx.send(IdentityManagerProtocol::JobWatcherReady).await.expect("Unable to send message!");
                 // Syncing UserCredentials log message
                 assert_message!(m :: IdentityManagerProtocol::IdentityManagerDebug(_) in watcher_rx);
                 // Syncing ServiceIdentities log message

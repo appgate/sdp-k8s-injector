@@ -1,3 +1,4 @@
+use crate::job_watcher::JobWatcherProtocol;
 use crate::{
     deployment_watcher::DeploymentWatcherProtocol,
     identity_creator::{IdentityCreator, IdentityCreatorProtocol},
@@ -5,6 +6,7 @@ use crate::{
 };
 use clap::{Parser, Subcommand};
 use k8s_openapi::api::apps::v1::Deployment;
+use k8s_openapi::api::batch::v1::Job;
 use k8s_openapi::api::core::v1::Namespace;
 use kube::{Api, CustomResourceExt};
 use log::error;
@@ -20,6 +22,7 @@ pub mod deployment_watcher;
 pub mod errors;
 pub mod identity_creator;
 pub mod identity_manager;
+pub mod job_watcher;
 
 const CREDENTIALS_POOL_SIZE: usize = 10;
 
@@ -88,6 +91,30 @@ async fn main() -> () {
                     panic!("Error deploying Deployment Watcher: {}", e);
                 }
             });
+
+            // Job Watcher
+            let job_watcher_client = client.clone();
+            let (job_watcher_proto_tx, job_watcher_proto_rx) = channel::<JobWatcherProtocol>(50);
+            let im_proto_tx_job = im_proto_tx.clone();
+            tokio::spawn(async move {
+                let job_api: Api<Job> = Api::all(job_watcher_client.clone());
+                let ns_api: Api<Namespace> = Api::all(job_watcher_client);
+                let watcher = Watcher {
+                    api_ns: Some(ns_api),
+                    api: job_api,
+                    queue_tx: im_proto_tx_job.clone(),
+                    notification_message: Some(IdentityManagerProtocol::JobWatcherReady),
+                };
+                let watcher_ready = WatcherWaitReady(job_watcher_proto_rx, |_| true);
+                if let Err(e) = watch(watcher, Some(watcher_ready)).await {
+                    panic!("Error deploying Job Watcher: {}", e);
+                }
+            });
+
+            // Identity Creator
+            let identity_creator_client = client;
+            let (identity_creator_proto_tx, identity_creator_proto_rx) =
+                channel::<IdentityCreatorProtocol>(50);
             tokio::spawn(async move {
                 let system = get_sdp_system();
                 let identity_creator =
@@ -102,7 +129,8 @@ async fn main() -> () {
                     im_proto_rx,
                     im_proto_tx2,
                     identity_creator_proto_tx.clone(),
-                    deployment_watched_proto_tx,
+                    deployment_watcher_proto_tx,
+                    job_watcher_proto_tx,
                     None,
                 )
                 .await;
