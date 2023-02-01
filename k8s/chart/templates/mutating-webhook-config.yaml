@@ -23,6 +23,11 @@ webhooks:
         resources: ["deployments"]
         scope: "Namespaced"
       - operations: ["CREATE"]
+        apiGroups: ["batch"]
+        apiVersions: ["v1"]
+        resources: ["jobs"]
+        scope: "Namespaced"
+      - operations: ["CREATE"]
         apiGroups: [""]
         apiVersions: ["v1"]
         resources: ["pods"]
