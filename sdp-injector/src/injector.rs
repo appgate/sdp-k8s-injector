@@ -220,14 +220,28 @@ macro_rules! patch {
         }));
     };
 
-    ($patches:ident, $adm_res:ident, $path:expr, $value:expr) => {
+    ($patches:ident, $adm_res:ident, $path:literal, $value:expr) => {
         $patches.push(Add(AddOperation {
-            path: $path,
+            path: $path.to_string(),
             value: serde_json::to_value($value)
                 .map_err(|e| SDPServiceError::from(e))
                 .map_err(SDPPatchError::from_admission_response(Box::clone(
                     &$adm_res,
                 )))?,
+        }));
+    };
+
+    ($patches:ident, $path:expr, $key:expr, $value:expr) => {
+        $patches.push(Add(AddOperation {
+            path: format!($path, patch_annotation!($key)),
+            value: serde_json::to_value($value)?,
+        }));
+    };
+
+    ($patches:ident, $path:literal, $value:expr) => {
+        $patches.push(Add(AddOperation {
+            path: $path.to_string(),
+            value: serde_json::to_value($value)?,
         }));
     };
 }
@@ -280,18 +294,6 @@ macro_rules! patch_client_version {
     };
 }
 
-macro_rules! patch_device_id {
-    ($patches:ident, $adm_res:ident, $path:expr,  $version:expr) => {
-        patch!(
-            $patches,
-            $adm_res,
-            $path,
-            SDP_ANNOTATION_CLIENT_DEVICE_ID,
-            $version
-        );
-    };
-}
-
 // Creates patch functions for given type
 macro_rules! patcher {
     ($target:ty, $fn_name:ident) => {
@@ -312,7 +314,7 @@ macro_rules! patcher {
                     patch!(
                         patches,
                         admission_response,
-                        "/metadata/annotations".to_string(),
+                        "/metadata/annotations",
                         HashMap::<String, String>::new()
                     );
                 }
@@ -377,7 +379,7 @@ macro_rules! patcher {
                     patch!(
                         patches,
                         admission_response,
-                        "/spec/template/metadata/annotations".to_string(),
+                        "/spec/template/metadata/annotations",
                         HashMap::<String, String>::new()
                     );
                 }
@@ -783,43 +785,47 @@ impl Patched for SDPPod {
                 .annotation(SDP_ANNOTATION_DNS_SEARCHES)
                 .map(|s| searches_string_to_vec(s.to_string()));
             let dns_config = &self.sdp_sidecars.dns_config(&ns, custom_searches);
+
+            // Root Annotation patch
             if pod.annotations().is_none() || pod.annotations().unwrap().is_empty() {
-                patches.push(Add(AddOperation {
-                    path: "/metadata/annotations".to_string(),
-                    value: serde_json::to_value(HashMap::<String, String>::new())?,
-                }));
+                patch!(
+                    patches,
+                    "/metadata/annotations",
+                    HashMap::<String, String>::new()
+                );
             }
+
+            // Injection Strategy annotation
             let injection_strategy = injection_strategy(pod);
+            patch!(
+                patches,
+                "/metadata/annotations/{}",
+                SDP_INJECTOR_ANNOTATION_STRATEGY,
+                injection_strategy.to_string()
+            );
+
+            // Injection Enabled annotation patch
             let injection_enabled = pod
                 .annotation(SDP_INJECTOR_ANNOTATION_ENABLED)
                 .map(|s| s == "true")
                 .unwrap_or(injection_strategy == SDPInjectionStrategy::EnabledByDefault)
                 .to_string();
-            patches.push(Add(AddOperation {
-                path: format!(
-                    "/metadata/annotations/{}",
-                    patch_annotation!(SDP_INJECTOR_ANNOTATION_STRATEGY)
-                ),
-                value: serde_json::to_value(injection_strategy.to_string())?,
-            }));
-            patches.push(Add(AddOperation {
-                path: format!(
-                    "/metadata/annotations/{}",
-                    patch_annotation!(SDP_INJECTOR_ANNOTATION_ENABLED)
-                ),
-                value: serde_json::to_value(
-                    pod.annotation(SDP_INJECTOR_ANNOTATION_ENABLED)
-                        .unwrap_or(&injection_enabled),
-                )?,
-            }));
-            patches.push(Add(AddOperation {
-                path: format!(
-                    "/metadata/annotations/{}",
-                    patch_annotation!(SDP_ANNOTATION_CLIENT_DEVICE_ID)
-                ),
-                value: serde_json::to_value(&environment.client_device_id)?,
-            }));
+            patch!(
+                patches,
+                "/metadata/annotations/{}",
+                SDP_INJECTOR_ANNOTATION_ENABLED,
+                injection_enabled.to_string()
+            );
 
+            // Device ID annotation patch
+            patch!(
+                patches,
+                "/metadata/annotations/{}",
+                SDP_ANNOTATION_CLIENT_DEVICE_ID,
+                &environment.client_device_id
+            );
+
+            // Containers Spec patch
             if std::env::var(SDP_DEFAULT_CLIENT_VERSION_ENV).is_err() {
                 panic!("Unable to get default client version environment variable");
             }
@@ -827,21 +833,20 @@ impl Patched for SDPPod {
             let version = pod
                 .annotation(SDP_INJECTOR_ANNOTATION_CLIENT_VERSION)
                 .unwrap_or(&default_version);
-            for c in self.sdp_sidecars.containers.clone().iter_mut() {
-                if let Some(image) = &c.image {
+            for container in self.sdp_sidecars.containers.clone().iter_mut() {
+                if let Some(image) = &container.image {
                     let tag = image.rsplit(":").collect::<Vec<&str>>()[0];
-                    c.image = Some(format!(
+                    container.image = Some(format!(
                         "{}:{}",
                         image.trim_end_matches(&format!(":{}", tag)),
                         version
                     ));
                 }
-                c.env = Some(environment.variables(&c.name));
-                patches.push(Add(AddOperation {
-                    path: "/spec/containers/-".to_string(),
-                    value: serde_json::to_value(&c)?,
-                }));
+                container.env = Some(environment.variables(&container.name));
+                patch!(patches, "/spec/containers/-", &container);
             }
+
+            // Disable Init Containers patch
             if let Some((xs, false)) = init_containers(pod).map(|cs| {
                 let disable_init_containers = pod
                     .annotation(SDP_INJECTOR_ANNOTATION_DISABLE_INIT_CONTAINERS)
@@ -863,33 +868,19 @@ impl Patched for SDPPod {
                 ]);
                 init_containers.insert(0, c0);
                 init_containers.push(c1);
-                patches.push(Add(AddOperation {
-                    path: "/spec/initContainers".to_string(),
-                    value: serde_json::to_value(&init_containers)?,
-                }));
+                patch!(patches, "/spec/initContainers", &init_containers);
             }
             if volumes(pod).is_some() {
-                for v in self.sdp_sidecars.volumes.iter() {
-                    patches.push(Add(AddOperation {
-                        path: "/spec/volumes/-".to_string(),
-                        value: serde_json::to_value(&v)?,
-                    }));
+                for volume in self.sdp_sidecars.volumes.iter() {
+                    patch!(patches, "/spec/volumes/-", &volume);
                 }
             } else {
-                patches.push(Add(AddOperation {
-                    path: "/spec/volumes".to_string(),
-                    value: serde_json::to_value(&self.sdp_sidecars.volumes)?,
-                }));
+                patch!(patches, "/spec/volumes", &self.sdp_sidecars.volumes);
             }
-            // Patch DNSConfiguration now
-            patches.push(Add(AddOperation {
-                path: "/spec/dnsConfig".to_string(),
-                value: serde_json::to_value(&dns_config)?,
-            }));
-            patches.push(Add(AddOperation {
-                path: "/spec/dnsPolicy".to_string(),
-                value: serde_json::to_value("None".to_string())?,
-            }))
+
+            // DNS Configuration patch
+            patch!(patches, "/spec/dnsConfig", &dns_config);
+            patch!(patches, "/spec/dnsPolicy", "None".to_string());
         }
         debug!("Pod patches: {:?}", patches);
         Ok(Patch(patches))
