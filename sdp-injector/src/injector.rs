@@ -7,6 +7,7 @@ use hyper::{Body, Request, Response};
 use json_patch::PatchOperation::Add;
 use json_patch::{AddOperation, Patch};
 use k8s_openapi::api::apps::v1::Deployment;
+use k8s_openapi::api::batch::v1::Job;
 use k8s_openapi::api::core::v1::{
     ConfigMapKeySelector, Container, EnvVar, EnvVarSource, Namespace, ObjectFieldSelector, Pod,
     PodDNSConfig, SecretKeySelector, Service as KubeService, Volume,
@@ -817,160 +818,214 @@ pub fn load_sidecar_containers() -> Result<SDPSidecars, Box<dyn Error>> {
     Ok(sdp_sidecars)
 }
 
-async fn patch_deployment(
-    admission_request: AdmissionRequest<Deployment>,
-    ns: Option<Namespace>,
-) -> Result<SDPPatchResponse, SDPPatchError> {
-    let admission_response = Box::new(AdmissionResponse::from(&admission_request));
-    let mut patches = vec![];
-    let deployment = admission_request
-        .object()
-        .ok_or(SDPServiceError::from(
-            "Unable to get Deployment from admission request",
-        ))
-        .map_err(SDPPatchError::from_admission_response(Box::clone(
-            &admission_response,
-        )))?;
-
-    // Patch Deployment metadata
-    if deployment.annotations().is_none() || deployment.annotations().unwrap().is_empty() {
-        patches.push(Add(AddOperation {
-            path: "/metadata/annotations".to_string(),
-            value: serde_json::to_value(HashMap::<String, String>::new())
+macro_rules! patch {
+    ($patches:ident, $adm_res:ident, $path:expr, $key:expr, $value:expr) => {
+        $patches.push(Add(AddOperation {
+            path: format!($path, patch_annotation!($key)),
+            value: serde_json::to_value($value)
                 .map_err(|e| SDPServiceError::from(e))
                 .map_err(SDPPatchError::from_admission_response(Box::clone(
-                    &admission_response,
+                    &$adm_res,
                 )))?,
         }));
-    }
-    let injection_strategy = ns
-        .as_ref()
-        .map(|ns| injection_strategy(ns))
-        .unwrap_or(SDPInjectionStrategy::EnabledByDefault);
-    let injection_enabled = deployment
-        .annotation(SDP_INJECTOR_ANNOTATION_ENABLED)
-        .or_else(|| {
-            ns.as_ref()
-                .and_then(|ns| ns.annotation(SDP_INJECTOR_ANNOTATION_ENABLED))
-        })
-        .map(|s| s == "true")
-        .unwrap_or(injection_strategy == SDPInjectionStrategy::EnabledByDefault)
-        .to_string();
-    let disable_init_containers = deployment
-        .annotation(SDP_INJECTOR_ANNOTATION_DISABLE_INIT_CONTAINERS)
-        .or_else(|| {
-            ns.as_ref()
-                .and_then(|ns| ns.annotation(SDP_INJECTOR_ANNOTATION_DISABLE_INIT_CONTAINERS))
-        })
-        .map(|s| s.eq_ignore_ascii_case("true"))
-        .unwrap_or(false)
-        .to_string();
+    };
 
-    patches.push(Add(AddOperation {
-        path: format!(
-            "/metadata/annotations/{}",
-            patch_annotation!(SDP_INJECTOR_ANNOTATION_STRATEGY)
-        ),
-        value: serde_json::to_value(injection_strategy.to_string())
-            .map_err(|e| SDPServiceError::from(e))
-            .map_err(SDPPatchError::from_admission_response(Box::clone(
-                &admission_response,
-            )))?,
-    }));
-    patches.push(Add(AddOperation {
-        path: format!(
-            "/metadata/annotations/{}",
-            patch_annotation!(SDP_INJECTOR_ANNOTATION_ENABLED)
-        ),
-        value: serde_json::to_value(&injection_enabled)
-            .map_err(|e| SDPServiceError::from(e))
-            .map_err(SDPPatchError::from_admission_response(Box::clone(
-                &admission_response,
-            )))?,
-    }));
-
-    // Patch Deployment template metadata
-    if deployment
-        .spec
-        .as_ref()
-        .and_then(|s| {
-            s.template
-                .metadata
-                .as_ref()
-                .and_then(|m| m.annotations.as_ref())
-        })
-        .is_none()
-    {
-        patches.push(Add(AddOperation {
-            path: "/spec/template/metadata/annotations".to_string(),
-            value: serde_json::to_value(HashMap::<String, String>::new())
+    ($patches:ident, $adm_res:ident, $path:expr, $value:expr) => {
+        $patches.push(Add(AddOperation {
+            path: $path,
+            value: serde_json::to_value($value)
                 .map_err(|e| SDPServiceError::from(e))
                 .map_err(SDPPatchError::from_admission_response(Box::clone(
-                    &admission_response,
+                    &$adm_res,
                 )))?,
         }));
-    }
-    patches.push(Add(AddOperation {
-        path: format!(
-            "/spec/template/metadata/annotations/{}",
-            patch_annotation!(SDP_INJECTOR_ANNOTATION_STRATEGY)
-        ),
-        value: serde_json::to_value(injection_strategy.to_string())
-            .map_err(|e| SDPServiceError::from(e))
-            .map_err(SDPPatchError::from_admission_response(Box::clone(
-                &admission_response,
-            )))?,
-    }));
-    patches.push(Add(AddOperation {
-        path: format!(
-            "/spec/template/metadata/annotations/{}",
-            patch_annotation!(SDP_INJECTOR_ANNOTATION_ENABLED)
-        ),
-        value: serde_json::to_value(injection_enabled)
-            .map_err(|e| SDPServiceError::from(e))
-            .map_err(SDPPatchError::from_admission_response(Box::clone(
-                &admission_response,
-            )))?,
-    }));
-    patches.push(Add(AddOperation {
-        path: format!(
-            "/spec/template/metadata/annotations/{}",
-            patch_annotation!(SDP_INJECTOR_ANNOTATION_DISABLE_INIT_CONTAINERS)
-        ),
-        value: serde_json::to_value(disable_init_containers)
-            .map_err(|e| SDPServiceError::from(e))
-            .map_err(SDPPatchError::from_admission_response(Box::clone(
-                &admission_response,
-            )))?,
-    }));
-    let client_version = deployment
-        .annotation(SDP_INJECTOR_ANNOTATION_CLIENT_VERSION)
-        .or_else(|| {
-            ns.as_ref()
-                .and_then(|ns| ns.annotation(SDP_INJECTOR_ANNOTATION_CLIENT_VERSION))
-        });
-    if let Some(client_version) = client_version {
-        patches.push(Add(AddOperation {
-            path: format!(
-                "/spec/template/metadata/annotations/{}",
-                patch_annotation!(SDP_INJECTOR_ANNOTATION_CLIENT_VERSION)
-            ),
-            value: serde_json::to_value(client_version)
-                .map_err(|e| SDPServiceError::from(e))
-                .map_err(SDPPatchError::from_admission_response(Box::clone(
-                    &admission_response,
-                )))?,
-        }));
-    }
-    debug!("Deployment patches: {:?}", patches);
-    let admission_response = Box::clone(&admission_response)
-        .with_patch(Patch(patches))
-        .map_err(SDPServiceError::from_error("Unable to patch deployment"))
-        .map_err(SDPPatchError::from_admission_response(Box::clone(
-            &admission_response,
-        )))?;
-    Ok(SDPPatchResponse::Allow(Box::new(admission_response)))
+    };
 }
+
+macro_rules! patch_strategy {
+    ($patches:ident, $adm_res:ident, $path:expr, $strategy:expr) => {
+        patch!(
+            $patches,
+            $adm_res,
+            $path,
+            SDP_INJECTOR_ANNOTATION_STRATEGY,
+            $strategy
+        );
+    };
+}
+
+macro_rules! patch_enabled {
+    ($patches:ident, $adm_res:ident, $path:expr,  $enabled:expr) => {
+        patch!(
+            $patches,
+            $adm_res,
+            $path,
+            SDP_INJECTOR_ANNOTATION_ENABLED,
+            $enabled
+        );
+    };
+}
+
+macro_rules! patch_disable_init_containers {
+    ($patches:ident, $adm_res:ident, $path:expr,  $disabled:expr) => {
+        patch!(
+            $patches,
+            $adm_res,
+            $path,
+            SDP_INJECTOR_ANNOTATION_DISABLE_INIT_CONTAINERS,
+            $disabled
+        );
+    };
+}
+
+macro_rules! patch_client_version {
+    ($patches:ident, $adm_res:ident, $path:expr,  $version:expr) => {
+        patch!(
+            $patches,
+            $adm_res,
+            $path,
+            SDP_INJECTOR_ANNOTATION_CLIENT_VERSION,
+            $version
+        );
+    };
+}
+
+// Creates patch functions for given type
+macro_rules! patcher {
+    ($target:ty, $fn_name:ident) => {
+        paste::item! {
+            async fn $fn_name(
+                admission_request: AdmissionRequest<$target>,
+                ns: Option<Namespace>,
+            ) -> Result<SDPPatchResponse, SDPPatchError> {
+                let admission_response = Box::new(AdmissionResponse::from(&admission_request));
+                let mut patches = vec![];
+                let target = admission_request
+                    .object
+                    .ok_or(SDPServiceError::from("Unable to get object from admission request",))
+                    .map_err(SDPPatchError::from_admission_response(Box::clone(
+                        &admission_response,
+                    )))?;
+                if target.annotations().is_none() || target.annotations().unwrap().is_empty() {
+                    patch!(
+                        patches,
+                        admission_response,
+                        "/metadata/annotations".to_string(),
+                        HashMap::<String, String>::new()
+                    );
+                }
+
+                let injection_strategy = ns
+                    .as_ref()
+                    .map(|ns| injection_strategy(ns))
+                    .unwrap_or(SDPInjectionStrategy::EnabledByDefault);
+
+                let injection_enabled = target
+                    .annotation(SDP_INJECTOR_ANNOTATION_ENABLED)
+                    .or_else(|| {
+                        ns.as_ref()
+                            .and_then(|ns| ns.annotation(SDP_INJECTOR_ANNOTATION_ENABLED))
+                    })
+                    .map(|s| s == "true")
+                    .unwrap_or(injection_strategy == SDPInjectionStrategy::EnabledByDefault)
+                    .to_string();
+
+                let disable_init_containers = target
+                    .annotation(SDP_INJECTOR_ANNOTATION_DISABLE_INIT_CONTAINERS)
+                    .or_else(|| {
+                        ns.as_ref().and_then(|ns| {
+                            ns.annotation(SDP_INJECTOR_ANNOTATION_DISABLE_INIT_CONTAINERS)
+                        })
+                    })
+                    .map(|s| s.eq_ignore_ascii_case("true"))
+                    .unwrap_or(false)
+                    .to_string();
+
+                let client_version = target
+                    .annotation(SDP_INJECTOR_ANNOTATION_CLIENT_VERSION)
+                    .or_else(|| {
+                        ns.as_ref()
+                            .and_then(|ns| ns.annotation(SDP_INJECTOR_ANNOTATION_CLIENT_VERSION))
+                    });
+
+                patch_strategy!(
+                    patches,
+                    admission_response,
+                    "/metadata/annotations/{}",
+                    injection_strategy.to_string()
+                );
+                patch_enabled!(
+                    patches,
+                    admission_response,
+                    "/metadata/annotations/{}",
+                    injection_enabled.to_string()
+                );
+
+                if target
+                    .spec
+                    .as_ref()
+                    .and_then(|s| {
+                        s.template
+                            .metadata
+                            .as_ref()
+                            .and_then(|m| m.annotations.as_ref())
+                    })
+                    .is_none()
+                {
+                    patch!(
+                        patches,
+                        admission_response,
+                        "/spec/template/metadata/annotations".to_string(),
+                        HashMap::<String, String>::new()
+                    );
+                }
+
+                patch_strategy!(
+                    patches,
+                    admission_response,
+                    "/spec/template/metadata/annotations/{}",
+                    injection_strategy.to_string()
+                );
+                patch_enabled!(
+                    patches,
+                    admission_response,
+                    "/spec/template/metadata/annotations/{}",
+                    injection_enabled.to_string()
+                );
+                patch_disable_init_containers!(
+                    patches,
+                    admission_response,
+                    "/spec/template/metadata/annotations/{}",
+                    disable_init_containers.to_string()
+                );
+
+                if let Some(client_version) = client_version {
+                    patch_client_version!(
+                        patches,
+                        admission_response,
+                        "/spec/template/metadata/annotations/{}",
+                        client_version
+                    );
+                }
+
+                debug!("Patches: {:?}", patches);
+
+                let admission_response = Box::clone(&admission_response)
+                    .with_patch(Patch(patches))
+                    .map_err(SDPServiceError::from_error(("Unable to patch")))
+                    .map_err(SDPPatchError::from_admission_response(Box::clone(
+                        &admission_response,
+                    )))?;
+
+                Ok(SDPPatchResponse::Allow(Box::new(admission_response)))
+            }
+        }
+    };
+}
+
+patcher!(Job, patch_job);
+
+patcher!(Deployment, patch_deployment);
 
 async fn patch_pod<'a, E: IdentityStore<ServiceIdentity>>(
     admission_request: AdmissionRequest<Pod>,
@@ -1051,6 +1106,23 @@ async fn mutate<'a, E: IdentityStore<ServiceIdentity>>(
                 patch_deployment(admission_request, ns),
                 attempts_store,
                 "deployments"
+            )
+        }
+        Some("jobs") => {
+            let admission_request = admission_request!(body, Job);
+            let ns = admission_request.namespace().ok_or_else(|| {
+                SDPServiceError::from("Unable to get namespace from Job admission request")
+            })?;
+            let ns = sdp_injector_context.ns_api.get_opt(&ns).await.map_err(
+                SDPServiceError::from_error(
+                    "Unable to get Namespace object from Job admission request",
+                ),
+            )?;
+            attempt_patch!(
+                admission_request,
+                patch_job(admission_request, ns),
+                attempts_store,
+                "jobs"
             )
         }
         Some(s) => Err(SDPPatchError::WithoutResponse(
