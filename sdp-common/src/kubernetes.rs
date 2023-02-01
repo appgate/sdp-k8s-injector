@@ -54,7 +54,14 @@ impl Named for Pod {
         */
         let name = self.name_any();
         let maybe_name = (name != "")
-            .then_some((name, 2))
+            .then_some({
+                let xs: Vec<&str> = name.split("-").collect();
+                if xs.len() > 2 {
+                    (name, 2)
+                } else {
+                    (name, 1)
+                }
+            })
             .or_else(|| {
                 let owners = self.owner_references();
                 (owners.len() > 0).then_some((owners[0].name.clone(), 1))
