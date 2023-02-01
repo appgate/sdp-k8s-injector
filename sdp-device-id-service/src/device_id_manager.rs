@@ -1,8 +1,9 @@
 use crate::service_identity_watcher::ServiceIdentityWatcherProtocol;
-use k8s_openapi::api::apps::v1::ReplicaSet;
+use k8s_openapi::api::apps::v1::Deployment;
+use k8s_openapi::api::batch::v1::Job;
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::OwnerReference;
 use kube::api::{DeleteParams, ListParams, PostParams};
-use kube::{Api, Client, Resource};
+use kube::{Api, Client};
 use sdp_common::crd::{DeviceId, DeviceIdSpec, ServiceIdentity};
 use sdp_common::kubernetes::SDP_K8S_NAMESPACE;
 use sdp_common::traits::{HasCredentials, Named, Namespaced, Service};
@@ -113,35 +114,44 @@ impl DeviceIdAPI for KubeDeviceIdManager {
                     let owner_name = &device_id.spec.service_name;
                     let owner_namespace = &device_id.spec.service_namespace;
                     let mut uuids: Vec<String> = vec![];
-                    let mut owner_ref = OwnerReference::default();
 
-                    let replicaset_api: Api<ReplicaSet> =
-                        Api::namespaced(self.client.clone(), owner_namespace);
-                    let replicasets = replicaset_api
-                        .list(&ListParams::default())
-                        .await
-                        .map_err(|e| format!("Unable to get ReplicaSets: {}", e.to_string()))?;
-                    for replicaset in replicasets {
-                        if let Some(replicaset_owners) =
-                            &replicaset.meta().owner_references.as_ref()
-                        {
-                            let owner = &replicaset_owners[0];
-                            if owner.name == *owner_name {
-                                let service_identity_api: Api<ServiceIdentity> =
-                                    Api::namespaced(self.client.clone(), SDP_K8S_NAMESPACE);
-                                let service_identity =
-                                    service_identity_api.get(&service_name).await.map_err(|e| {
-                                        format!("Unable to get ServiceIdentity: {}", e.to_string())
-                                    })?;
-                                owner_ref.controller = Default::default();
-                                owner_ref.block_owner_deletion = Some(true);
-                                owner_ref.name = service_identity.metadata.name.unwrap();
-                                owner_ref.api_version = "injector.sdp.com/v1".to_string();
-                                owner_ref.kind = "ServiceIdentity".to_string();
-                                owner_ref.uid =
-                                    service_identity.metadata.uid.clone().unwrap_or_default();
+                    let service_identity_api: Api<ServiceIdentity> =
+                        Api::namespaced(self.client.clone(), SDP_K8S_NAMESPACE);
 
-                                if let Some(num_replicas) = replicaset.spec.unwrap().replicas {
+                    match service_identity_api.get_opt(&service_name).await {
+                        Ok(None) => Some(Err(format!(
+                            "[{}] Unable to get service identity for service {}",
+                            service_id, service_id
+                        ))),
+                        Ok(Some(si)) => {
+                            let owner_ref = OwnerReference {
+                                api_version: "injector.sdp.com/v1".to_string(),
+                                block_owner_deletion: Some(true),
+                                controller: Default::default(),
+                                kind: "ServiceIdentity".to_string(),
+                                name: si.metadata.name.unwrap(),
+                                uid: si.metadata.uid.unwrap(),
+                            };
+
+                            let deployment_api: Api<Deployment> =
+                                Api::namespaced(self.client.clone(), &si.spec.service_namespace);
+                            match deployment_api.get_opt(&si.spec.service_name).await {
+                                Ok(None) => {
+                                    info!(
+                                        "[{}] No deployment associated with service identity",
+                                        service_id
+                                    );
+                                }
+                                Ok(Some(deployment)) => {
+                                    info!(
+                                        "[{}] Found deployment associated with service identity",
+                                        service_id
+                                    );
+                                    let num_replicas = deployment
+                                        .spec
+                                        .expect("Expected deployment spec")
+                                        .replicas
+                                        .expect("Expected replicas");
                                     for _ in 0..(2 * num_replicas) {
                                         let uuid = Uuid::new_v4().to_string();
                                         info!(
@@ -151,33 +161,71 @@ impl DeviceIdAPI for KubeDeviceIdManager {
                                         uuids.push(uuid);
                                     }
                                 }
-                            }
+                                Err(e) => {
+                                    error!("{}", e);
+                                }
+                            };
+
+                            let job_api: Api<Job> =
+                                Api::namespaced(self.client.clone(), &si.spec.service_namespace);
+                            match job_api.get_opt(&si.spec.service_name).await {
+                                Ok(None) => {
+                                    info!(
+                                        "[{}] No job associated with service identity",
+                                        service_id
+                                    );
+                                }
+                                Ok(Some(_)) => {
+                                    info!(
+                                        "[{}] Found job associated with service identity",
+                                        service_id
+                                    );
+                                    for _ in 0..2 {
+                                        let uuid = Uuid::new_v4().to_string();
+                                        info!(
+                                            "[{}] Assigning uuid {} to DeviceID {}",
+                                            service_id, uuid, service_id
+                                        );
+                                        uuids.push(uuid);
+                                    }
+                                }
+                                Err(e) => {
+                                    error!("{}", e);
+                                }
+                            };
+
+                            let mut device_id = DeviceId::new(
+                                &service_name,
+                                DeviceIdSpec {
+                                    uuids,
+                                    service_name: owner_name.to_string(),
+                                    service_namespace: owner_namespace.to_string(),
+                                },
+                            );
+                            device_id.metadata.owner_references = Some(vec![owner_ref]);
+                            let device_id_api: Api<DeviceId> =
+                                Api::namespaced(self.client.clone(), SDP_K8S_NAMESPACE);
+                            Some(
+                                device_id_api
+                                    .create(&PostParams::default(), &device_id)
+                                    .await
+                                    .map_err(|e| {
+                                        format!(
+                                            "[{}] Error creating DeviceIDs for service {}: {}",
+                                            service_id,
+                                            service_id,
+                                            e.to_string()
+                                        )
+                                    }),
+                            )
                         }
+                        Err(e) => Some(Err(format!(
+                            "[{}] Error checking if DeviceID for service {} exists: {}",
+                            service_id,
+                            service_id,
+                            e.to_string()
+                        ))),
                     }
-                    let mut device_id = DeviceId::new(
-                        &service_name,
-                        DeviceIdSpec {
-                            uuids,
-                            service_name: owner_name.to_string(),
-                            service_namespace: owner_namespace.to_string(),
-                        },
-                    );
-                    device_id.metadata.owner_references = Some(vec![owner_ref]);
-                    let device_id_api: Api<DeviceId> =
-                        Api::namespaced(self.client.clone(), SDP_K8S_NAMESPACE);
-                    Some(
-                        device_id_api
-                            .create(&PostParams::default(), &device_id)
-                            .await
-                            .map_err(|e| {
-                                format!(
-                                    "[{}] Error creating DeviceIDs for service {}: {}",
-                                    service_id,
-                                    service_id,
-                                    e.to_string()
-                                )
-                            }),
-                    )
                 }
                 Ok(_) => {
                     info!(
