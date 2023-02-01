@@ -371,6 +371,33 @@ impl Labeled for Job {
     }
 }
 
+// Implement requried traits for AdmissionRequest<Job>
+impl ObjectRequest<Job> for AdmissionRequest<Job> {
+    fn object(&self) -> Option<&Job> {
+        self.object.as_ref()
+    }
+}
+
+impl Named for AdmissionRequest<Job> {
+    fn name(&self) -> String {
+        admission_request_name(self)
+    }
+}
+
+impl MaybeNamespaced for AdmissionRequest<Job> {
+    fn namespace(&self) -> Option<String> {
+        admission_request_namespace(self)
+    }
+}
+
+impl MaybeService for AdmissionRequest<Job> {}
+
+impl Candidate for AdmissionRequest<Job> {
+    fn is_candidate(&self) -> bool {
+        true
+    }
+}
+
 impl Annotated for Job {
     fn annotations(&self) -> Option<&BTreeMap<String, String>> {
         Some(ResourceExt::annotations(self))
