@@ -208,6 +208,223 @@ macro_rules! env_var {
     }};
 }
 
+macro_rules! patch {
+    ($patches:ident, $adm_res:ident, $path:expr, $key:expr, $value:expr) => {
+        $patches.push(Add(AddOperation {
+            path: format!($path, patch_annotation!($key)),
+            value: serde_json::to_value($value)
+                .map_err(|e| SDPServiceError::from(e))
+                .map_err(SDPPatchError::from_admission_response(Box::clone(
+                    &$adm_res,
+                )))?,
+        }));
+    };
+
+    ($patches:ident, $adm_res:ident, $path:expr, $value:expr) => {
+        $patches.push(Add(AddOperation {
+            path: $path,
+            value: serde_json::to_value($value)
+                .map_err(|e| SDPServiceError::from(e))
+                .map_err(SDPPatchError::from_admission_response(Box::clone(
+                    &$adm_res,
+                )))?,
+        }));
+    };
+}
+
+macro_rules! patch_strategy {
+    ($patches:ident, $adm_res:ident, $path:expr, $strategy:expr) => {
+        patch!(
+            $patches,
+            $adm_res,
+            $path,
+            SDP_INJECTOR_ANNOTATION_STRATEGY,
+            $strategy
+        );
+    };
+}
+
+macro_rules! patch_enabled {
+    ($patches:ident, $adm_res:ident, $path:expr,  $enabled:expr) => {
+        patch!(
+            $patches,
+            $adm_res,
+            $path,
+            SDP_INJECTOR_ANNOTATION_ENABLED,
+            $enabled
+        );
+    };
+}
+
+macro_rules! patch_disable_init_containers {
+    ($patches:ident, $adm_res:ident, $path:expr,  $disabled:expr) => {
+        patch!(
+            $patches,
+            $adm_res,
+            $path,
+            SDP_INJECTOR_ANNOTATION_DISABLE_INIT_CONTAINERS,
+            $disabled
+        );
+    };
+}
+
+macro_rules! patch_client_version {
+    ($patches:ident, $adm_res:ident, $path:expr,  $version:expr) => {
+        patch!(
+            $patches,
+            $adm_res,
+            $path,
+            SDP_INJECTOR_ANNOTATION_CLIENT_VERSION,
+            $version
+        );
+    };
+}
+
+macro_rules! patch_device_id {
+    ($patches:ident, $adm_res:ident, $path:expr,  $version:expr) => {
+        patch!(
+            $patches,
+            $adm_res,
+            $path,
+            SDP_ANNOTATION_CLIENT_DEVICE_ID,
+            $version
+        );
+    };
+}
+
+// Creates patch functions for given type
+macro_rules! patcher {
+    ($target:ty, $fn_name:ident) => {
+        paste::item! {
+            async fn $fn_name(
+                admission_request: AdmissionRequest<$target>,
+                ns: Option<Namespace>,
+            ) -> Result<SDPPatchResponse, SDPPatchError> {
+                let admission_response = Box::new(AdmissionResponse::from(&admission_request));
+                let mut patches = vec![];
+                let target = admission_request
+                    .object
+                    .ok_or(SDPServiceError::from("Unable to get object from admission request",))
+                    .map_err(SDPPatchError::from_admission_response(Box::clone(
+                        &admission_response,
+                    )))?;
+                if target.annotations().is_none() || target.annotations().unwrap().is_empty() {
+                    patch!(
+                        patches,
+                        admission_response,
+                        "/metadata/annotations".to_string(),
+                        HashMap::<String, String>::new()
+                    );
+                }
+
+                let injection_strategy = ns
+                    .as_ref()
+                    .map(|ns| injection_strategy(ns))
+                    .unwrap_or(SDPInjectionStrategy::EnabledByDefault);
+
+                let injection_enabled = target
+                    .annotation(SDP_INJECTOR_ANNOTATION_ENABLED)
+                    .or_else(|| {
+                        ns.as_ref()
+                            .and_then(|ns| ns.annotation(SDP_INJECTOR_ANNOTATION_ENABLED))
+                    })
+                    .map(|s| s == "true")
+                    .unwrap_or(injection_strategy == SDPInjectionStrategy::EnabledByDefault)
+                    .to_string();
+
+                let disable_init_containers = target
+                    .annotation(SDP_INJECTOR_ANNOTATION_DISABLE_INIT_CONTAINERS)
+                    .or_else(|| {
+                        ns.as_ref().and_then(|ns| {
+                            ns.annotation(SDP_INJECTOR_ANNOTATION_DISABLE_INIT_CONTAINERS)
+                        })
+                    })
+                    .map(|s| s.eq_ignore_ascii_case("true"))
+                    .unwrap_or(false)
+                    .to_string();
+
+                let client_version = target
+                    .annotation(SDP_INJECTOR_ANNOTATION_CLIENT_VERSION)
+                    .or_else(|| {
+                        ns.as_ref()
+                            .and_then(|ns| ns.annotation(SDP_INJECTOR_ANNOTATION_CLIENT_VERSION))
+                    });
+
+                patch_strategy!(
+                    patches,
+                    admission_response,
+                    "/metadata/annotations/{}",
+                    injection_strategy.to_string()
+                );
+                patch_enabled!(
+                    patches,
+                    admission_response,
+                    "/metadata/annotations/{}",
+                    injection_enabled.to_string()
+                );
+
+                if target
+                    .spec
+                    .as_ref()
+                    .and_then(|s| {
+                        s.template
+                            .metadata
+                            .as_ref()
+                            .and_then(|m| m.annotations.as_ref())
+                    })
+                    .is_none()
+                {
+                    patch!(
+                        patches,
+                        admission_response,
+                        "/spec/template/metadata/annotations".to_string(),
+                        HashMap::<String, String>::new()
+                    );
+                }
+
+                patch_strategy!(
+                    patches,
+                    admission_response,
+                    "/spec/template/metadata/annotations/{}",
+                    injection_strategy.to_string()
+                );
+                patch_enabled!(
+                    patches,
+                    admission_response,
+                    "/spec/template/metadata/annotations/{}",
+                    injection_enabled.to_string()
+                );
+                patch_disable_init_containers!(
+                    patches,
+                    admission_response,
+                    "/spec/template/metadata/annotations/{}",
+                    disable_init_containers.to_string()
+                );
+
+                if let Some(client_version) = client_version {
+                    patch_client_version!(
+                        patches,
+                        admission_response,
+                        "/spec/template/metadata/annotations/{}",
+                        client_version
+                    );
+                }
+
+                debug!("Patches: {:?}", patches);
+
+                let admission_response = Box::clone(&admission_response)
+                    .with_patch(Patch(patches))
+                    .map_err(SDPServiceError::from_error(("Unable to patch")))
+                    .map_err(SDPPatchError::from_admission_response(Box::clone(
+                        &admission_response,
+                    )))?;
+
+                Ok(SDPPatchResponse::Allow(Box::new(admission_response)))
+            }
+        }
+    };
+}
+
 pub enum SDPPatchResponse {
     RetryWithError(Box<AdmissionResponse>, SDPServiceError, u8),
     MaxRetryExceeded(Box<AdmissionResponse>, SDPServiceError),
@@ -816,211 +1033,6 @@ pub fn load_sidecar_containers() -> Result<SDPSidecars, Box<dyn Error>> {
     let sdp_sidecars = serde_json::from_reader(reader)?;
     debug!("SDP sidecar: {:?}", sdp_sidecars);
     Ok(sdp_sidecars)
-}
-
-macro_rules! patch {
-    ($patches:ident, $adm_res:ident, $path:expr, $key:expr, $value:expr) => {
-        $patches.push(Add(AddOperation {
-            path: format!($path, patch_annotation!($key)),
-            value: serde_json::to_value($value)
-                .map_err(|e| SDPServiceError::from(e))
-                .map_err(SDPPatchError::from_admission_response(Box::clone(
-                    &$adm_res,
-                )))?,
-        }));
-    };
-
-    ($patches:ident, $adm_res:ident, $path:expr, $value:expr) => {
-        $patches.push(Add(AddOperation {
-            path: $path,
-            value: serde_json::to_value($value)
-                .map_err(|e| SDPServiceError::from(e))
-                .map_err(SDPPatchError::from_admission_response(Box::clone(
-                    &$adm_res,
-                )))?,
-        }));
-    };
-}
-
-macro_rules! patch_strategy {
-    ($patches:ident, $adm_res:ident, $path:expr, $strategy:expr) => {
-        patch!(
-            $patches,
-            $adm_res,
-            $path,
-            SDP_INJECTOR_ANNOTATION_STRATEGY,
-            $strategy
-        );
-    };
-}
-
-macro_rules! patch_enabled {
-    ($patches:ident, $adm_res:ident, $path:expr,  $enabled:expr) => {
-        patch!(
-            $patches,
-            $adm_res,
-            $path,
-            SDP_INJECTOR_ANNOTATION_ENABLED,
-            $enabled
-        );
-    };
-}
-
-macro_rules! patch_disable_init_containers {
-    ($patches:ident, $adm_res:ident, $path:expr,  $disabled:expr) => {
-        patch!(
-            $patches,
-            $adm_res,
-            $path,
-            SDP_INJECTOR_ANNOTATION_DISABLE_INIT_CONTAINERS,
-            $disabled
-        );
-    };
-}
-
-macro_rules! patch_client_version {
-    ($patches:ident, $adm_res:ident, $path:expr,  $version:expr) => {
-        patch!(
-            $patches,
-            $adm_res,
-            $path,
-            SDP_INJECTOR_ANNOTATION_CLIENT_VERSION,
-            $version
-        );
-    };
-}
-
-// Creates patch functions for given type
-macro_rules! patcher {
-    ($target:ty, $fn_name:ident) => {
-        paste::item! {
-            async fn $fn_name(
-                admission_request: AdmissionRequest<$target>,
-                ns: Option<Namespace>,
-            ) -> Result<SDPPatchResponse, SDPPatchError> {
-                let admission_response = Box::new(AdmissionResponse::from(&admission_request));
-                let mut patches = vec![];
-                let target = admission_request
-                    .object
-                    .ok_or(SDPServiceError::from("Unable to get object from admission request",))
-                    .map_err(SDPPatchError::from_admission_response(Box::clone(
-                        &admission_response,
-                    )))?;
-                if target.annotations().is_none() || target.annotations().unwrap().is_empty() {
-                    patch!(
-                        patches,
-                        admission_response,
-                        "/metadata/annotations".to_string(),
-                        HashMap::<String, String>::new()
-                    );
-                }
-
-                let injection_strategy = ns
-                    .as_ref()
-                    .map(|ns| injection_strategy(ns))
-                    .unwrap_or(SDPInjectionStrategy::EnabledByDefault);
-
-                let injection_enabled = target
-                    .annotation(SDP_INJECTOR_ANNOTATION_ENABLED)
-                    .or_else(|| {
-                        ns.as_ref()
-                            .and_then(|ns| ns.annotation(SDP_INJECTOR_ANNOTATION_ENABLED))
-                    })
-                    .map(|s| s == "true")
-                    .unwrap_or(injection_strategy == SDPInjectionStrategy::EnabledByDefault)
-                    .to_string();
-
-                let disable_init_containers = target
-                    .annotation(SDP_INJECTOR_ANNOTATION_DISABLE_INIT_CONTAINERS)
-                    .or_else(|| {
-                        ns.as_ref().and_then(|ns| {
-                            ns.annotation(SDP_INJECTOR_ANNOTATION_DISABLE_INIT_CONTAINERS)
-                        })
-                    })
-                    .map(|s| s.eq_ignore_ascii_case("true"))
-                    .unwrap_or(false)
-                    .to_string();
-
-                let client_version = target
-                    .annotation(SDP_INJECTOR_ANNOTATION_CLIENT_VERSION)
-                    .or_else(|| {
-                        ns.as_ref()
-                            .and_then(|ns| ns.annotation(SDP_INJECTOR_ANNOTATION_CLIENT_VERSION))
-                    });
-
-                patch_strategy!(
-                    patches,
-                    admission_response,
-                    "/metadata/annotations/{}",
-                    injection_strategy.to_string()
-                );
-                patch_enabled!(
-                    patches,
-                    admission_response,
-                    "/metadata/annotations/{}",
-                    injection_enabled.to_string()
-                );
-
-                if target
-                    .spec
-                    .as_ref()
-                    .and_then(|s| {
-                        s.template
-                            .metadata
-                            .as_ref()
-                            .and_then(|m| m.annotations.as_ref())
-                    })
-                    .is_none()
-                {
-                    patch!(
-                        patches,
-                        admission_response,
-                        "/spec/template/metadata/annotations".to_string(),
-                        HashMap::<String, String>::new()
-                    );
-                }
-
-                patch_strategy!(
-                    patches,
-                    admission_response,
-                    "/spec/template/metadata/annotations/{}",
-                    injection_strategy.to_string()
-                );
-                patch_enabled!(
-                    patches,
-                    admission_response,
-                    "/spec/template/metadata/annotations/{}",
-                    injection_enabled.to_string()
-                );
-                patch_disable_init_containers!(
-                    patches,
-                    admission_response,
-                    "/spec/template/metadata/annotations/{}",
-                    disable_init_containers.to_string()
-                );
-
-                if let Some(client_version) = client_version {
-                    patch_client_version!(
-                        patches,
-                        admission_response,
-                        "/spec/template/metadata/annotations/{}",
-                        client_version
-                    );
-                }
-
-                debug!("Patches: {:?}", patches);
-
-                let admission_response = Box::clone(&admission_response)
-                    .with_patch(Patch(patches))
-                    .map_err(SDPServiceError::from_error(("Unable to patch")))
-                    .map_err(SDPPatchError::from_admission_response(Box::clone(
-                        &admission_response,
-                    )))?;
-
-                Ok(SDPPatchResponse::Allow(Box::new(admission_response)))
-            }
-        }
-    };
 }
 
 patcher!(Job, patch_job);
