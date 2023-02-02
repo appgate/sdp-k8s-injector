@@ -52,35 +52,30 @@ impl Named for Pod {
          3. If we got something we split by "-" and we remove 1 or 2 items from the right
             (depending where the name is coming from)
         */
-        let name = self.name_any();
-        let maybe_name = (name != "")
-            .then_some({
-                let xs: Vec<&str> = name.split("-").collect();
-                if xs.len() > 2 {
-                    (name, 2)
-                } else {
-                    (name, 1)
-                }
-            })
-            .or_else(|| {
-                let owners = self.owner_references();
-                (owners.len() > 0).then_some((owners[0].name.clone(), 1))
-            })
-            .map(|(name, n)| {
-                let xs: Vec<&str> = name.split("-").collect();
-                let n = xs.len() - n;
-                xs[0..n].join("-")
-            });
+        let maybe_name: Option<String>;
+        // Job pod has 'job-name' label
+        if let Some(job_label) = ResourceExt::labels(self).get("job-name") {
+            maybe_name = Some(job_label.to_string());
+        // Otherwise, assume it is a Deployment pod
+        } else {
+            let name = self.name_any();
+            maybe_name = (name != "")
+                .then_some((name, 2))
+                .or_else(|| {
+                    let owners = self.owner_references();
+                    (owners.len() > 0).then_some((owners[0].name.clone(), 1))
+                })
+                .map(|(name, n)| {
+                    let xs: Vec<&str> = name.split("-").collect();
+                    let n = xs.len() - n;
+                    xs[0..n].join("-")
+                });
+        }
+
         match maybe_name {
-            Some(name) if name == "" => {
-                error!("Empty service name for Pod");
-                uuid::Uuid::new_v4().to_string()
-            }
+            Some(name) if name == "" => uuid::Uuid::new_v4().to_string(),
             Some(name) => name,
-            None => {
-                error!("Unable to find service name for Pod");
-                uuid::Uuid::new_v4().to_string()
-            }
+            None => uuid::Uuid::new_v4().to_string(),
         }
     }
 }
