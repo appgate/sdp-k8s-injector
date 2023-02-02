@@ -14,7 +14,7 @@ RUN apk upgrade --no-cache && \
 COPY assets/sdp-dnsmasq /sdp-dnsmasq/sdp-dnsmasq
 COPY assets/sdp-dnsmasq-set-dns /sdp-dnsmasq/sdp-dnsmasq-set-dns
 COPY --from=quitquitquit "/quitquitquit/target/debug/quitquitquit" "/opt/appgate/quitquitquit"
-ENV ROCKET_PORT=8003
+ENV ROCKET_PORT=8002
 RUN mkdir /var/run/sdp-dnsmasq && \
     mkdir -p /sdp-dnsmasq/dnsmasq.d && \
     chown 100:101 /var/run/sdp-dnsmasq -R && \
