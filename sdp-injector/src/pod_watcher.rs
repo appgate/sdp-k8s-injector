@@ -1,4 +1,5 @@
 use k8s_openapi::api::core::v1::{Namespace, Pod};
+use uuid::Uuid;
 use sdp_common::annotations::SDP_ANNOTATION_CLIENT_DEVICE_ID;
 use sdp_common::crd::ServiceIdentity;
 use sdp_common::traits::{Annotated, Candidate, MaybeService};
