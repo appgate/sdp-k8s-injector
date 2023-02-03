@@ -4,7 +4,6 @@ use sdp_common::crd::ServiceIdentity;
 use sdp_common::traits::{Annotated, Candidate, MaybeService};
 use sdp_common::watcher::SimpleWatchingProtocol;
 use sdp_macros::{logger, sdp_error, sdp_info, sdp_log, when_ok, with_dollar_sign};
-use uuid::Uuid;
 
 use crate::deviceid::DeviceIdProviderRequestProtocol;
 
@@ -32,7 +31,8 @@ fn get_device_id(
                 Ok(uuid) => {
                     info!(
                         "[{}] Deleted POD with DeviceID assigned {}",
-                        service_id, &uuid.to_string()
+                        service_id,
+                        &uuid.to_string()
                     );
                     Some(DeviceIdProviderRequestProtocol::ReleasedDeviceId(
                         service_id.clone(),
