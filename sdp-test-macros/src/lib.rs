@@ -93,6 +93,17 @@ macro_rules! set_pod_field {
         }
         $pod.metadata.annotations = Some(bm);
     };
+    ($pod:expr, image_pull_secrets => $ps:expr) => {
+        if let Some(spec) = $pod.spec.as_mut() {
+            let ss = $ps
+                .iter()
+                .map(|s| LocalObjectReference {
+                    name: Some(format!("{}", s)),
+                })
+                .collect();
+            spec.image_pull_secrets = Some(ss);
+        }
+    };
 }
 
 #[macro_export]
