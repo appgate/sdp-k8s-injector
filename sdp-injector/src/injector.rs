@@ -1107,7 +1107,8 @@ mod tests {
     use crate::{load_sidecar_containers, SDPSidecars};
     use json_patch::Patch;
     use k8s_openapi::api::core::v1::{
-        Container, Pod, Service as KubeService, ServiceSpec, ServiceStatus, Volume,
+        Container, LocalObjectReference, Pod, Service as KubeService, ServiceSpec, ServiceStatus,
+        Volume,
     };
     use kube::core::admission::AdmissionReview;
     use kube::core::ObjectMeta;
@@ -1183,6 +1184,7 @@ mod tests {
         envs: Vec<(String, Option<String>)>,
         service: KubeService,
         dns_searches: Option<Vec<String>>,
+        image_pull_secrets: Option<Vec<&'a str>>,
     }
 
     impl Default for TestPatch<'_> {
@@ -1198,6 +1200,7 @@ mod tests {
                     "svc.cluster.local".to_string(),
                     "cluster.local".to_string(),
                 ]),
+                image_pull_secrets: None,
             }
         }
     }
@@ -1228,7 +1231,8 @@ mod tests {
             },
             TestPatch {
                 pod: pod!(1, containers => vec!["random-service"],
-                             annotations => vec![(SDP_ANNOTATION_CLIENT_DEVICE_ID, "00000000-0000-0000-0000-000000000001")]),
+                             annotations => vec![(SDP_ANNOTATION_CLIENT_DEVICE_ID, "00000000-0000-0000-0000-000000000001")],
+                             image_pull_secrets => vec!["secret1", "secret2"]),
                 needs_patching: true,
                 envs: vec![
                     ("POD_N_CONTAINERS".to_string(), Some("1".to_string())),
@@ -1249,6 +1253,7 @@ mod tests {
                     "svc.cluster.local".to_string(),
                     "cluster.local".to_string(),
                 ]),
+                image_pull_secrets: Some(vec!["secret1", "secret2"]),
                 ..Default::default()
             },
             TestPatch {
@@ -1797,6 +1802,39 @@ Pod is missing required volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-
                 })
         };
 
+        let image_pull_secrets = |pod: &Pod, test_patch: &TestPatch| {
+            let expected = test_patch.image_pull_secrets.clone();
+            let got: Option<Vec<String>> = pod
+                .spec
+                .as_ref()
+                .and_then(|ps| ps.image_pull_secrets.as_ref())
+                .map(|image_pull_secrets| {
+                    image_pull_secrets
+                        .iter()
+                        .map(|r| r.name.as_ref())
+                        .filter(|r| r.is_some())
+                        .map(|s| s.unwrap().clone())
+                        .collect()
+                });
+            match (expected, got) {
+                (Some(expected), None) => Err(format!(
+                    "image_pull_secrets got None, expected {:?}",
+                    expected
+                )),
+                (None, Some(got)) => {
+                    Err(format!("image_pull_secrets got {:?}, expected None", got))
+                }
+                (None, None) => Ok(true),
+                (Some(expected), Some(got)) => {
+                    let a = (got == expected).then(|| true).ok_or_else(|| {
+                        format!("image_pull_secrets: got {:?}, expected {:?}", got, expected)
+                    });
+                    println!("----> {:?}", a);
+                    a
+                }
+            }
+        };
+
         let assert_patch =
             |pod: &Pod, patch: Patch, test_patch: &TestPatch| -> Result<bool, String> {
                 let patched_pod = assert_patch(pod, patch)?;
@@ -1811,7 +1849,8 @@ Pod is missing required volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-
                     assert_init_containers(&patched_pod, unpatched_init_containers)?;
                 }
                 assert_envs(&patched_pod, test_patch)?;
-                assert_dnsconfig(&patched_pod, test_patch)
+                assert_dnsconfig(&patched_pod, test_patch)?;
+                image_pull_secrets(&patched_pod, test_patch)
             };
 
         let test_description = || "Test patch".to_string();
