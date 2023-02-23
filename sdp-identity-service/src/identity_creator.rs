@@ -43,18 +43,29 @@ async fn get_or_create_client_profile_url(
     cluster_id: &str,
 ) -> Result<ClientProfileUrl, IdentityServiceError> {
     // Create ClientProfile if needed
-    let profile_name = get_profile_client_url_name(cluster_id);
     let ps = system
         .get_client_profiles(None)
         .await
         .map_err(|e| format!("Unable to get client profiles: {}", e.to_string()))?;
-    let (profile_id, profile_name) = match ps.iter().filter(|p| p.name == profile_name).next() {
-        Some(p) => (p.id.clone(), p.name.clone()),
+    let (profile_id, profile_name) = match ps
+        .iter()
+        .filter(|p| {
+            let mut short_cluster_id: String = String::from(cluster_id);
+            short_cluster_id.truncate(14);
+            p.name.starts_with(&short_cluster_id)
+        })
+        .next()
+    {
+        Some(p) => {
+            info!("Found existing client profile: {}", p.name.clone());
+            (p.id.clone(), p.name.clone())
+        }
         None => {
             warn!(
                 "Unable to find client profile url for cluster {}, creating a new one",
-                profile_name
+                cluster_id
             );
+            let profile_name = get_profile_client_url_name(cluster_id);
             let spa_key_name = profile_name.replace(" ", "").to_lowercase();
             let p = ClientProfile {
                 id: uuid::Uuid::new_v4().to_string(),
