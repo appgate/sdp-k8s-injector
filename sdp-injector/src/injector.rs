@@ -9,7 +9,7 @@ use json_patch::{AddOperation, Patch};
 use k8s_openapi::api::apps::v1::Deployment;
 use k8s_openapi::api::core::v1::{
     ConfigMapKeySelector, Container, EnvVar, EnvVarSource, Namespace, ObjectFieldSelector, Pod,
-    PodDNSConfig, SecretKeySelector, Service as KubeService, Volume,
+    PodDNSConfig, PodSecurityContext, SecretKeySelector, Service as KubeService, Sysctl, Volume,
 };
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::Status;
 use kube::api::{DynamicObject, ListParams};
@@ -49,8 +49,8 @@ use uuid::Uuid;
 
 use crate::deviceid::DeviceIdProviderRequestProtocol;
 use sdp_common::service::{
-    containers, init_containers, injection_strategy, volume_names, volumes, SDPInjectionStrategy,
-    ServiceIdentity,
+    containers, init_containers, injection_strategy, security_context, volume_names, volumes,
+    SDPInjectionStrategy, ServiceIdentity,
 };
 use sdp_macros::{logger, sdp_debug, sdp_error, sdp_info, sdp_log, sdp_warn, with_dollar_sign};
 
@@ -64,6 +64,8 @@ const SDP_KEY_FILE_ENV: &str = "SDP_KEY_FILE";
 const SDP_CERT_FILE: &str = "/opt/sdp-injector/k8s/sdp-injector.crt";
 const SDP_KEY_FILE: &str = "/opt/sdp-injector/k8s/sdp-injector.key";
 const SDP_SERVICE_CONTAINER_NAME: &str = "sdp-service";
+
+const K8S_VERSION_FOR_SAFE_SYSCTL: u32 = 22;
 
 macro_rules! admission_request {
     ($body:ident, $typ:tt) => {{
@@ -503,6 +505,7 @@ impl ServiceEnvironment {
 struct SDPPod {
     sdp_sidecars: Arc<SDPSidecars>,
     k8s_dns_service: Option<KubeService>,
+    k8s_server_version: u32,
 }
 
 impl SDPPod {
@@ -671,7 +674,35 @@ impl Patched for SDPPod {
             patches.push(Add(AddOperation {
                 path: "/spec/dnsPolicy".to_string(),
                 value: serde_json::to_value("None".to_string())?,
-            }))
+            }));
+
+            // Patch sysctl securityContext
+            info!("HERE");
+            info!("Server Version: {}", self.k8s_server_version);
+            if self.k8s_server_version >= K8S_VERSION_FOR_SAFE_SYSCTL {
+                let sysctls = vec![Sysctl {
+                    name: "net.ipv4.ip_unprivileged_port_start".to_string(),
+                    value: "0".to_string(),
+                }];
+                info!("{:?}", sysctls);
+                if let Some(sc) = security_context(pod) {
+                    info!("TOP");
+                    let mut psc = sc.clone();
+                    psc.sysctls = Some(sysctls);
+                    patches.push(Add(AddOperation {
+                        path: "/spec/securityContext".to_string(),
+                        value: serde_json::to_value(&psc)?,
+                    }));
+                } else {
+                    info!("BOT");
+                    let mut psc = PodSecurityContext::default();
+                    psc.sysctls = Some(sysctls);
+                    patches.push(Add(AddOperation {
+                        path: "/spec/securityContext".to_string(),
+                        value: serde_json::to_value(&psc)?,
+                    }));
+                }
+            }
         }
         debug!("Pod patches: {:?}", patches);
         Ok(Patch(patches))
@@ -762,6 +793,7 @@ pub struct SDPInjectorContext<E: IdentityStore<ServiceIdentity>> {
     pub(crate) services_api: Api<KubeService>,
     pub(crate) identity_store: Mutex<E>,
     pub(crate) attempts_store: Mutex<HashMap<String, u8>>,
+    pub(crate) server_version: u32,
 }
 
 #[derive(Debug)]
@@ -769,6 +801,7 @@ struct SDPPatchContext<'a, E: IdentityStore<ServiceIdentity>> {
     sdp_sidecars: Arc<SDPSidecars>,
     identity_store: MutexGuard<'a, E>,
     k8s_dns_service: Option<KubeService>,
+    k8s_server_version: u32,
 }
 
 fn searches_string_to_vec(searches: String) -> Vec<String> {
@@ -979,6 +1012,7 @@ async fn patch_pod<'a, E: IdentityStore<ServiceIdentity>>(
     let sdp_pod = SDPPod {
         sdp_sidecars: Arc::clone(&sdp_patch_context.sdp_sidecars),
         k8s_dns_service: sdp_patch_context.k8s_dns_service,
+        k8s_server_version: sdp_patch_context.k8s_server_version,
     };
     let admission_response = Box::new(AdmissionResponse::from(&admission_request));
     admission_request
@@ -1014,6 +1048,7 @@ async fn mutate<'a, E: IdentityStore<ServiceIdentity>>(
         k8s_dns_service: k8s_dns_service,
         sdp_sidecars: Arc::clone(&sdp_injector_context.sdp_sidecars),
         identity_store: sdp_injector_context.identity_store.lock().await,
+        k8s_server_version: sdp_injector_context.server_version,
     };
     let body = from_utf8(&body)
         .map(|s| s.to_string())
@@ -1075,6 +1110,7 @@ async fn validate(body: Bytes, sdp_sidecars: Arc<SDPSidecars>) -> Result<Body, B
     let sdp_pod = SDPPod {
         sdp_sidecars: sdp_sidecars,
         k8s_dns_service: Option::None,
+        k8s_server_version: 0,
     };
     let mut admission_response = AdmissionResponse::from(&admission_request);
     if let Err(error) = sdp_pod.validate(admission_request) {
@@ -1538,6 +1574,7 @@ Pod is missing required volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-
                 let sdp_pod = SDPPod {
                     sdp_sidecars: Arc::clone(&sdp_sidecars),
                     k8s_dns_service: Some(t.service.clone()),
+                    k8s_server_version: 22,
                 };
                 let request = TestObjectRequest::new(t.pod.clone());
                 let needs_patching = sdp_pod.needs_patching(&request);
@@ -1862,6 +1899,7 @@ Pod is missing required volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-
             let sdp_pod = SDPPod {
                 sdp_sidecars: Arc::clone(&sdp_sidecars),
                 k8s_dns_service: Some(test.service.clone()),
+                k8s_server_version: 22,
             };
             let pod_name = pod.name();
             identity_storage
@@ -1978,6 +2016,7 @@ Pod is missing required volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-
                     sdp_sidecars: Arc::clone(&sdp_sidecars),
                     identity_store: identity_storage.lock().await,
                     k8s_dns_service: Some(test.service.clone()),
+                    k8s_server_version: 22,
                 };
                 patch_pod(request, sdp_patch_context)
                     .await
@@ -2056,6 +2095,7 @@ Pod is missing required volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-
                 let sdp_pod = SDPPod {
                     sdp_sidecars: Arc::clone(&sdp_sidecars),
                     k8s_dns_service: Some(dns_service!("10.10.10.10")),
+                    k8s_server_version: 22,
                 };
                 let request = TestObjectRequest::new(t.pod.clone());
                 let pass_validation = sdp_pod.validate(request);
