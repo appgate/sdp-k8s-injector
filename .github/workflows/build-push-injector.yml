@@ -56,7 +56,9 @@ jobs:
           context: .
           file: sdp-device-id-service/Dockerfile
           push: ${{ github.ref == 'refs/heads/main' }}
-          tags: ghcr.io/${{ github.repository }}/sdp-device-id-service:${{ env.VERSION }}
+          tags: |
+            ghcr.io/${{ github.repository }}/sdp-device-id-service:${{ env.VERSION }}
+            ghcr.io/${{ github.repository }}/sdp-device-id-service:latest
 
       - name: Build sdp-identity-service
         uses: docker/build-push-action@v3
@@ -65,7 +67,9 @@ jobs:
           context: .
           file: sdp-identity-service/Dockerfile
           push: ${{ github.ref == 'refs/heads/main' }}
-          tags: ghcr.io/${{ github.repository }}/sdp-identity-service:${{ env.VERSION }}
+          tags: |
+            ghcr.io/${{ github.repository }}/sdp-identity-service:${{ env.VERSION }}
+            ghcr.io/${{ github.repository }}/sdp-identity-service:latest
 
       - name: Build sdp-injector
         uses: docker/build-push-action@v3
@@ -74,4 +78,6 @@ jobs:
           context: .
           file: sdp-injector/Dockerfile
           push: ${{ github.ref == 'refs/heads/main' }}
-          tags: ghcr.io/${{ github.repository }}/sdp-injector:${{ env.VERSION }}
+          tags: |
+            ghcr.io/${{ github.repository }}/sdp-injector:${{ env.VERSION }}
+            ghcr.io/${{ github.repository }}/sdp-injector:latest
