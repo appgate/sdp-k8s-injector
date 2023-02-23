@@ -1,6 +1,6 @@
 apiVersion: v2
 name: sdp-k8s-injector-crd
-description: A Helm chart to deploy CRDs for SDP Kubernetes Injector
+description: Helm chart for SDP Kubernetes Injector CRD
 
 type: application
 
