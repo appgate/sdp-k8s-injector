@@ -17,10 +17,12 @@ jobs:
         with:
           toolchain: stable
       - uses: actions-rs/cargo@v1
+        name: cargo check
         with:
           command: check
           args: --release
       - uses: actions-rs/cargo@v1
+        name: cargo test
         with:
           command: test
           args: --release
