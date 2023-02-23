@@ -21,6 +21,10 @@ spec:
       {{- end }}
       serviceAccountName: {{ include "sdp-injector.serviceAccountName" .}}-identity-service
       {{ if .Values.sdp.metaClient.enabled }}
+      securityContext:
+        sysctls:
+        - name: net.ipv4.ip_unprivileged_port_start
+          value: "0"
       dnsPolicy: None
       dnsConfig:
         nameservers:
@@ -114,9 +118,6 @@ spec:
             runAsGroup: 101
             runAsUser: 100
             runAsNonRoot: true
-            sysctls:
-              - name: net.ipv4.ip_unprivileged_port_start
-                value: "0"
           env:
             - name: K8S_DNS_SERVICE
               value: {{ required ".Values.sdp.metaClient.dnsService is required" .Values.sdp.metaClient.dnsService }}
