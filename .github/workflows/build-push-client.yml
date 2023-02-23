@@ -59,7 +59,7 @@ jobs:
         with:
           context: .
           file: docker/${{ matrix.bin }}-Dockerfile
-          push: ${{ matrix.client-version == "6.1" }}
+          push: ${{ matrix.client-version == '6.1' }}
           build-args: |
             MAJOR_VERSION=${{ steps.split.outputs._0 }}
             MINOR_VERSION=${{ steps.split.outputs._1 }}
