@@ -677,16 +677,12 @@ impl Patched for SDPPod {
             }));
 
             // Patch sysctl securityContext
-            info!("HERE");
-            info!("Server Version: {}", self.k8s_server_version);
             if self.k8s_server_version >= K8S_VERSION_FOR_SAFE_SYSCTL {
                 let sysctls = vec![Sysctl {
                     name: "net.ipv4.ip_unprivileged_port_start".to_string(),
                     value: "0".to_string(),
                 }];
-                info!("{:?}", sysctls);
                 if let Some(sc) = security_context(pod) {
-                    info!("TOP");
                     let mut psc = sc.clone();
                     psc.sysctls = Some(sysctls);
                     patches.push(Add(AddOperation {
@@ -694,7 +690,6 @@ impl Patched for SDPPod {
                         value: serde_json::to_value(&psc)?,
                     }));
                 } else {
-                    info!("BOT");
                     let mut psc = PodSecurityContext::default();
                     psc.sysctls = Some(sysctls);
                     patches.push(Add(AddOperation {
