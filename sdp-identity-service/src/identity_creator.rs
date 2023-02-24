@@ -38,26 +38,22 @@ pub struct IdentityCreator {
     cluster_id: String,
 }
 
-async fn get_or_create_client_profile_url(
-    system: &mut System,
+enum ClientProfileType {
+    FreshClientProfile(ClientProfile),
+    ExistingClientProfile(ClientProfile),
+}
+
+fn get_or_create_client_profile_url<'a>(
     cluster_id: &str,
-) -> Result<ClientProfileUrl, IdentityServiceError> {
-    // Create ClientProfile if needed
-    let ps = system
-        .get_client_profiles(None)
-        .await
-        .map_err(|e| format!("Unable to get client profiles: {}", e.to_string()))?;
+    ps: &'a Vec<ClientProfile>,
+) -> (ClientProfileType, Option<Vec<&'a ClientProfile>>) {
     let (profile_name, prefix_name) = get_profile_client_url_name(cluster_id);
-    let (profile_id, profile_name) = match ps
+    let a: Vec<&ClientProfile> = ps
         .iter()
         .filter(|p| p.name.starts_with(&prefix_name))
-        .next()
-    {
-        Some(p) => {
-            info!("Found existing client profile: {}", p.name.clone());
-            (p.id.clone(), p.name.clone())
-        }
-        None => {
+        .collect();
+    match a[..] {
+        [] => {
             warn!(
                 "Unable to find client profile url for cluster {}, creating a new one",
                 cluster_id
@@ -70,12 +66,50 @@ async fn get_or_create_client_profile_url(
                 identity_provider_name: SDP_IDP_NAME.to_string(),
                 tags: vec![],
             };
+            (ClientProfileType::FreshClientProfile(p), None)
+        }
+        [p] => (ClientProfileType::ExistingClientProfile(p.clone()), None),
+        _ => (
+            ClientProfileType::ExistingClientProfile(a[0].clone()),
+            Some(a[0..].to_vec()),
+        ),
+    }
+}
+
+async fn get_client_profile_url(
+    system: &mut System,
+    cluster_id: &str,
+) -> Result<ClientProfileUrl, IdentityServiceError> {
+    // Create ClientProfile if needed
+    let ps = system
+        .get_client_profiles(None)
+        .await
+        .map_err(|e| format!("Unable to get client profiles: {}", e.to_string()))?;
+    let (profile_id, profile_name) = match get_or_create_client_profile_url(cluster_id, &ps) {
+        (ClientProfileType::FreshClientProfile(p), _) => {
+            warn!(
+                "Unable to find client profile url for cluster {}, creating a new one {}",
+                cluster_id, p.name
+            );
             let p = system
                 .create_client_profile(&p)
                 .await
                 .map_err(|e| format!("Unable to create a new client profile: {}", e))?;
-            debug!("Client Profile: {:?}", p);
             (p.id, p.name)
+        }
+        (ClientProfileType::ExistingClientProfile(p), maybe_ps) => {
+            info!(
+                "Found existing client profile: {} for cluster {}",
+                p.name, cluster_id
+            );
+            if let Some(ps) = maybe_ps {
+                let ss: Vec<String> = ps.iter().map(|p| p.name.clone()).collect();
+                error!("Found several client profiles associated with this cluster {}: {}. They should be deleted",
+                    cluster_id,
+                    ss[..].join(",")
+                );
+            }
+            (p.id.clone(), p.name.clone())
         }
     };
     system
@@ -118,8 +152,7 @@ impl IdentityCreator {
 
     async fn create_user(&mut self) -> Result<ServiceUser, IdentityServiceError> {
         let service_user = SDPUser::new();
-        let profile_url =
-            get_or_create_client_profile_url(&mut self.system, &self.cluster_id).await?;
+        let profile_url = get_client_profile_url(&mut self.system, &self.cluster_id).await?;
         info!(
             "Creating ServiceUser {} (id: {})",
             service_user.name, service_user.id
@@ -258,7 +291,7 @@ impl IdentityCreator {
         identity_manager_proto_tx: Sender<IdentityManagerProtocol<Deployment, ServiceIdentity>>,
     ) -> Result<ClientProfileUrl, IdentityServiceError> {
         let users = system.get_users().await?;
-        let client_profile_url = get_or_create_client_profile_url(system, &self.cluster_id).await?;
+        let client_profile_url = get_client_profile_url(system, &self.cluster_id).await?;
         // Notify ServiceIdentityManager about the actual credentials created in appgate
         let mut n_missing_users = self.service_users_pool_size;
         // This could be activated credentials or deactivated ones.
