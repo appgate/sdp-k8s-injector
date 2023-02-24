@@ -523,3 +523,105 @@ impl IdentityCreator {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::get_or_create_client_profile_url;
+    use crate::identity_creator::{ClientProfile, ClientProfileType};
+
+    macro_rules! client_profile {
+        ($id:expr, $name:expr) => {
+            ClientProfile {
+                id: format!("xxxxxx{}", $id),
+                name: format!("{}-{}", $name, $id),
+                spa_key_name: format!("my-spa-key-{}", $id),
+                identity_provider_name: format!("service"),
+                tags: vec![],
+            }
+        };
+    }
+
+    #[test]
+    fn test_get_or_create_client_profile_url_0() {
+        if let (ClientProfileType::FreshClientProfile(p), None) =
+            get_or_create_client_profile_url("my-cluster-1", &vec![])
+        {
+            assert!(p.name.starts_with("my-cluster-1"))
+        } else {
+            assert!(false, "Not a FreshClientProfile without leftovers!");
+        }
+    }
+
+    #[test]
+    fn test_get_or_create_client_profile_url_1() {
+        let ps = vec![client_profile!("2", "my-cluster-1")];
+        if let (ClientProfileType::ExistingClientProfile(p), None) =
+            get_or_create_client_profile_url("my-cluster-1", &ps)
+        {
+            assert!(p.name.starts_with("my-cluster-1-2"))
+        } else {
+            assert!(false, "Not a ExistingClientProfile without leftovers");
+        }
+    }
+
+    #[test]
+    fn test_get_or_create_client_profile_url_2() {
+        let ps = vec![
+            client_profile!("2", "my-cluster-1"),
+            client_profile!("3", "my-cluster-1"),
+            client_profile!("4", "my-cluster-1"),
+        ];
+        let leftovers_expected = vec!["my-cluster-1-3", "my-cluster-1-4"];
+        if let (ClientProfileType::ExistingClientProfile(p), Some(pss)) =
+            get_or_create_client_profile_url("my-cluster-1", &ps)
+        {
+            assert!(p.name.starts_with("my-cluster-1-2"));
+            let a: Vec<&String> = pss.iter().map(|p| &p.name).collect();
+            assert!(
+                a == leftovers_expected,
+                "expected {:?}, got {:?}",
+                leftovers_expected,
+                a
+            );
+        } else {
+            assert!(
+                false,
+                "Not a ExistingClientProfile with leftovers {:?}",
+                leftovers_expected
+            );
+        }
+    }
+
+    #[test]
+    fn test_get_or_create_client_profile_url_3() {
+        let ps = vec![
+            client_profile!("2", "my-cluster-2"),
+            client_profile!("3", "my-cluster-3"),
+            client_profile!("4", "my-cluster-4"),
+        ];
+        if let (ClientProfileType::FreshClientProfile(p), None) =
+            get_or_create_client_profile_url("my-cluster-1", &ps)
+        {
+            assert!(p.name.starts_with("my-cluster-1"));
+        } else {
+            assert!(false, "Not a FreshClientProfile without leftovers");
+        }
+    }
+
+    #[test]
+    fn test_get_or_create_client_profile_url_4() {
+        let ps = vec![
+            client_profile!("1", "my-cluster-1"),
+            client_profile!("2", "my-cluster-2"),
+            client_profile!("3", "my-cluster-3"),
+            client_profile!("4", "my-cluster-4"),
+        ];
+        if let (ClientProfileType::ExistingClientProfile(p), None) =
+            get_or_create_client_profile_url("my-cluster-1", &ps)
+        {
+            assert!(p.name.starts_with("my-cluster-1-1"));
+        } else {
+            assert!(false, "Not a ExistingClientProfile without leftovers");
+        }
+    }
+}
