@@ -103,7 +103,7 @@ impl SystemConfig {
 }
 
 /// struct representing a client profile
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct ClientProfile {
     pub id: String,

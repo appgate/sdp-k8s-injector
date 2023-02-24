@@ -38,6 +38,7 @@ pub struct IdentityCreator {
     cluster_id: String,
 }
 
+#[derive(PartialEq)]
 enum ClientProfileType {
     FreshClientProfile(ClientProfile),
     ExistingClientProfile(ClientProfile),
@@ -71,7 +72,7 @@ fn get_or_create_client_profile_url<'a>(
         [p] => (ClientProfileType::ExistingClientProfile(p.clone()), None),
         _ => (
             ClientProfileType::ExistingClientProfile(a[0].clone()),
-            Some(a[0..].to_vec()),
+            Some(a[1..].to_vec()),
         ),
     }
 }
