@@ -106,8 +106,12 @@ macro_rules! set_pod_field {
     };
     ($pod:expr, sysctls => $ss:expr) => {
         if let Some(spec) = $pod.spec.as_mut() {
-            if let Some(sc) =  spec.security_context.as_mut() {
+            if let Some(sc) = spec.security_context.as_mut() {
                 sc.sysctls = Some($ss);
+            } else {
+                let mut sc = PodSecurityContext::default();
+                sc.sysctls = Some($ss);
+                spec.security_context = Some(sc);
             }
         }
     };

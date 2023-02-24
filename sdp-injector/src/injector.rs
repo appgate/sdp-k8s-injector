@@ -1129,15 +1129,17 @@ mod tests {
     use crate::{load_sidecar_containers, SDPSidecars};
     use json_patch::Patch;
     use k8s_openapi::api::core::v1::{
-        Container, LocalObjectReference, Pod, Service as KubeService, ServiceSpec, ServiceStatus,
-        Volume, PodSecurityContext, Sysctl,
+        Container, LocalObjectReference, Pod, PodSecurityContext, Service as KubeService,
+        ServiceSpec, ServiceStatus, Sysctl, Volume,
     };
     use kube::core::admission::AdmissionReview;
     use kube::core::ObjectMeta;
     use sdp_common::annotations::SDP_INJECTOR_ANNOTATION_ENABLED;
     use sdp_common::constants::SDP_DEFAULT_CLIENT_VERSION_ENV;
     use sdp_common::crd::{DeviceId, DeviceIdSpec, ServiceIdentity, ServiceIdentitySpec};
-    use sdp_common::service::{containers, init_containers, volume_names, ServiceUser, security_context};
+    use sdp_common::service::{
+        containers, init_containers, security_context, volume_names, ServiceUser,
+    };
     use sdp_common::traits::{
         Annotated, Candidate, MaybeNamespaced, MaybeService, Named, Namespaced, ObjectRequest,
         Validated,
@@ -1207,7 +1209,8 @@ mod tests {
         service: KubeService,
         dns_searches: Option<Vec<String>>,
         image_pull_secrets: Option<Vec<&'a str>>,
-        sysctls: Option<Vec<Sysctl>>
+        sysctls: Option<Vec<Sysctl>>,
+        k8s_server_version: u32,
     }
 
     impl Default for TestPatch<'_> {
@@ -1225,6 +1228,7 @@ mod tests {
                 ]),
                 image_pull_secrets: None,
                 sysctls: None,
+                k8s_server_version: 22,
             }
         }
     }
@@ -1255,12 +1259,12 @@ mod tests {
             },
             TestPatch {
                 pod: pod!(1, containers => vec!["random-service"],
-                             annotations => vec![(SDP_ANNOTATION_CLIENT_DEVICE_ID, "00000000-0000-0000-0000-000000000001")],
-                             image_pull_secrets => vec!["secret1", "secret2"],
-                             sysctls => vec![Sysctl {
-                                name: "some.sysctl.specified.by.user".to_string(),
-                                value: "666".to_string(),
-                             }]),
+                annotations => vec![(SDP_ANNOTATION_CLIENT_DEVICE_ID, "00000000-0000-0000-0000-000000000001")],
+                image_pull_secrets => vec!["secret1", "secret2"],
+                sysctls => vec![Sysctl {
+                   name: "some.sysctl.specified.by.user".to_string(),
+                   value: "666".to_string(),
+                }]),
                 needs_patching: true,
                 envs: vec![
                     ("POD_N_CONTAINERS".to_string(), Some("1".to_string())),
@@ -1286,11 +1290,11 @@ mod tests {
                     Sysctl {
                         name: "some.sysctl.specified.by.user".to_string(),
                         value: "666".to_string(),
-                     },
-                     Sysctl {
+                    },
+                    Sysctl {
                         name: "net.ipv4.ip_unprivileged_port_start".to_string(),
-                        value: "0".to_string()
-                    }
+                        value: "0".to_string(),
+                    },
                 ]),
                 ..Default::default()
             },
@@ -1511,6 +1515,67 @@ mod tests {
                     "svc.cluster.local".to_string(),
                     "cluster.local".to_string(),
                 ]),
+                ..Default::default()
+            },
+            TestPatch {
+                pod: pod!(11, containers => vec!["random-service"],
+                sysctls => vec![Sysctl {
+                    name: "some.sysctl.specified.by.user".to_string(),
+                    value: "666".to_string(),
+                }]),
+                envs: vec![
+                    ("POD_N_CONTAINERS".to_string(), Some("1".to_string())),
+                    (
+                        "K8S_DNS_SERVICE".to_string(),
+                        Some("10.10.10.10".to_string()),
+                    ),
+                    ("SERVICE_NAME".to_string(), Some("ns11_srv11".to_string())),
+                    (
+                        "APPGATE_DEVICE_ID".to_string(),
+                        Some("00000000-0000-0000-0000-000000000011".to_string()),
+                    ),
+                ],
+                needs_patching: true,
+                client_config_map: "ns11-srv11-service-config",
+                client_secrets: "ns11-srv11-service-user",
+                dns_searches: Some(vec![
+                    "ns11.svc.cluster.local".to_string(),
+                    "svc.cluster.local".to_string(),
+                    "cluster.local".to_string(),
+                ]),
+                k8s_server_version: 11,
+                sysctls: Some(vec![Sysctl {
+                    name: "some.sysctl.specified.by.user".to_string(),
+                    value: "666".to_string(),
+                }]),
+                ..Default::default()
+            },
+            TestPatch {
+                pod: pod!(12, containers => vec!["random-service"]),
+                envs: vec![
+                    ("POD_N_CONTAINERS".to_string(), Some("1".to_string())),
+                    (
+                        "K8S_DNS_SERVICE".to_string(),
+                        Some("10.10.10.10".to_string()),
+                    ),
+                    ("SERVICE_NAME".to_string(), Some("ns12_srv12".to_string())),
+                    (
+                        "APPGATE_DEVICE_ID".to_string(),
+                        Some("00000000-0000-0000-0000-000000000012".to_string()),
+                    ),
+                ],
+                needs_patching: true,
+                client_config_map: "ns12-srv12-service-config",
+                client_secrets: "ns12-srv12-service-user",
+                dns_searches: Some(vec![
+                    "ns12.svc.cluster.local".to_string(),
+                    "svc.cluster.local".to_string(),
+                    "cluster.local".to_string(),
+                ]),
+                sysctls: Some(vec![Sysctl {
+                    name: "some.sysctl.specified.by.user".to_string(),
+                    value: "666".to_string(),
+                }]),
                 ..Default::default()
             },
         ]
@@ -1876,19 +1941,17 @@ Pod is missing required volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-
         let assert_security_context = |pod: &Pod, test_patch: &TestPatch| {
             if let Some(expected) = &test_patch.sysctls {
                 match security_context(pod).and_then(|sc| sc.sysctls.as_ref()) {
-                    Some(sc) => {
-                        (sc == expected).then(|| true).ok_or_else(|| {
-                            format!("securityContext: expected {:?} but got {:?}", expected, sc)
-                        })
-                    },
-                    None => {
-                        Err(format!("securityContext.sysctls: expected {:?} but got None", expected))
-                    }
-                } 
+                    Some(sc) => (sc == expected).then(|| true).ok_or_else(|| {
+                        format!("securityContext: expected {:?} but got {:?}", expected, sc)
+                    }),
+                    None => Err(format!(
+                        "securityContext.sysctls: expected {:?} but got None",
+                        expected
+                    )),
+                }
             } else {
                 Ok(true)
             }
-
         };
 
         let assert_patch =
@@ -1919,7 +1982,7 @@ Pod is missing required volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-
             let sdp_pod = SDPPod {
                 sdp_sidecars: Arc::clone(&sdp_sidecars),
                 k8s_dns_service: Some(test.service.clone()),
-                k8s_server_version: 22,
+                k8s_server_version: test.k8s_server_version,
             };
             let pod_name = pod.name();
             identity_storage
