@@ -679,7 +679,7 @@ impl Patched for SDPPod {
             // Patch sysctl securityContext
             if self.k8s_server_version >= K8S_VERSION_FOR_SAFE_SYSCTL {
 
-                let mut sc = security_context(pod).unwrap_or(&PodSecurityContext::default());
+                let mut sc = security_context(pod).map(Clone::clone).unwrap_or(PodSecurityContext::default());
                 sc.sysctls = Some(vec![Sysctl {
                     name: "net.ipv4.ip_unprivileged_port_start".to_string(),
                     value: "0".to_string(),
@@ -1130,14 +1130,14 @@ mod tests {
     use json_patch::Patch;
     use k8s_openapi::api::core::v1::{
         Container, LocalObjectReference, Pod, Service as KubeService, ServiceSpec, ServiceStatus,
-        Volume,
+        Volume, PodSecurityContext, Sysctl,
     };
     use kube::core::admission::AdmissionReview;
     use kube::core::ObjectMeta;
     use sdp_common::annotations::SDP_INJECTOR_ANNOTATION_ENABLED;
     use sdp_common::constants::SDP_DEFAULT_CLIENT_VERSION_ENV;
     use sdp_common::crd::{DeviceId, DeviceIdSpec, ServiceIdentity, ServiceIdentitySpec};
-    use sdp_common::service::{containers, init_containers, volume_names, ServiceUser};
+    use sdp_common::service::{containers, init_containers, volume_names, ServiceUser, security_context};
     use sdp_common::traits::{
         Annotated, Candidate, MaybeNamespaced, MaybeService, Named, Namespaced, ObjectRequest,
         Validated,
