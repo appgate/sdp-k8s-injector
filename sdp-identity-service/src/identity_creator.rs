@@ -105,7 +105,7 @@ async fn get_client_profile_url(
             );
             if let Some(ps) = maybe_ps {
                 let ss: Vec<String> = ps.iter().map(|p| p.name.clone()).collect();
-                error!("Found several client profiles associated with this cluster {}: {}. They should be deleted",
+                warn!("Found several client profiles associated with this cluster {}: {}. They should be deleted",
                     cluster_id,
                     ss[..].join(",")
                 );
