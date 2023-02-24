@@ -104,6 +104,13 @@ macro_rules! set_pod_field {
             spec.image_pull_secrets = Some(ss);
         }
     };
+    ($pod:expr, sysctls => $ss:expr) => {
+        if let Some(spec) = $pod.spec.as_mut() {
+            if let Some(sc) =  spec.security_context.as_mut() {
+                sc.sysctls = Some($ss);
+            }
+        }
+    };
 }
 
 #[macro_export]

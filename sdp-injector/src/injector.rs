@@ -1207,6 +1207,7 @@ mod tests {
         service: KubeService,
         dns_searches: Option<Vec<String>>,
         image_pull_secrets: Option<Vec<&'a str>>,
+        sysctls: Option<Vec<Sysctl>>
     }
 
     impl Default for TestPatch<'_> {
@@ -1223,6 +1224,7 @@ mod tests {
                     "cluster.local".to_string(),
                 ]),
                 image_pull_secrets: None,
+                sysctls: None,
             }
         }
     }
@@ -1254,7 +1256,11 @@ mod tests {
             TestPatch {
                 pod: pod!(1, containers => vec!["random-service"],
                              annotations => vec![(SDP_ANNOTATION_CLIENT_DEVICE_ID, "00000000-0000-0000-0000-000000000001")],
-                             image_pull_secrets => vec!["secret1", "secret2"]),
+                             image_pull_secrets => vec!["secret1", "secret2"],
+                             sysctls => vec![Sysctl {
+                                name: "some.sysctl.specified.by.user".to_string(),
+                                value: "666".to_string(),
+                             }]),
                 needs_patching: true,
                 envs: vec![
                     ("POD_N_CONTAINERS".to_string(), Some("1".to_string())),
@@ -1276,6 +1282,16 @@ mod tests {
                     "cluster.local".to_string(),
                 ]),
                 image_pull_secrets: Some(vec!["secret1", "secret2"]),
+                sysctls: Some(vec![
+                    Sysctl {
+                        name: "some.sysctl.specified.by.user".to_string(),
+                        value: "666".to_string(),
+                     },
+                     Sysctl {
+                        name: "net.ipv4.ip_unprivileged_port_start".to_string(),
+                        value: "0".to_string()
+                    }
+                ]),
                 ..Default::default()
             },
             TestPatch {
@@ -1825,7 +1841,7 @@ Pod is missing required volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-
                 })
         };
 
-        let image_pull_secrets = |pod: &Pod, test_patch: &TestPatch| {
+        let assert_image_pull_secrets = |pod: &Pod, test_patch: &TestPatch| {
             let expected = test_patch.image_pull_secrets.clone();
             let got: Option<Vec<String>> = pod
                 .spec
@@ -1852,10 +1868,27 @@ Pod is missing required volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-
                     let a = (got == expected).then(|| true).ok_or_else(|| {
                         format!("image_pull_secrets: got {:?}, expected {:?}", got, expected)
                     });
-                    println!("----> {:?}", a);
                     a
                 }
             }
+        };
+
+        let assert_security_context = |pod: &Pod, test_patch: &TestPatch| {
+            if let Some(expected) = &test_patch.sysctls {
+                match security_context(pod).and_then(|sc| sc.sysctls.as_ref()) {
+                    Some(sc) => {
+                        (sc == expected).then(|| true).ok_or_else(|| {
+                            format!("securityContext: expected {:?} but got {:?}", expected, sc)
+                        })
+                    },
+                    None => {
+                        Err(format!("securityContext.sysctls: expected {:?} but got None", expected))
+                    }
+                } 
+            } else {
+                Ok(true)
+            }
+
         };
 
         let assert_patch =
@@ -1873,7 +1906,8 @@ Pod is missing required volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-
                 }
                 assert_envs(&patched_pod, test_patch)?;
                 assert_dnsconfig(&patched_pod, test_patch)?;
-                image_pull_secrets(&patched_pod, test_patch)
+                assert_image_pull_secrets(&patched_pod, test_patch)?;
+                assert_security_context(&patched_pod, test_patch)
             };
 
         let test_description = || "Test patch".to_string();
