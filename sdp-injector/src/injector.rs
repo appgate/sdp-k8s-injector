@@ -681,10 +681,14 @@ impl Patched for SDPPod {
                 let mut sc = security_context(pod)
                     .map(Clone::clone)
                     .unwrap_or(PodSecurityContext::default());
-                sc.sysctls = Some(vec![Sysctl {
+                let mut extra_sysctls = vec![Sysctl {
                     name: "net.ipv4.ip_unprivileged_port_start".to_string(),
                     value: "0".to_string(),
-                }]);
+                }];
+                if let Some(sysctls) = sc.sysctls {
+                    extra_sysctls.extend(sysctls)
+                }
+                sc.sysctls = Some(extra_sysctls);
                 patches.push(Add(AddOperation {
                     path: "/spec/securityContext".to_string(),
                     value: serde_json::to_value(sc)?,
