@@ -678,8 +678,9 @@ impl Patched for SDPPod {
 
             // Patch sysctl securityContext
             if self.k8s_server_version >= K8S_VERSION_FOR_SAFE_SYSCTL {
-
-                let mut sc = security_context(pod).map(Clone::clone).unwrap_or(PodSecurityContext::default());
+                let mut sc = security_context(pod)
+                    .map(Clone::clone)
+                    .unwrap_or(PodSecurityContext::default());
                 sc.sysctls = Some(vec![Sysctl {
                     name: "net.ipv4.ip_unprivileged_port_start".to_string(),
                     value: "0".to_string(),
