@@ -21,6 +21,10 @@ spec:
       {{- end }}
       serviceAccountName: {{ include "sdp-injector.serviceAccountName" .}}-identity-service
       {{ if .Values.sdp.metaClient.enabled }}
+      securityContext:
+        sysctls:
+        - name: net.ipv4.ip_unprivileged_port_start
+          value: "0"
       dnsPolicy: None
       dnsConfig:
         nameservers:

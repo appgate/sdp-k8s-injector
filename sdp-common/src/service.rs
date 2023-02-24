@@ -6,7 +6,7 @@ use crate::sdp::{auth::SDPUser, system::ClientProfileUrl};
 use crate::traits::{Annotated, Labeled, MaybeNamespaced, MaybeService, Named};
 use json_patch::PatchOperation::Remove;
 use json_patch::{Patch, RemoveOperation};
-use k8s_openapi::api::core::v1::{ConfigMap, Container, Pod, Volume};
+use k8s_openapi::api::core::v1::{ConfigMap, Container, Pod, PodSecurityContext, Volume};
 use k8s_openapi::{api::core::v1::Secret, ByteString};
 use kube::api::{DeleteParams, Patch as KubePatch, PatchParams, PostParams};
 use kube::Api;
@@ -521,6 +521,10 @@ pub fn volumes(pod: &Pod) -> Option<&Vec<Volume>> {
 
 pub fn volume_names(pod: &Pod) -> Option<Vec<String>> {
     volumes(pod).map(|vs| vs.iter().map(|v| v.name.clone()).collect())
+}
+
+pub fn security_context(pod: &Pod) -> Option<&PodSecurityContext> {
+    pod.spec.as_ref().and_then(|s| s.security_context.as_ref())
 }
 
 pub fn get_log_config_path() -> String {

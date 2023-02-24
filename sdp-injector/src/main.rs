@@ -83,12 +83,15 @@ async fn main() -> Result<(), Box<dyn Error>> {
     };
     let sdp_sidecars: SDPSidecars =
         load_sidecar_containers().expect("Unable to load the sidecar context");
+    let version = k8s_client.apiserver_version().await?.minor.parse::<u32>()?;
+    info!("Found Kubernetes server version: {}", version);
     let sdp_injector_context = Arc::new(SDPInjectorContext {
         sdp_sidecars: Arc::new(sdp_sidecars),
         ns_api: Api::all(k8s_client.clone()),
         services_api: Api::namespaced(k8s_client, KUBE_SYSTEM_NAMESPACE),
         identity_store: AsyncMutex::new(store),
         attempts_store: AsyncMutex::new(HashMap::new()),
+        server_version: version,
     });
 
     let ssl_config = load_ssl()?;
