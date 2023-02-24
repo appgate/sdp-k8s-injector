@@ -1293,12 +1293,12 @@ mod tests {
                 image_pull_secrets: Some(vec!["secret1", "secret2"]),
                 sysctls: Some(vec![
                     Sysctl {
-                        name: "some.sysctl.specified.by.user".to_string(),
-                        value: "666".to_string(),
-                    },
-                    Sysctl {
                         name: "net.ipv4.ip_unprivileged_port_start".to_string(),
                         value: "0".to_string(),
+                    },
+                    Sysctl {
+                        name: "some.sysctl.specified.by.user".to_string(),
+                        value: "666".to_string(),
                     },
                 ]),
                 ..Default::default()
@@ -1578,8 +1578,8 @@ mod tests {
                     "cluster.local".to_string(),
                 ]),
                 sysctls: Some(vec![Sysctl {
-                    name: "some.sysctl.specified.by.user".to_string(),
-                    value: "666".to_string(),
+                    name: "net.ipv4.ip_unprivileged_port_start".to_string(),
+                    value: "0".to_string(),
                 }]),
                 ..Default::default()
             },
