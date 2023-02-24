@@ -47,13 +47,10 @@ async fn get_or_create_client_profile_url(
         .get_client_profiles(None)
         .await
         .map_err(|e| format!("Unable to get client profiles: {}", e.to_string()))?;
+    let (profile_name, prefix_name) = get_profile_client_url_name(cluster_id);
     let (profile_id, profile_name) = match ps
         .iter()
-        .filter(|p| {
-            let mut short_cluster_id: String = String::from(cluster_id);
-            short_cluster_id.truncate(14);
-            p.name.starts_with(&short_cluster_id)
-        })
+        .filter(|p| p.name.starts_with(&prefix_name))
         .next()
     {
         Some(p) => {
@@ -65,11 +62,10 @@ async fn get_or_create_client_profile_url(
                 "Unable to find client profile url for cluster {}, creating a new one",
                 cluster_id
             );
-            let profile_name = get_profile_client_url_name(cluster_id);
             let spa_key_name = profile_name.replace(" ", "").to_lowercase();
             let p = ClientProfile {
                 id: uuid::Uuid::new_v4().to_string(),
-                name: get_profile_client_url_name(cluster_id),
+                name: profile_name,
                 spa_key_name: spa_key_name,
                 identity_provider_name: SDP_IDP_NAME.to_string(),
                 tags: vec![],
