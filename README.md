@@ -5,6 +5,39 @@ The Injector automatically manages identities for the injected Clients and enabl
 
 For ingress access, from external clients to SDP Gateway protected workloads in a Kubernetes cluster, use [URL access](https://sdphelp.appgate.com/adminguide/v6.1/defining-hosts.html?anchor=url-access) instead.
 
+## Table of Contents
+* [Requirements](#requirements)
+  * [Tool Requirements](#tool-requirements)
+  * [Kubernetes Requirements](#kubernetes-requirements)
+  * [SDP Requirements](#sdp-requirements)
+* [Getting Started](#getting-started)
+  * [Installation](#installation)
+  * [Testing the Installation](#testing-the-installation)
+* [Usage](#usage)
+  * [Setting Policy for Deployments](#setting-policy-for-deployments)
+* [Advanced Usage](#advanced-usage)
+  * [Namespace Labels](#namespace-labels)
+  * [Meta-Client (SDP Client for the Injector)](#meta-client--sdp-client-for-the-injector-)
+  * [Default Injection Strategy](#default-injection-strategy)
+  * [Alternative Client Versions](#alternative-client-versions)
+  * [Init Containers](#init-containers)
+  * [Multiple Clusters](#multiple-clusters)
+* [Annotations](#annotations)
+* [Helm Values](#parameters)
+  * [SDP Parameters](#sdp-parameters)
+  * [Kubernetes Parameters](#kubernetes-parameters)
+* [How It Works](#how-it-works)
+  * [Overview](#overview)
+  * [Identity Service](#identity-service)
+  * [Device ID Service](#device-id-service)
+  * [Injector](#injector)
+  * [sdp-dnsmasq](#sdp-dnsmasq)
+* [Troubleshooting](#troubleshooting)
+  * [Injector Problem](#injector-problems)
+  * [Pod Access Problem](#pod-access-problems)
+  * [Google Kubernetes Engine (GKE)](#google-kubernetes-engine--gke-)
+* [Support](#support)
+
 ## Requirements
 ### Tool Requirements
 The following tools are required to install the SDP Kubernetes Injector:
@@ -37,13 +70,13 @@ SDP Kubernetes Injector requires following configurations on the SDP Controller:
 
 ## Getting Started
 ### Installation
-Currently the only supported way of installing the Injector is to use the official [Helm charts](https://helm.sh/docs/topics/charts/).
+Currently, the only supported way of installing the Injector is to use the official [Helm charts](https://helm.sh/docs/topics/charts/).
 
-1.  Configure the SDP Collective per [SDP Requirements](#sdp-requirements). Verify:
+1. Configure the SDP Collective per [SDP Requirements](#sdp-requirements). Verify:
     - Service User License
     - An IP Pool assigned to `service` Identity Provider
     - An API user with `Service User Management Preset` privileges
-1.  Check if a supported version of the cert-manager (1.9 or newer) is already installed.
+2. Check if a supported version of the cert-manager (1.9 or newer) is already installed.
     ```shell
     $ kubectl get pods --namespace cert-manager -o jsonpath="{.items[*].spec.containers[*].image}"
     ```
@@ -57,13 +90,15 @@ Currently the only supported way of installing the Injector is to use the offici
       --create-namespace \
       --set installCRDs=true
     ```
-1.  Install the SDP Kubernetes Injector CRD with Helm.
+3. Install the SDP Kubernetes Injector CRD with Helm.
     ```shell
-    $ helm install sdp-k8s-injector-crd oci://ghcr.io/appgate/charts/sdp-k8s-injector-crd \
+    $ helm repo add appgate https://appgate.github.io/sdp-k8s-injector
+    $ helm repo update
+    $ helm install sdp-k8s-injector-crd appgate/sdp-k8s-injector-crd \
         --namespace sdp-system \
         --create-namespace
     ```
-1.  Create a Secret containing the credentials for the Controller API user with a descriptive name, for example: `sdp-injector-api-secret`.
+4. Create a Secret containing the credentials for the Controller API user with a descriptive name, for example: `sdp-injector-api-secret`.
     ```shell
     $ kubectl create secret generic sdp-injector-api-secret \
       --namespace sdp-system \
@@ -71,7 +106,7 @@ Currently the only supported way of installing the Injector is to use the offici
       --from-literal=sdp-injector-api-password="<PASSWORD>" \
       --from-literal=sdp-injector-api-provider="<PROVIDER>"
     ```
-1.  Generate a `values.yaml` file. Below is an example of the minimum required configuration. For other parameters, see [Parameters](#parameters)
+5. Generate a `values.yaml` file. Below is an example of the minimum required configuration. For other parameters, see [Parameters](#parameters)
     ```yaml
     # values.yaml
     sdp:
@@ -79,13 +114,13 @@ Currently the only supported way of installing the Injector is to use the offici
       adminSecret: sdp-injector-api-secret      # api credentials secret name from previous step
       clusterID: k8s-prod                       # cluster id, will be visible in the Admin UI
     ```
-1.  Install the SDP Kubernetes Injector with Helm.
+6. Install the SDP Kubernetes Injector with Helm.
     ```shell
-    $ helm install sdp-k8s-injector oci://ghcr.io/appgate/charts/sdp-k8s-injector \
+    $ helm install sdp-k8s-injector appgate/sdp-k8s-injector \
       --namespace sdp-system \
       --values values.yaml
     ```
-1.  Verify the installation.
+7. Verify the installation.
     1.  There should be three pods running in `sdp-system` namespace.
         ```shell
         $ kubectl get pods --namespace sdp-system
@@ -109,23 +144,23 @@ Note that this will consume 1 Service User license.
 
 We'll assume there is an ICMP Entitlement for a test server: `192.168.111.5`
 
-1.  Create an Access Policy named "PingTest K8s Workload".
+1. Create an Access Policy named "PingTest K8s Workload".
     - Use following criteria for assignment:
       - **Identity Provider** is `service`
       - **labels** expression `namespace === "sdp-demo"`
       - **labels** expression `name === "pingtest"`
-1.  Create an example namespace `sdp-demo` in the cluster and label it with `sdp-injection="enabled"`.
+2. Create an example namespace `sdp-demo` in the cluster and label it with `sdp-injection="enabled"`.
     ```shell
     $ kubectl create namespace sdp-demo
     $ kubectl label namespace sdp-demo --overwrite sdp-injection="enabled"
     ```
     With the `sdp-injection` label, the Injector will monitor this namespace. The default strategy is to inject SDP Client to every Deployment, see [Default Injection Strategy](#default-injection-strategy) for details.
-1.  Create a [busybox](https://hub.docker.com/_/busybox) Deployment in the same namespace and verify the following checklist:
+3. Create a [busybox](https://hub.docker.com/_/busybox) Deployment in the same namespace and verify the following checklist:
     ```shell
     $ kubectl create deployment pingtest --namespace sdp-demo --image=busybox --replicas=1 -- sleep infinity
     ```
     Note that the Injector works with [Deployments](https://kubernetes.io/docs/concepts/workloads/controllers/deployment/) only, creating Pods directly is not supported.
-1.  Verify the access.
+4. Verify the access.
 
     From the pod, get a shell first then ping:
     ```shell
@@ -136,9 +171,9 @@ We'll assume there is an ICMP Entitlement for a test server: `192.168.111.5`
     From the Admin UI:
     Go to Home > Active Sessions > k8s-prod_sdp-demo_pingtest and review the claims and entitlements.
 
-1.  If access is not working, see [Troubleshooting](#troubleshooting).
+5. If access is not working, see [Troubleshooting](#troubleshooting).
 
-1.  Cleanup the test resources.
+6. Cleanup the test resources.
     ```shell
     $ kubectl delete namespace sdp-demo
     ```
@@ -159,15 +194,15 @@ metadata:
 spec:
   replicas: 1
   selector:
-  matchLabels:
-    app: sleep-forever
+    matchLabels:
+      app: sleep-forever
   template:
-  spec:
-    containers:
-    - name: ubuntu
-    image: ubuntu:latest
-    command: [ "/bin/bash", "-c", "--" ]
-    args: [ "while true; do sleep 30; done;" ]
+    spec:
+     containers:
+     - name: ubuntu
+       image: ubuntu:latest
+       command: [ "/bin/bash", "-c", "--" ]
+       args: [ "while true; do sleep 30; done;" ]
 ```
 
 To create a Policy for this deployment, set the following Assignments:
@@ -410,9 +445,6 @@ In the case of the SDP Kubernetes Injector, a dnsmasq instance is configured acc
 4.  [sdp-driver-set-dns](./assets/sdp-driver-set-dns) configures `/etc/resolv.conf` to point to sdp-dnsmasq. From this point onwards, sdp-dnsmasq takes the responsibility of resolving names inside the pod.
 5.  Any new instructions are sent to sdp-dnsmasq via UNIX socket by the sdp-driver. Then sdp-dnsmasq configures dnsmasq with the latest DNS domain and DNS server updates.
 
-## Known Issues
-### Google Kubernetes Engine (GKE)
-When running on GKE, the firewall needs to be configured to allow traffic from the Kubernetes API into the nodes to the port 8443 even if the service is listening. See [issue on GitHub](https://github.com/istio/istio/issues/19532).
 
 ## Troubleshooting
 ### Injector Problems
@@ -469,6 +501,10 @@ $ kubectl logs pingtest-c66bb48f9-s7n8j sdp-driver -n sdp-demo
 $ kubectl logs pingtest-c66bb48f9-s7n8j sdp-dnsmasq -n sdp-demo
 ```
 
-# Support
+### Google Kubernetes Engine (GKE)
+When running on GKE, the firewall needs to be configured to allow traffic from the Kubernetes API into the nodes to the port 8443 even if the service is listening. See [issue on GitHub](https://github.com/istio/istio/issues/19532).
+
+
+## Support
 
 You can open a [github issue](https://github.com/appgate/sdp-k8s-injector/issues) or contact support@appgate.com
