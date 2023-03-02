@@ -1366,10 +1366,12 @@ mod tests {
                                   annotations => vec![("sdp-injector", "true"),
                                                       (SDP_ANNOTATION_CLIENT_DEVICE_ID, "00000000-0000-0000-0000-000000000004"),
                                                       (SDP_ANNOTATION_DNS_SEARCHES, "ns4.one.svc.local two.svc.local svc.local"),
-                                                      (SDP_ANNOTATION_CLIENT_SECRETS, "some-secrets")]),
+                                                      (SDP_ANNOTATION_CLIENT_SECRETS, "some-secrets"),
+                                                      (SDP_ANNOTATION_CLIENT_CONFIG, "some-config")
+                    ]),
                 needs_patching: true,
                 client_secrets: "some-secrets",
-                client_config_map: "ns4-srv4-service-config",
+                client_config_map: "some-config",
                 envs: vec![
                     ("POD_N_CONTAINERS".to_string(), Some("1".to_string())),
                     (
