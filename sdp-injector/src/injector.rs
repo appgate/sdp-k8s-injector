@@ -428,37 +428,38 @@ impl ServiceEnvironment {
         })
     }
 
-    // TODO: should we check that the service_id is registered?
-    // We dont want to inject pods that are not registered
     fn from_pod<R: ObjectRequest<Pod> + MaybeService + Annotated>(
         request: &R,
     ) -> Result<Option<Self>, SDPServiceError> {
-        debug!("Building service environment from pod");
-        let pod = request
+        info!("Building service environment from pod");
+        request
             .object()
-            .ok_or_else(|| "Pod was not found in the request")?;
-        let service_id = request.service_id()?;
-        let service_name = request.service_name()?;
-        let config = pod.annotation(SDP_ANNOTATION_CLIENT_CONFIG);
-        let secret = pod.annotation(SDP_ANNOTATION_CLIENT_SECRETS);
-        let device_id = pod.annotation(SDP_ANNOTATION_CLIENT_DEVICE_ID);
-        let user_field = format!("{}-user", &service_id);
-        let pwd_field = format!("{}-password", &service_id);
-        Ok(secret.map(|s| ServiceEnvironment {
-            service_name: service_id.clone(),
-            client_config: config
-                .map(|s| s.clone())
-                .unwrap_or(format!("{}-service-config", &service_name)),
-            client_secret_name: s.to_string(),
-            client_secret_controller_url_key: pwd_field.to_string(),
-            client_secret_pwd_key: pwd_field,
-            client_secret_user_key: user_field,
-            client_device_id: device_id
-                .map(|s| s.clone())
-                .unwrap_or(uuid::Uuid::new_v4().to_string()),
-            n_containers: "0".to_string(),
-            k8s_dns_service_ip: None,
-        }))
+            .ok_or_else(|| "Pod was not found in the request")
+            .map(|p| {
+                // Need all three annotation to build service environment from pod
+                if let (Some(config), Some(secret), Some(device_id)) = (
+                    p.annotation(SDP_ANNOTATION_CLIENT_CONFIG),
+                    p.annotation(SDP_ANNOTATION_CLIENT_SECRETS),
+                    p.annotation(SDP_ANNOTATION_CLIENT_DEVICE_ID),
+                ) {
+                    let service_id = request.service_id().ok()?;
+                    Some(ServiceEnvironment {
+                        service_name: service_id,
+                        client_config: config.to_string(),
+                        client_secret_name: secret.to_string(),
+                        client_secret_controller_url_key: "service-url".to_string(),
+                        client_secret_user_key: "service-username".to_string(),
+                        client_secret_pwd_key: "service-password".to_string(),
+                        client_device_id: device_id.to_string(),
+                        n_containers: "0".to_string(),
+                        k8s_dns_service_ip: None,
+                    })
+                } else {
+                    warn!("Missing annotations to infer service environment from pod");
+                    None
+                }
+            })
+            .map_err(|e| SDPServiceError::from_string(e.to_string()))
     }
 
     fn variables(&self, container_name: &str) -> Vec<EnvVar> {
