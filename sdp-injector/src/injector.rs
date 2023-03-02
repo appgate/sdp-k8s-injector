@@ -1264,12 +1264,15 @@ mod tests {
                 ..Default::default()
             },
             TestPatch {
-                pod: pod!(1, containers => vec!["random-service"],
-                annotations => vec![(SDP_ANNOTATION_CLIENT_DEVICE_ID, "00000000-0000-0000-0000-000000000001")],
-                image_pull_secrets => vec!["secret1", "secret2"],
+                pod: pod!(1,
+                containers => vec!["random-service"],
+                annotations => vec![
+                    (SDP_ANNOTATION_CLIENT_DEVICE_ID, "00000000-0000-0000-0000-000000000001")
+                ],
+                image_pull_secrets => vec!["secret1","secret2"],
                 sysctls => vec![Sysctl {
-                   name: "some.sysctl.specified.by.user".to_string(),
-                   value: "666".to_string(),
+                    name: "some.sysctl.specified.by.user".to_string(),
+                    value: "666".to_string(),
                 }]),
                 needs_patching: true,
                 envs: vec![
@@ -1305,8 +1308,9 @@ mod tests {
                 ..Default::default()
             },
             TestPatch {
-                pod: pod!(2, containers => vec!["random-service"],
-                             annotations => vec![("sdp-injector", "false")]),
+                pod: pod!(2,
+                    containers => vec!["random-service"],
+                    annotations => vec![("sdp-injector", "false")]),
                 envs: vec![
                     ("POD_N_CONTAINERS".to_string(), Some("1".to_string())),
                     (
@@ -1330,14 +1334,15 @@ mod tests {
                 ..Default::default()
             },
             TestPatch {
-                pod: pod!(3, containers => vec!["random-service"],
-                 annotations => vec![
+                pod: pod!(3,
+                containers => vec!["random-service"],
+                annotations => vec![
                     ("sdp-injector", "who-knows"),
                     (SDP_ANNOTATION_CLIENT_SECRETS, "some-secrets"),
                     (SDP_ANNOTATION_CLIENT_CONFIG, "some-config-map"),
                     (SDP_ANNOTATION_CLIENT_DEVICE_ID, "00000000-0000-0000-0000-000000000003"),
-                    (SDP_ANNOTATION_DNS_SEARCHES, "one.svc.local two.svc.local svc.local")]
-                ),
+                    (SDP_ANNOTATION_DNS_SEARCHES, "one.svc.local two.svc.local svc.local")
+                ]),
                 needs_patching: true,
                 client_config_map: "some-config-map",
                 client_secrets: "some-secrets",
@@ -1362,13 +1367,14 @@ mod tests {
                 ..Default::default()
             },
             TestPatch {
-                pod: pod!(4, containers => vec!["random-service"],
-                                  annotations => vec![("sdp-injector", "true"),
-                                                      (SDP_ANNOTATION_CLIENT_DEVICE_ID, "00000000-0000-0000-0000-000000000004"),
-                                                      (SDP_ANNOTATION_DNS_SEARCHES, "ns4.one.svc.local two.svc.local svc.local"),
-                                                      (SDP_ANNOTATION_CLIENT_SECRETS, "some-secrets"),
-                                                      (SDP_ANNOTATION_CLIENT_CONFIG, "some-config")
-                    ]),
+                pod: pod!(4,
+                containers => vec!["random-service"],
+                annotations => vec![("sdp-injector", "true"),
+                    (SDP_ANNOTATION_CLIENT_DEVICE_ID, "00000000-0000-0000-0000-000000000004"),
+                    (SDP_ANNOTATION_DNS_SEARCHES, "ns4.one.svc.local two.svc.local svc.local"),
+                    (SDP_ANNOTATION_CLIENT_SECRETS, "some-secrets"),
+                    (SDP_ANNOTATION_CLIENT_CONFIG, "some-config")
+                ]),
                 needs_patching: true,
                 client_secrets: "some-secrets",
                 client_config_map: "some-config",
@@ -1393,9 +1399,14 @@ mod tests {
                 ..Default::default()
             },
             TestPatch {
-                pod: pod!(5, containers => vec!["some-random-service-1",
-                                                     "some-random-service-2"],
-                                  annotations => vec![(SDP_ANNOTATION_CLIENT_CONFIG, "some-config-map")]),
+                pod: pod!(5,
+                containers => vec![
+                    "some-random-service-1",
+                    "some-random-service-2"
+                ],
+                annotations => vec![
+                    (SDP_ANNOTATION_CLIENT_CONFIG, "some-config-map")
+                ]),
                 needs_patching: true,
                 envs: vec![
                     ("POD_N_CONTAINERS".to_string(), Some("2".to_string())),
@@ -1417,9 +1428,12 @@ mod tests {
                 ..Default::default()
             },
             TestPatch {
-                pod: pod!(6, containers => vec![sdp_sidecar_names[0].clone(),
-                                                     sdp_sidecar_names[1].clone(),
-                                                     "some-random-service".to_string()]),
+                pod: pod!(6,
+                containers => vec![
+                    sdp_sidecar_names[0].clone(),
+                    sdp_sidecar_names[1].clone(),
+                    "some-random-service".to_string()
+                ]),
                 envs: vec![
                     ("POD_N_CONTAINERS".to_string(), Some("3".to_string())),
                     (
@@ -1438,10 +1452,13 @@ mod tests {
                 ..Default::default()
             },
             TestPatch {
-                pod: pod!(7, containers => vec![sdp_sidecar_names[0].clone(),
-                                                     sdp_sidecar_names[1].clone(),
-                                                     "some-random-service".to_string()],
-                                  annotations => vec![("sdp-injector", "true")]),
+                pod: pod!(7,
+                    containers => vec![
+                        sdp_sidecar_names[0].clone(),
+                        sdp_sidecar_names[1].clone(),
+                        "some-random-service".to_string()
+                    ],
+                    annotations => vec![("sdp-injector", "true")]),
                 envs: vec![
                     ("POD_N_CONTAINERS".to_string(), Some("3".to_string())),
                     (
@@ -1460,8 +1477,11 @@ mod tests {
                 ..Default::default()
             },
             TestPatch {
-                pod: pod!(8, containers => vec![sdp_sidecar_names[1].clone(),
-                                                     "some-random-service".to_string()]),
+                pod: pod!(8,
+                containers => vec![
+                    sdp_sidecar_names[1].clone(),
+                    "some-random-service".to_string()
+                ]),
                 envs: vec![
                     ("POD_N_CONTAINERS".to_string(), Some("2".to_string())),
                     (
@@ -1480,9 +1500,12 @@ mod tests {
                 ..Default::default()
             },
             TestPatch {
-                pod: pod!(9, containers => vec![sdp_sidecar_names[1].clone(),
-                                                    "some-random-service".to_string()],
-                                  annotations => vec![("sdp-injector", "true")]),
+                pod: pod!(9,
+                    containers => vec![
+                        sdp_sidecar_names[1].clone(),
+                        "some-random-service".to_string()
+                    ],
+                    annotations => vec![("sdp-injector", "true")]),
                 envs: vec![
                     ("POD_N_CONTAINERS".to_string(), Some("2".to_string())),
                     (
@@ -1501,8 +1524,9 @@ mod tests {
                 ..Default::default()
             },
             TestPatch {
-                pod: pod!(10, containers => vec!["random-service"],
-                                   init_containers => vec!["random-init-container"]),
+                pod: pod!(10,
+                    containers => vec!["random-service"],
+                    init_containers => vec!["random-init-container"]),
                 needs_patching: true,
                 envs: vec![
                     ("POD_N_CONTAINERS".to_string(), Some("1".to_string())),
@@ -1526,10 +1550,11 @@ mod tests {
                 ..Default::default()
             },
             TestPatch {
-                pod: pod!(11, containers => vec!["random-service"],
+                pod: pod!(11,
+                containers => vec!["random-service"],
                 sysctls => vec![Sysctl {
                     name: "some.sysctl.specified.by.user".to_string(),
-                    value: "666".to_string(),
+                    value: "666".to_string()
                 }]),
                 envs: vec![
                     ("POD_N_CONTAINERS".to_string(), Some("1".to_string())),
