@@ -8,6 +8,20 @@ use crate::{
     traits::{HasCredentials, Named, Namespaced, Service},
 };
 
+
+#[derive(Debug, CustomResource, Serialize, Deserialize, Clone, JsonSchema, PartialEq)]
+#[kube(
+    group = "injector.sdp.com",
+    version = "v1",
+    kind = "SDPService",
+    namespaced
+)]
+
+pub struct SDPServiceSpec {
+    pub name: String
+}
+
+
 /// ServiceIdentity CRD
 /// This is the CRD where we store the credentials for the services
 #[derive(Debug, CustomResource, Serialize, Deserialize, Clone, JsonSchema, PartialEq)]
