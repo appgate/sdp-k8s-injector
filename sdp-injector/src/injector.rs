@@ -2349,14 +2349,18 @@ Pod is missing required volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-
 
     #[test]
     fn test_service_environment_from_pod() {
+        // Missing all annotation
         let mut pod = pod!(0);
         let request = TestObjectRequest::new(pod);
         let mut env = ServiceEnvironment::from_pod(&request);
         assert!(env.is_ok());
         assert!(env.as_ref().unwrap().is_none());
+
+        // Contains all three necessary annotations
         pod = pod!(0, annotations => vec![
             (SDP_ANNOTATION_CLIENT_SECRETS, "some-secrets"),
-            (SDP_ANNOTATION_CLIENT_CONFIG, "some-config-map")
+            (SDP_ANNOTATION_CLIENT_CONFIG, "some-config-map"),
+            (SDP_ANNOTATION_CLIENT_DEVICE_ID, "00000000-0000-0000-0000-000000000001"),
         ]);
         let request = TestObjectRequest::new(pod);
         env = ServiceEnvironment::from_pod(&request);
@@ -2368,37 +2372,66 @@ Pod is missing required volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-
             assert_eq!(env.client_secret_name, "some-secrets".to_string());
             assert_eq!(
                 env.client_secret_controller_url_key,
-                "ns0_srv0-password".to_string()
+                "service-url".to_string()
             );
-            assert_eq!(env.client_secret_pwd_key, "ns0_srv0-password".to_string());
-            assert_eq!(env.client_secret_user_key, "ns0_srv0-user".to_string());
+            assert_eq!(env.client_secret_pwd_key, "service-password".to_string());
+            assert_eq!(env.client_secret_user_key, "service-username".to_string());
             assert_eq!(env.n_containers, "0".to_string());
             assert_eq!(env.k8s_dns_service_ip, None);
+            assert_eq!(env.client_device_id, "00000000-0000-0000-0000-000000000001");
         };
 
+        // Missing config and device_id annotation
         pod = pod!(1, annotations => vec![
             (SDP_ANNOTATION_CLIENT_SECRETS, "some-secrets"),
         ]);
         let request = TestObjectRequest::new(pod);
         env = ServiceEnvironment::from_pod(&request);
         assert!(env.is_ok());
-        assert!(env.as_ref().unwrap().is_some());
-        if let Ok(Some(env)) = env {
-            assert_eq!(env.service_name, "ns1_srv1".to_string());
-            assert_eq!(env.client_config, "ns1-srv1-service-config");
-            assert_eq!(env.client_secret_name, "some-secrets".to_string());
-            assert_eq!(
-                env.client_secret_controller_url_key,
-                "ns1_srv1-password".to_string()
-            );
-            assert_eq!(env.client_secret_pwd_key, "ns1_srv1-password".to_string());
-            assert_eq!(env.client_secret_user_key, "ns1_srv1-user".to_string());
-            assert_eq!(env.n_containers, "0".to_string());
-            assert_eq!(env.k8s_dns_service_ip, None);
-        };
+        assert!(env.as_ref().unwrap().is_none());
 
+        // Missing secret and device_id annotation
         pod = pod!(1, annotations => vec![
             (SDP_ANNOTATION_CLIENT_CONFIG, "some-config-map")
+        ]);
+        let request = TestObjectRequest::new(pod);
+        env = ServiceEnvironment::from_pod(&request);
+        assert!(env.is_ok());
+        assert!(env.as_ref().unwrap().is_none());
+
+        // Missing secret and config annotation
+        pod = pod!(1, annotations => vec![
+            (SDP_ANNOTATION_CLIENT_DEVICE_ID, "00000000-0000-0000-0000-000000000001")
+        ]);
+        let request = TestObjectRequest::new(pod);
+        env = ServiceEnvironment::from_pod(&request);
+        assert!(env.is_ok());
+        assert!(env.as_ref().unwrap().is_none());
+
+        // Missing secret annotation
+        pod = pod!(1, annotations => vec![
+            (SDP_ANNOTATION_CLIENT_CONFIG, "some-config-map"),
+            (SDP_ANNOTATION_CLIENT_DEVICE_ID, "00000000-0000-0000-0000-000000000001")
+        ]);
+        let request = TestObjectRequest::new(pod);
+        env = ServiceEnvironment::from_pod(&request);
+        assert!(env.is_ok());
+        assert!(env.as_ref().unwrap().is_none());
+
+        // Missing config annotation
+        pod = pod!(1, annotations => vec![
+            (SDP_ANNOTATION_CLIENT_SECRETS, "some-secrets"),
+            (SDP_ANNOTATION_CLIENT_DEVICE_ID, "00000000-0000-0000-0000-000000000001")
+        ]);
+        let request = TestObjectRequest::new(pod);
+        env = ServiceEnvironment::from_pod(&request);
+        assert!(env.is_ok());
+        assert!(env.as_ref().unwrap().is_none());
+
+        // Missing device_id annotation
+        pod = pod!(1, annotations => vec![
+            (SDP_ANNOTATION_CLIENT_SECRETS, "some-secrets"),
+            (SDP_ANNOTATION_CLIENT_CONFIG, "some-config-map"),
         ]);
         let request = TestObjectRequest::new(pod);
         env = ServiceEnvironment::from_pod(&request);
