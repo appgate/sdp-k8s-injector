@@ -1,13 +1,15 @@
-use kube::{core::object::HasSpec, CustomResource};
+use kube::{core::object::HasSpec, CustomResource, ResourceExt};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 use crate::{
-    service::ServiceUser,
-    traits::{HasCredentials, Named, Namespaced, Service},
+    service::{needs_injection, ServiceUser},
+    traits::{
+        Annotated, Candidate, HasCredentials, MaybeNamespaced, MaybeService, Named, Namespaced,
+        Service,
+    },
 };
-
 
 #[derive(Debug, CustomResource, Serialize, Deserialize, Clone, JsonSchema, PartialEq)]
 #[kube(
@@ -19,8 +21,31 @@ use crate::{
 
 pub struct SDPServiceSpec {}
 
+impl Named for SDPService {
+    fn name(&self) -> String {
+        self.name_any()
+    }
 }
 
+impl MaybeNamespaced for SDPService {
+    fn namespace(&self) -> Option<String> {
+        ResourceExt::namespace(self)
+    }
+}
+
+impl Candidate for SDPService {
+    fn is_candidate(&self) -> bool {
+        needs_injection(self)
+    }
+}
+
+impl Annotated for SDPService {
+    fn annotations(&self) -> Option<&std::collections::BTreeMap<String, String>> {
+        Some(ResourceExt::annotations(self))
+    }
+}
+
+impl MaybeService for SDPService {}
 
 /// ServiceIdentity CRD
 /// This is the CRD where we store the credentials for the services
