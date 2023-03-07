@@ -359,3 +359,48 @@ macro_rules! device_id {
         )
     };
 }
+
+#[macro_export]
+macro_rules! service_candidate_protocol {
+    ($t:ident) => {
+        impl ServiceCandidateProtocol<$t> for $t {
+            fn service<'a>(&'a self) -> &'a $t {
+                &self
+            }
+        }
+
+        impl SimpleWatchingProtocol<IdentityManagerProtocol<$t, ServiceIdentity>> for $t {
+            fn initialized(
+                &self,
+                ns: Option<Namespace>,
+            ) -> Option<IdentityManagerProtocol<$t, ServiceIdentity>> {
+                ServiceCandidateProtocol::initialized(self, ns)
+            }
+
+            fn applied(
+                &self,
+                ns: Option<Namespace>,
+            ) -> Option<IdentityManagerProtocol<$t, ServiceIdentity>> {
+                ServiceCandidateProtocol::applied(self, ns)
+            }
+
+            fn reapplied(
+                &self,
+                ns: Option<Namespace>,
+            ) -> Option<IdentityManagerProtocol<$t, ServiceIdentity>> {
+                ServiceCandidateProtocol::reapplied(self, ns)
+            }
+
+            fn deleted(
+                &self,
+                ns: Option<Namespace>,
+            ) -> Option<IdentityManagerProtocol<$t, ServiceIdentity>> {
+                ServiceCandidateProtocol::deleted(self, ns)
+            }
+
+            fn key(&self) -> Option<String> {
+                ServiceCandidateProtocol::key(self)
+            }
+        }
+    };
+}
