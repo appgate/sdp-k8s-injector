@@ -18,9 +18,9 @@ use std::iter::FromIterator;
 use std::pin::Pin;
 use tokio::sync::mpsc::{Receiver, Sender};
 
-use crate::deployment_watcher::DeploymentWatcherProtocol;
 use crate::errors::IdentityServiceError;
 use crate::identity_creator::IdentityCreatorProtocol;
+use crate::service_candidate_watcher::DeploymentWatcherProtocol;
 
 logger!("IdentityManager");
 
@@ -819,11 +819,11 @@ mod tests {
     use tokio::sync::mpsc::channel;
     use tokio::time::{sleep, timeout, Duration};
 
-    use crate::{
-        deployment_watcher::DeploymentWatcherProtocol, identity_creator::IdentityCreatorProtocol,
-        identity_manager::IdentityManagerProtocol,
-    };
     use crate::{errors::IdentityServiceError, identity_manager::ServiceUser};
+    use crate::{
+        identity_creator::IdentityCreatorProtocol, identity_manager::IdentityManagerProtocol,
+        service_candidate_watcher::DeploymentWatcherProtocol,
+    };
 
     use super::{
         IdentityManager, IdentityManagerPool, IdentityManagerRunner, ServiceIdentity,

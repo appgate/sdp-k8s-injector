@@ -1,7 +1,7 @@
 use crate::{
-    deployment_watcher::DeploymentWatcherProtocol,
     identity_creator::{IdentityCreator, IdentityCreatorProtocol},
     identity_manager::{IdentityManagerProtocol, IdentityManagerRunner},
+    service_candidate_watcher::DeploymentWatcherProtocol,
 };
 use clap::{Parser, Subcommand};
 use k8s_openapi::api::{apps::v1::Deployment, core::v1::Namespace};
@@ -14,10 +14,10 @@ use sdp_common::{kubernetes::get_k8s_client, service::get_log_config_path};
 use std::{panic, process::exit};
 use tokio::sync::mpsc::channel;
 
-pub mod deployment_watcher;
 pub mod errors;
 pub mod identity_creator;
 pub mod identity_manager;
+pub mod service_candidate_watcher;
 
 const CREDENTIALS_POOL_SIZE: usize = 10;
 
