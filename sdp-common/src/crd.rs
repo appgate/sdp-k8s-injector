@@ -17,8 +17,8 @@ use crate::{
     namespaced
 )]
 
-pub struct SDPServiceSpec {
-    pub name: String
+pub struct SDPServiceSpec {}
+
 }
 
 
