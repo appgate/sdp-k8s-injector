@@ -43,6 +43,10 @@ fn device_id_release_message(
         })
 }
 
+/*
+ * Pods implement SimpleWatchingProtocol for DeviceIdProviderRequestProtocol
+ * This watching protocol is used to release device ids when pods are deleted
+ */
 impl SimpleWatchingProtocol<DeviceIdProviderRequestProtocol<ServiceIdentity>> for Pod {
     fn initialized(
         &self,

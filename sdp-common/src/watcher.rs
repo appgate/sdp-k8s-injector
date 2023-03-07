@@ -19,6 +19,10 @@ pub enum WatcherOperation {
     ReApply,
 }
 
+/*
+ * SimpleWatchingProtocol defines a basic protocol for k8s watchers
+ * It reacts to different type of messages generating posible events
+ */
 pub trait SimpleWatchingProtocol<P> {
     fn initialized(&self, ns: Option<Namespace>) -> Option<P>;
     fn applied(&self, ns: Option<Namespace>) -> Option<P>;
@@ -29,6 +33,9 @@ pub trait SimpleWatchingProtocol<P> {
 
 pub struct WatcherWaitReady<R>(pub Receiver<R>, pub fn(&R) -> bool);
 
+/*
+ * k8s Watcher for resource E and protocol P
+ */
 pub struct Watcher<E, P> {
     pub api_ns: Option<Api<Namespace>>,
     pub api: Api<E>,
@@ -36,6 +43,11 @@ pub struct Watcher<E, P> {
     pub notification_message: Option<P>,
 }
 
+/*
+ * watches a k8s resource E that implmentes SimpleWatchingProtocol for protocol P
+ * wait_ready is an optional WatcherWaitReady in case the protocol needs to receive
+ * a message after initialization
+ */
 pub async fn watch<E, P, R>(
     watcher: Watcher<E, P>,
     wait_ready: Option<WatcherWaitReady<R>>,

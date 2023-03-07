@@ -8,6 +8,11 @@ use crate::deviceid::DeviceIdProviderRequestProtocol;
 
 logger!("DeviceIDWatcher");
 
+/*
+ * DeviceId implement SimpleWatchingProtocol for DeviceIdProviderRequestProtocol
+ * This watching protocol is used to register new DeviceId created so they can later
+ * be assigned to new pods
+ */
 impl SimpleWatchingProtocol<DeviceIdProviderRequestProtocol<ServiceIdentity>> for DeviceId {
     fn initialized(
         &self,
