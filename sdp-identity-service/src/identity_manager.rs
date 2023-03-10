@@ -842,15 +842,15 @@ mod tests {
     };
 
     macro_rules! test_identity_manager {
-        (($im:ident($vs:expr), $watcher_rx:ident, $identity_manager_proto_tx:ident, $identity_creator_proto_rx:ident, $deployment_watched_proto_rx:ident, $counters:ident) => $e:expr) => {
+        (($im:ident($vs:expr), $watcher_rx:ident, $identity_manager_proto_tx:ident, $identity_creator_proto_rx:ident, $service_candidate_watcher_proto_rx:ident, $counters:ident) => $e:expr) => {
             let ($identity_manager_proto_tx, identity_manager_proto_rx) =
-                channel::<IdentityManagerProtocol<Deployment, ServiceIdentity>>(10);
+                channel::<IdentityManagerProtocol<ServiceCandidate, ServiceIdentity>>(10);
             let (identity_creator_proto_tx, mut $identity_creator_proto_rx) =
                 channel::<IdentityCreatorProtocol>(10);
-            let (deployment_watched_proto_tx, mut $deployment_watched_proto_rx) =
-                channel::<DeploymentWatcherProtocol>(10);
+            let (service_candidate_watcher_proto_tx, mut $service_candidate_watcher_proto_rx) =
+                broadcast_channel::<DeploymentWatcherProtocol>(10);
             let (watcher_tx, mut $watcher_rx) =
-                channel::<IdentityManagerProtocol<Deployment, ServiceIdentity>>(10);
+                channel::<IdentityManagerProtocol<ServiceCandidate, ServiceIdentity>>(10);
             let mut $im = Box::new(TestIdentityManager::default());
             for i in $vs.clone() {
                 $im.register_identity(i);
@@ -864,7 +864,7 @@ mod tests {
                         identity_manager_proto_rx,
                         identity_manager_proto_tx_cp2,
                         identity_creator_proto_tx,
-                        deployment_watched_proto_tx,
+                        service_candidate_watcher_proto_tx,
                         Some(watcher_tx),
                     )
                     .await
@@ -1395,7 +1395,7 @@ mod tests {
                 // Request a new ServiceIdentity
                 let tx = identity_manager_tx.clone();
                 tx.send(IdentityManagerProtocol::RequestServiceIdentity {
-                    service_candidate: deployment!("ns1", "srv1"),
+                    service_candidate: ServiceCandidate::Deployment(deployment!("ns1", "srv1")),
                 }).await.expect("Unable to send RequestServiceIdentity message to IdentityManager");
                 assert_message!(m :: IdentityCreatorProtocol::StartService in identity_creator_rx);
                 assert_no_message!(identity_creator_rx);
@@ -1457,7 +1457,7 @@ mod tests {
 
                 // Request a new ServiceIdentity
                 tx.send(IdentityManagerProtocol::RequestServiceIdentity {
-                    service_candidate: deployment!("ns1", "srv1"),
+                    service_candidate:  ServiceCandidate::Deployment(deployment!("ns1", "srv1")),
                 }).await.expect("Unable to send RequestServiceIdentity message to IdentityManager");
 
                 // We have deactivated credentials so we can create it
@@ -1500,7 +1500,7 @@ mod tests {
 
                 // Request a new ServiceIdentity, second one
                 tx.send(IdentityManagerProtocol::RequestServiceIdentity {
-                    service_candidate: deployment!("ns2", "srv2"),
+                    service_candidate: ServiceCandidate::Deployment(deployment!("ns2", "srv2")),
                 }).await.expect("[ns2_srv2] Unable to send RequestServiceIdentity message to IdentityManager");
 
                 // We have deactivated credentials so we can create it
@@ -1545,7 +1545,7 @@ mod tests {
 
                 // Request a new ServiceIdentity, no more credentials!
                 tx.send(IdentityManagerProtocol::RequestServiceIdentity {
-                    service_candidate: deployment!("ns3", "srv1"),
+                    service_candidate: ServiceCandidate::Deployment(deployment!("ns3", "srv1")),
                 }).await.expect("[ns3_srv1] Unable to send RequestServiceIdentity message to IdentityManager");
                 assert_message! {
                     (m :: IdentityManagerProtocol::IdentityManagerDebug(_) in watcher_rx) => {
@@ -1567,7 +1567,7 @@ mod tests {
 
                 // Request a new ServiceIdentity already created
                 tx.send(IdentityManagerProtocol::RequestServiceIdentity {
-                    service_candidate: deployment!("ns1", "srv1"),
+                    service_candidate: ServiceCandidate::Deployment(deployment!("ns1", "srv1")),
                 }).await.expect("[ns1_srv1] Unable to send RequestServiceIdentity message to IdentityManager");
                 assert_message! {
                     (m :: IdentityManagerProtocol::IdentityManagerDebug(_) in watcher_rx) => {
@@ -1619,7 +1619,7 @@ mod tests {
                 }
                 // Request a new ServiceIdentity
                 tx.send(IdentityManagerProtocol::RequestServiceIdentity {
-                service_candidate: deployment!("ns1", "srv1"),
+                service_candidate: ServiceCandidate::Deployment(deployment!("ns1", "srv1")),
                 }).await.expect("[ns1_srv1] Unable to send RequestServiceIdentity message to IdentityManager");
 
                 // We have deactivated credentials so we can create it
@@ -1688,7 +1688,7 @@ mod tests {
                 }
                 // Request a new ServiceIdentity
                 tx.send(IdentityManagerProtocol::RequestServiceIdentity {
-                service_candidate: deployment!("ns1", "srv1"),
+                service_candidate: ServiceCandidate::Deployment(deployment!("ns1", "srv1")),
                 }).await.expect("[ns1_srv1] Unable to send RequestServiceIdentity message to IdentityManager");
 
                 // Since we have an empty pool we can not create identities
@@ -1715,7 +1715,7 @@ mod tests {
                     .await.expect("Unable to send message!");
                 // Request a new ServiceIdentity
                 tx.send(IdentityManagerProtocol::RequestServiceIdentity {
-                    service_candidate: deployment!("ns1", "srv1"),
+                    service_candidate: ServiceCandidate::Deployment(deployment!("ns1", "srv1")),
                 }).await.expect("[ns1_srv1] Unable to send RequestServiceIdentity message to IdentityManager");
                 // We ask IC to create a new credential
                 assert_message!(m :: IdentityCreatorProtocol::CreateIdentity in identity_creator_rx);
