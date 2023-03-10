@@ -1,11 +1,10 @@
 use futures::Future;
-use k8s_openapi::api::apps::v1::Deployment;
 use kube::api::{DeleteParams, ListParams, PostParams};
 use kube::{Api, Client};
 use sdp_common::constants::SDP_CLUSTER_ID_ENV;
 pub use sdp_common::crd::{ServiceIdentity, ServiceIdentitySpec};
 use sdp_common::kubernetes::SDP_K8S_NAMESPACE;
-use sdp_common::service::{ServiceLookup, ServiceUser};
+use sdp_common::service::{ServiceCandidate, ServiceLookup, ServiceUser};
 use sdp_common::traits::{
     HasCredentials, Labeled, MaybeNamespaced, MaybeService, Named, Namespaced, Service,
 };
@@ -16,11 +15,12 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::fmt;
 use std::iter::FromIterator;
 use std::pin::Pin;
+use tokio::sync::broadcast::Sender as BroadcastSender;
 use tokio::sync::mpsc::{Receiver, Sender};
 
 use crate::errors::IdentityServiceError;
 use crate::identity_creator::IdentityCreatorProtocol;
-use crate::service_candidate_watcher::DeploymentWatcherProtocol;
+use crate::service_candidate_watcher::ServiceCandidateWatcherProtocol;
 
 logger!("IdentityManager");
 
@@ -105,8 +105,12 @@ trait ServiceIdentityAPI {
     ) -> Pin<Box<dyn Future<Output = Result<Vec<ServiceIdentity>, IdentityServiceError>> + Send + '_>>;
 }
 
-/// Messages exchanged between the the IdentityCreator and IdentityManager
-#[derive(Debug)]
+/*
+ * Protocol implemented to manage identities
+ * IdentityManager is the Receiver and it has several Senders: IdentityManager, IdentityCreator and each of
+ *  the ServiceCandidate Watchers
+ */
+#[derive(Debug, Clone)]
 pub enum IdentityManagerProtocol<From: MaybeService, To: Service + HasCredentials> {
     /// Message used to request a new ServiceIdentity for ServiceCandidate
     RequestServiceIdentity {
@@ -116,7 +120,7 @@ pub enum IdentityManagerProtocol<From: MaybeService, To: Service + HasCredential
     FoundServiceCandidate(From),
     DeletedServiceCandidate(From),
     /// Message to notify that a new ServiceUser have been created
-    /// IdentityCreator creates these ServiceUSer
+    /// IdentityCreator creates these ServiceUSer§
     FoundServiceUser(ServiceUser, bool),
     IdentityCreatorReady,
     DeploymentWatcherReady,
@@ -368,7 +372,7 @@ impl IdentityManagerRunner<ServiceLookup, ServiceIdentity> {
         mut identity_manager_rx: Receiver<IdentityManagerProtocol<F, ServiceIdentity>>,
         identity_manager_tx: Sender<IdentityManagerProtocol<F, ServiceIdentity>>,
         identity_creator_tx: Sender<IdentityCreatorProtocol>,
-        deployment_watcher_proto_tx: Sender<DeploymentWatcherProtocol>,
+        service_candidate_watcher_proto_tx: BroadcastSender<ServiceCandidateWatcherProtocol>,
         external_queue_tx: Option<&Sender<IdentityManagerProtocol<F, ServiceIdentity>>>,
     ) -> () {
         info!("Starting Identity Manager");
@@ -695,9 +699,8 @@ impl IdentityManagerRunner<ServiceLookup, ServiceIdentity> {
                             .expect("Error requesting new ServiceIdentity");
                     }
 
-                    deployment_watcher_proto_tx
-                        .send(DeploymentWatcherProtocol::IdentityManagerReady)
-                        .await
+                    service_candidate_watcher_proto_tx
+                        .send(ServiceCandidateWatcherProtocol::IdentityManagerReady)
                         .expect("Unable to notify DeploymentWatcher!");
                 }
                 IdentityManagerProtocol::DeletedServiceCandidate(service_candidate) => {
@@ -760,17 +763,23 @@ impl IdentityManagerRunner<ServiceLookup, ServiceIdentity> {
 
     pub async fn run(
         mut self,
-        identity_manager_proto_rx: Receiver<IdentityManagerProtocol<Deployment, ServiceIdentity>>,
-        identity_manager_proto_tx: Sender<IdentityManagerProtocol<Deployment, ServiceIdentity>>,
+        identity_manager_proto_rx: Receiver<
+            IdentityManagerProtocol<ServiceCandidate, ServiceIdentity>,
+        >,
+        identity_manager_proto_tx: Sender<
+            IdentityManagerProtocol<ServiceCandidate, ServiceIdentity>,
+        >,
         identity_creator_proto_tx: Sender<IdentityCreatorProtocol>,
-        deployment_watcher_proto_tx: Sender<DeploymentWatcherProtocol>,
-        external_queue_tx: Option<Sender<IdentityManagerProtocol<Deployment, ServiceIdentity>>>,
+        service_candidate_watcher_proto_tx: BroadcastSender<ServiceCandidateWatcherProtocol>,
+        external_queue_tx: Option<
+            Sender<IdentityManagerProtocol<ServiceCandidate, ServiceIdentity>>,
+        >,
     ) -> () {
         info!("Starting Identity Manager service");
         IdentityManagerRunner::initialize(&mut self.im).await;
 
         queue_info! {
-            IdentityManagerProtocol::<Deployment, ServiceIdentity>::IdentityManagerInitialized => external_queue_tx
+            IdentityManagerProtocol::<ServiceCandidate, ServiceIdentity>::IdentityManagerInitialized => external_queue_tx
         };
 
         // Ask Identity Creator to awake
@@ -791,7 +800,7 @@ impl IdentityManagerRunner<ServiceLookup, ServiceIdentity> {
             identity_manager_proto_rx,
             identity_manager_proto_tx,
             identity_creator_proto_tx,
-            deployment_watcher_proto_tx,
+            service_candidate_watcher_proto_tx,
             external_queue_tx.as_ref(),
         )
         .await;
@@ -811,18 +820,20 @@ mod tests {
     use k8s_openapi::api::apps::v1::Deployment;
     use kube::{core::object::HasSpec, ResourceExt};
     use sdp_common::{
+        service::ServiceCandidate,
         service::ServiceLookup,
         traits::{HasCredentials, Service},
     };
     use sdp_macros::{deployment, service_identity, service_user};
     use sdp_test_macros::{assert_message, assert_no_message};
+    use tokio::sync::broadcast::channel as broadcast_channel;
     use tokio::sync::mpsc::channel;
     use tokio::time::{sleep, timeout, Duration};
 
     use crate::{errors::IdentityServiceError, identity_manager::ServiceUser};
     use crate::{
         identity_creator::IdentityCreatorProtocol, identity_manager::IdentityManagerProtocol,
-        service_candidate_watcher::DeploymentWatcherProtocol,
+        service_candidate_watcher::ServiceCandidateWatcherProtocol,
     };
 
     use super::{

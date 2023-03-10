@@ -9,7 +9,8 @@ use kube::{
 };
 use sdp_macros::{logger, sdp_debug, sdp_error, sdp_info, sdp_log, with_dollar_sign};
 use serde::de::DeserializeOwned;
-use tokio::sync::mpsc::{Receiver, Sender};
+use tokio::sync::broadcast::Receiver;
+use tokio::sync::mpsc::Sender;
 
 use crate::errors::SDPServiceError;
 
@@ -54,7 +55,7 @@ pub async fn watch<E, P, R>(
 ) -> Result<(), SDPServiceError>
 where
     E: Clone + Debug + Send + DeserializeOwned + Resource + SimpleWatchingProtocol<P> + 'static,
-    R: Debug,
+    R: Clone + Debug,
 {
     let mut applied = HashSet::<String>::new();
 
@@ -121,7 +122,7 @@ where
 
     if let Some(WatcherWaitReady(mut queue_rx, continue_f)) = wait_ready {
         info!("Waiting for other services to be ready");
-        while let Some(msg) = queue_rx.recv().await {
+        while let Ok(msg) = queue_rx.recv().await {
             if continue_f(&msg) {
                 info!("Got message {:?}, watcher is ready to continue", msg);
                 break;

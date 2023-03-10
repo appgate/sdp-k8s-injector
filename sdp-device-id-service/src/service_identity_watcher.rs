@@ -7,7 +7,7 @@ use sdp_macros::{logger, with_dollar_sign};
 
 logger!("ServiceIdentityWatcher");
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum ServiceIdentityWatcherProtocol {
     DeviceIdManagerReady,
 }

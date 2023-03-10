@@ -11,6 +11,7 @@ use std::collections::HashMap;
 use std::fmt::Debug;
 use std::future::Future;
 use std::pin::Pin;
+use tokio::sync::broadcast::Sender as BroadcastSender;
 use tokio::sync::mpsc::{Receiver, Sender};
 use uuid::Uuid;
 
@@ -279,7 +280,7 @@ impl DeviceIdManagerRunner<ServiceIdentity, DeviceId> {
         dm: &mut Box<dyn DeviceIdManager<F, DeviceId> + Send + Sync>,
         mut manager_proto_rx: Receiver<DeviceIdManagerProtocol<F>>,
         manager_proto_tx: Sender<DeviceIdManagerProtocol<F>>,
-        _watcher_proto_tx: Sender<ServiceIdentityWatcherProtocol>,
+        _watcher_proto_tx: BroadcastSender<ServiceIdentityWatcherProtocol>,
         queue_tx: Option<&Sender<DeviceIdManagerProtocol<F>>>,
     ) {
         info!("Starting Device ID Manager loop");
@@ -335,7 +336,7 @@ impl DeviceIdManagerRunner<ServiceIdentity, DeviceId> {
         mut self,
         manager_proto_rx: Receiver<DeviceIdManagerProtocol<ServiceIdentity>>,
         manager_proto_tx: Sender<DeviceIdManagerProtocol<ServiceIdentity>>,
-        watcher_proto_tx: Sender<ServiceIdentityWatcherProtocol>,
+        watcher_proto_tx: BroadcastSender<ServiceIdentityWatcherProtocol>,
         queue_tx: Option<Sender<DeviceIdManagerProtocol<ServiceIdentity>>>,
     ) -> () {
         info!("Starting Device ID Manager");
@@ -346,7 +347,6 @@ impl DeviceIdManagerRunner<ServiceIdentity, DeviceId> {
 
         watcher_proto_tx
             .send(ServiceIdentityWatcherProtocol::DeviceIdManagerReady)
-            .await
             .expect("Unable to send DeviceIdManagerReady message");
 
         DeviceIdManagerRunner::run_device_id_manager(
@@ -377,6 +377,7 @@ mod tests {
     use std::future::Future;
     use std::pin::Pin;
     use std::sync::{Arc, Mutex};
+    use tokio::sync::broadcast::channel as broadcast_channel;
     use tokio::sync::mpsc::channel;
     use tokio::time::{timeout, Duration};
 
@@ -434,7 +435,7 @@ mod tests {
     macro_rules! test_device_id_manager {
         (($dm:ident($vs:expr), $queue_rx:ident, $manager_tx:ident, $watcher_rx:ident, $counters:ident) => $e:expr) => {
             let ($manager_tx, manager_rx) = channel::<DeviceIdManagerProtocol<ServiceIdentity>>(10);
-            let (watcher_tx, $watcher_rx) = channel::<ServiceIdentityWatcherProtocol>(10);
+            let (watcher_tx, $watcher_rx) = broadcast_channel::<ServiceIdentityWatcherProtocol>(10);
             let (queue_tx, mut $queue_rx) = channel::<DeviceIdManagerProtocol<ServiceIdentity>>(10);
 
             let mut $dm = new_test_device_id_manager();
