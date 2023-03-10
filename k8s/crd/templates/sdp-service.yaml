@@ -20,13 +20,16 @@ spec:
           properties:
             spec:
               description: >-
-                SDPService represents a service the cluster.
+                SDPService represents a service in the cluster.
               properties:
                 name:
+                  type: string
+                kind:
                   type: string
               type: object
           required:
             - spec
+            - kind
           title: SDPService
           type: object
       served: true
