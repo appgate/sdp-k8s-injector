@@ -819,13 +819,13 @@ mod tests {
     use futures::Future;
     use k8s_openapi::api::apps::v1::Deployment;
     use kube::{core::object::HasSpec, ResourceExt};
+    pub use sdp_common::crd::{SDPService, SDPServiceSpec};
     use sdp_common::{
         service::ServiceCandidate,
         service::ServiceLookup,
         traits::{HasCredentials, Service},
     };
-    pub use sdp_common::crd::{SDPService, SDPServiceSpec};
-    use sdp_macros::{deployment, service_identity, service_user, sdp_service};
+    use sdp_macros::{deployment, sdp_service, service_identity, service_user};
     use sdp_test_macros::{assert_message, assert_no_message};
     use tokio::sync::broadcast::channel as broadcast_channel;
     use tokio::sync::mpsc::channel;

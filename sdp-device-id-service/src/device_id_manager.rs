@@ -6,7 +6,7 @@ use kube::{Api, Client, Resource};
 use sdp_common::crd::{DeviceId, DeviceIdSpec, ServiceIdentity};
 use sdp_common::kubernetes::SDP_K8S_NAMESPACE;
 use sdp_common::traits::{HasCredentials, Named, Namespaced, Service};
-use sdp_macros::{logger, queue_info, sdp_error, sdp_info, sdp_log, with_dollar_sign};
+use sdp_macros::{logger, queue_info, sdp_error, sdp_info, sdp_log, sdp_warn, with_dollar_sign};
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::future::Future;
@@ -16,6 +16,8 @@ use tokio::sync::mpsc::{Receiver, Sender};
 use uuid::Uuid;
 
 logger!("DeviceIDManager");
+
+const DEFAULT_N_DEVICE_IDS: i32 = 4;
 
 #[derive(Debug)]
 pub enum DeviceIdManagerProtocol<From: Service + HasCredentials> {
@@ -113,48 +115,67 @@ impl DeviceIdAPI for KubeDeviceIdManager {
                     info!("[{}] Creating DeviceID {}", service_id, service_name);
                     let owner_name = &device_id.spec.service_name;
                     let owner_namespace = &device_id.spec.service_namespace;
-                    let mut uuids: Vec<String> = vec![];
-                    let mut owner_ref = OwnerReference::default();
 
+                    // Try to get early the ServiceIdentity associated to this DeviceIds
+                    let service_identity_api: Api<ServiceIdentity> =
+                        Api::namespaced(self.client.clone(), SDP_K8S_NAMESPACE);
+                    let service_identity = service_identity_api
+                        .get(&service_name)
+                        .await
+                        .map_err(|e| format!("Unable to get ServiceIdentity: {}", e.to_string()))?;
+
+                    // Associate teh ServiceIdentity with this DeviceId as owner
+                    let mut owner_ref = OwnerReference::default();
+                    owner_ref.controller = Default::default();
+                    owner_ref.block_owner_deletion = Some(true);
+                    owner_ref.name = service_identity.metadata.name.unwrap();
+                    owner_ref.api_version = "injector.sdp.com/v1".to_string();
+                    owner_ref.kind = "ServiceIdentity".to_string();
+                    owner_ref.uid = service_identity.metadata.uid.clone().unwrap_or_default();
+
+                    // Try to discover replicasets associated to this service
                     let replicaset_api: Api<ReplicaSet> =
                         Api::namespaced(self.client.clone(), owner_namespace);
                     let replicasets = replicaset_api
                         .list(&ListParams::default())
                         .await
                         .map_err(|e| format!("Unable to get ReplicaSets: {}", e.to_string()))?;
-                    for replicaset in replicasets {
-                        if let Some(replicaset_owners) =
-                            &replicaset.meta().owner_references.as_ref()
-                        {
-                            let owner = &replicaset_owners[0];
-                            if owner.name == *owner_name {
-                                let service_identity_api: Api<ServiceIdentity> =
-                                    Api::namespaced(self.client.clone(), SDP_K8S_NAMESPACE);
-                                let service_identity =
-                                    service_identity_api.get(&service_name).await.map_err(|e| {
-                                        format!("Unable to get ServiceIdentity: {}", e.to_string())
-                                    })?;
-                                owner_ref.controller = Default::default();
-                                owner_ref.block_owner_deletion = Some(true);
-                                owner_ref.name = service_identity.metadata.name.unwrap();
-                                owner_ref.api_version = "injector.sdp.com/v1".to_string();
-                                owner_ref.kind = "ServiceIdentity".to_string();
-                                owner_ref.uid =
-                                    service_identity.metadata.uid.clone().unwrap_or_default();
+                    let owned_rs = replicasets
+                        .iter()
+                        .filter(|rs| {
+                            rs.meta()
+                                .owner_references
+                                .as_ref()
+                                .map(|owners| owners[0].name == *owner_name)
+                                .unwrap_or(false)
+                        })
+                        .next();
+                    let num_replicas = owned_rs
+                        .and_then(|rs| rs.spec.as_ref())
+                        .and_then(|spec| spec.replicas);
 
-                                if let Some(num_replicas) = replicaset.spec.unwrap().replicas {
-                                    for _ in 0..(2 * num_replicas) {
-                                        let uuid = Uuid::new_v4().to_string();
-                                        info!(
-                                            "[{}] Assigning uuid {} to DeviceID {}",
-                                            service_id, uuid, service_id
-                                        );
-                                        uuids.push(uuid);
-                                    }
-                                }
-                            }
-                        }
-                    }
+                    // Assign some device ids
+                    let uuids_range = if let Some(num_replicas) = num_replicas {
+                        0..(2 * num_replicas)
+                    } else {
+                        warn!(
+                            "[{}] Unable to find replica sets for DeviceID. Adding {} device ids",
+                            service_id, DEFAULT_N_DEVICE_IDS
+                        );
+                        0..(2 * DEFAULT_N_DEVICE_IDS)
+                    };
+                    let uuids = uuids_range
+                        .map(|_| Uuid::new_v4().to_string())
+                        .map(|uuid| {
+                            info!(
+                                "[{}] Assigning uuid {} to DeviceID {}",
+                                service_id, uuid, service_id
+                            );
+                            uuid
+                        })
+                        .collect();
+
+                    // Create now the DeviceId
                     let mut device_id = DeviceId::new(
                         &service_name,
                         DeviceIdSpec {
