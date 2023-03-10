@@ -301,7 +301,7 @@ macro_rules! sdp_service {
     ($namespace:literal, $name:literal, $kind:literal) => {{
         let mut spec = SDPServiceSpec {
             name: $name.to_string(),
-            kind: $kind.to_string()
+            kind: $kind.to_string(),
         };
         let mut d = SDPService::new($name, spec);
         d.metadata.name = Some($name.to_string());
