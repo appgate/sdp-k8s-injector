@@ -1,11 +1,12 @@
 use crate::annotations::{SDP_INJECTOR_ANNOTATION_ENABLED, SDP_INJECTOR_ANNOTATION_STRATEGY};
 use crate::constants::{IDENTITY_MANAGER_SECRET_NAME, SDP_LOG_CONFIG_FILE_ENV};
-pub use crate::crd::ServiceIdentity;
+pub use crate::crd::{SDPService, ServiceIdentity};
 use crate::errors::SDPServiceError;
 use crate::sdp::{auth::SDPUser, system::ClientProfileUrl};
-use crate::traits::{Annotated, Labeled, MaybeNamespaced, MaybeService, Named};
+use crate::traits::{Annotated, Candidate, Labeled, MaybeNamespaced, MaybeService, Named};
 use json_patch::PatchOperation::Remove;
 use json_patch::{Patch, RemoveOperation};
+use k8s_openapi::api::apps::v1::Deployment;
 use k8s_openapi::api::core::v1::{ConfigMap, Container, Pod, PodSecurityContext, Volume};
 use k8s_openapi::{api::core::v1::Secret, ByteString};
 use kube::api::{DeleteParams, Patch as KubePatch, PatchParams, PostParams};
@@ -31,6 +32,50 @@ impl ToString for SDPInjectionStrategy {
         match self {
             SDPInjectionStrategy::EnabledByDefault => "enabledByDefault".to_string(),
             SDPInjectionStrategy::DisabledByDefault => "disabledByDefault".to_string(),
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub enum ServiceCandidate {
+    Deployment(Deployment),
+    SDPService(SDPService),
+}
+
+impl Named for ServiceCandidate {
+    fn name(&self) -> String {
+        match self {
+            ServiceCandidate::Deployment(d) => d.name(),
+            ServiceCandidate::SDPService(d) => d.name(),
+        }
+    }
+}
+
+impl MaybeNamespaced for ServiceCandidate {
+    fn namespace(&self) -> Option<String> {
+        match self {
+            ServiceCandidate::Deployment(d) => d.namespace(),
+            ServiceCandidate::SDPService(d) => d.namespace(),
+        }
+    }
+}
+
+impl MaybeService for ServiceCandidate {}
+
+impl Candidate for ServiceCandidate {
+    fn is_candidate(&self) -> bool {
+        match self {
+            ServiceCandidate::Deployment(d) => Candidate::is_candidate(d),
+            ServiceCandidate::SDPService(s) => Candidate::is_candidate(s),
+        }
+    }
+}
+
+impl Labeled for ServiceCandidate {
+    fn labels(&self) -> Result<HashMap<String, String>, SDPServiceError> {
+        match self {
+            ServiceCandidate::Deployment(d) => Labeled::labels(d),
+            ServiceCandidate::SDPService(s) => Labeled::labels(s),
         }
     }
 }
