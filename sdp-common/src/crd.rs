@@ -24,11 +24,14 @@ use crate::{
     namespaced
 )]
 
-pub struct SDPServiceSpec {}
+pub struct SDPServiceSpec {
+    pub kind: String,
+    pub name: String,
+}
 
 impl Named for SDPService {
     fn name(&self) -> String {
-        self.name_any()
+        self.spec.name.clone()
     }
 }
 
