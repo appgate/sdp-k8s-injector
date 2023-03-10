@@ -824,7 +824,8 @@ mod tests {
         service::ServiceLookup,
         traits::{HasCredentials, Service},
     };
-    use sdp_macros::{deployment, service_identity, service_user};
+    pub use sdp_common::crd::{SDPService, SDPServiceSpec};
+    use sdp_macros::{deployment, service_identity, service_user, sdp_service};
     use sdp_test_macros::{assert_message, assert_no_message};
     use tokio::sync::broadcast::channel as broadcast_channel;
     use tokio::sync::mpsc::channel;
@@ -993,6 +994,7 @@ mod tests {
         ];
         let d1 = deployment!("ns1", "dep1");
         let d2 = deployment!("ns1", "srv1");
+        let ss1 = sdp_service!("ns2", "srv2", "customrunner");
         test_service_identity_provider! {
             im(identities) => {
                 assert_eq!(im.identities().len(), 4);
@@ -1003,6 +1005,7 @@ mod tests {
                 assert_eq!(sorted_is0, sorted_is1);
                 assert!(im.identity(&ServiceLookup::try_from_service(&d1).unwrap()).is_none());
                 assert!(im.identity(&ServiceLookup::try_from_service(&d2).unwrap()).is_some());
+                assert!(im.identity(&ServiceLookup::try_from_service(&ss1).unwrap()).is_some());
             }
         }
     }
@@ -1028,6 +1031,7 @@ mod tests {
         let d2_2 = deployment!("ns2", "srv2");
         let d1_2 = deployment!("ns2", "srv1");
         let d3_1 = deployment!("ns1", "srv3");
+        let ss3_1 = sdp_service!("ns1", "srv3", "customservice");
 
         test_service_identity_provider! {
             im(identities) => {
@@ -1081,6 +1085,22 @@ mod tests {
                 identities.sort_by(|a, b| a.service_id().partial_cmp(&b.service_id()).unwrap());
                 let identities: Vec<String> = identities.iter().map(|i| i.service_id()).collect();
                 assert_eq!(identities, vec!["ns1_srv1", "ns2_srv1", "ns2_srv2"]);
+            }
+        }
+
+        test_service_identity_provider! {
+            im(identities) => {
+                let c1 = service_user!(1);
+                let c2 = service_user!(2);
+                // push some credentials
+                im.push(c1.clone());
+                im.push(c2.clone());
+
+                assert_eq!(im.identities().len(), 1);
+
+                // ask for a new service identity from candidate SDPService, we can create it because we have creds
+                let d2_2_id = im.next_identity(&ServiceLookup::try_from_service(&ss3_1).unwrap());
+                check_service_identity(d2_2_id, &c1, "srv3", "ns1");
             }
         }
     }
@@ -1500,7 +1520,7 @@ mod tests {
 
                 // Request a new ServiceIdentity, second one
                 tx.send(IdentityManagerProtocol::RequestServiceIdentity {
-                    service_candidate: ServiceCandidate::Deployment(deployment!("ns2", "srv2")),
+                    service_candidate: ServiceCandidate::SDPService(sdp_service!("ns2", "srv2", "customservice")),
                 }).await.expect("[ns2_srv2] Unable to send RequestServiceIdentity message to IdentityManager");
 
                 // We have deactivated credentials so we can create it
@@ -1589,6 +1609,31 @@ mod tests {
                 assert_eq!(counters.lock().unwrap().create_calls, 2);
 
                 assert_no_message!(identity_creator_rx);
+
+                // Request a new ServiceIdentity (this time from SDPSercice) already created
+                tx.send(IdentityManagerProtocol::RequestServiceIdentity {
+                    service_candidate: ServiceCandidate::SDPService(sdp_service!("ns1", "srv1", "custom_service")),
+                }).await.expect("[ns1_srv1] Unable to send RequestServiceIdentity message to IdentityManager");
+                assert_message! {
+                    (m :: IdentityManagerProtocol::IdentityManagerDebug(_) in watcher_rx) => {
+                        if let IdentityManagerProtocol::IdentityManagerDebug(msg) = m {
+                            assert!(msg.eq("[ns1_srv1] New ServiceIdentity requested for ServiceCandidate ns1_srv1"),
+                                    "Wrong message, got {}", msg);
+                        }
+                    }
+                }
+                assert_message! {
+                    (m :: IdentityManagerProtocol::IdentityManagerDebug(_) in watcher_rx) => {
+                        if let IdentityManagerProtocol::IdentityManagerDebug(msg) = m {
+                            assert!(msg.eq("[ns1_srv1] ServiceIdentity already exists for service ns1_srv1"),
+                                    "Wrong message, got {}", msg);
+                        }
+                    }
+                }
+                // Create call count should remain the same because we are reusing ServiceIdentity
+                assert_eq!(counters.lock().unwrap().create_calls, 2);
+
+                assert_no_message!(identity_creator_rx);
             }
         }
     }
@@ -1619,7 +1664,7 @@ mod tests {
                 }
                 // Request a new ServiceIdentity
                 tx.send(IdentityManagerProtocol::RequestServiceIdentity {
-                service_candidate: ServiceCandidate::Deployment(deployment!("ns1", "srv1")),
+                service_candidate: ServiceCandidate::SDPService(sdp_service!("ns1", "srv1", "customservice")),
                 }).await.expect("[ns1_srv1] Unable to send RequestServiceIdentity message to IdentityManager");
 
                 // We have deactivated credentials so we can create it

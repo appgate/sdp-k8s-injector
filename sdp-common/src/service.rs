@@ -80,6 +80,8 @@ impl Labeled for ServiceCandidate {
     }
 }
 
+
+#[derive(Debug)]
 pub struct ServiceLookup {
     name: String,
     namespace: String,

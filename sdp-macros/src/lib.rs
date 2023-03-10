@@ -297,6 +297,20 @@ macro_rules! deployment {
 }
 
 #[macro_export]
+macro_rules! sdp_service {
+    ($namespace:literal, $name:literal, $kind:literal) => {{
+        let mut spec = SDPServiceSpec {
+            name: $name.to_string(),
+            kind: $kind.to_string()
+        };
+        let mut d = SDPService::new($name, spec);
+        d.metadata.name = Some($name.to_string());
+        d.metadata.namespace = Some($namespace.to_string());
+        d
+    }};
+}
+
+#[macro_export]
 macro_rules! service_user {
     ($n:expr) => {
         ServiceUser {
