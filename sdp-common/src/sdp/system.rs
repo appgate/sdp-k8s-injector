@@ -11,6 +11,7 @@ use std::time::Duration;
 use uuid::Uuid;
 
 const SDP_SYSTEM_HOSTS: &str = "SDP_SYSTEM_HOSTS";
+const SDP_SYSTEM_NO_VERIFY_ENV: &str = "SDP_SYSTEM_NO_VERIFY";
 const SDP_SYSTEM_API_VERSION: &str = "v17";
 const SDP_SYSTEM_USERNAME: &str = "SDP_K8S_USERNAME";
 const SDP_SYSTEM_USERNAME_DEFAULT: &str = "admin";
@@ -88,9 +89,13 @@ impl SystemConfig {
         let hm = self
             .headers()
             .map_err(|e| format!("Unable to create SDP client: {}", e))?;
+        let no_verify = match std::env::var(SDP_SYSTEM_NO_VERIFY_ENV) {
+            Ok(v) if v == "1" || v.to_lowercase() == "true" => true,
+            _ => false,
+        };
         Client::builder()
             .default_headers(hm)
-            .danger_accept_invalid_certs(true)
+            .danger_accept_invalid_certs(no_verify)
             .build()
             .map_err(|e| format!("Unable to create SDP client: {}", e))
             .map(|c| System {
