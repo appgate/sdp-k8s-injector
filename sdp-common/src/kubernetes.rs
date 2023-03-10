@@ -15,6 +15,8 @@ use crate::{
 };
 
 pub const SDP_K8S_HOST_ENV: &str = "SDP_K8S_HOST";
+pub const SDP_K8S_PORT_ENV: &str = "SDP_K8S_PORT";
+pub const SDP_K8S_PORT_DEFAULT: &str = "443";
 pub const SDP_K8S_HOST_DEFAULT: &str = "kubernetes.default.svc";
 pub const SDP_K8S_NO_VERIFY_ENV: &str = "SDP_K8S_NO_VERIFY";
 pub const SDP_K8S_NAMESPACE: &str = "sdp-system";
@@ -23,6 +25,8 @@ pub const KUBE_SYSTEM_NAMESPACE: &str = "kube-system";
 pub async fn get_k8s_client() -> Client {
     let mut k8s_host = String::from("https://");
     k8s_host.push_str(&std::env::var(SDP_K8S_HOST_ENV).unwrap_or(SDP_K8S_HOST_DEFAULT.to_string()));
+    k8s_host.push_str(":");
+    k8s_host.push_str(&std::env::var(SDP_K8S_PORT_ENV).unwrap_or(SDP_K8S_PORT_DEFAULT.to_string()));
     let k8s_uri = k8s_host
         .parse::<Uri>()
         .expect(format!("Unable to parse SDP_K8S_HOST value: {}", k8s_host).as_str());
