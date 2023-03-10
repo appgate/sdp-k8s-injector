@@ -171,7 +171,9 @@ impl Annotated for AdmissionRequest<Pod> {
     }
 }
 
-fn admission_request_name<E: Resource + Named>(admission_request: &AdmissionRequest<E>) -> String {
+pub fn admission_request_name<E: Resource + Named>(
+    admission_request: &AdmissionRequest<E>,
+) -> String {
     admission_request
         .object
         .as_ref()
@@ -182,7 +184,7 @@ fn admission_request_name<E: Resource + Named>(admission_request: &AdmissionRequ
         })
 }
 
-fn admission_request_namespace<E: Resource + MaybeNamespaced + Clone>(
+pub fn admission_request_namespace<E: Resource + MaybeNamespaced + Clone>(
     admission_request: &AdmissionRequest<E>,
 ) -> Option<String> {
     if let Some(ns) = admission_request.namespace.as_ref() {
