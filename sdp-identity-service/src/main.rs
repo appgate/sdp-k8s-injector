@@ -82,7 +82,7 @@ async fn main() -> () {
             let (identity_creator_proto_tx, identity_creator_proto_rx) =
                 channel::<IdentityCreatorProtocol>(50);
 
-            // Create the channel for DeploymentWatcherProtocol
+            // Create the channel for ServiceCandidateWatcherProtocol
             // IdentityManager is the Sender and each of the ServiceCandidate watchers are the Receivers (broadcast channel is used)
             // TODO: Implement using watch channel
             let (service_candidate_watcher_proto_tx, service_candidate_watcher_proto_rx) =

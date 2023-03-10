@@ -848,7 +848,7 @@ mod tests {
             let (identity_creator_proto_tx, mut $identity_creator_proto_rx) =
                 channel::<IdentityCreatorProtocol>(10);
             let (service_candidate_watcher_proto_tx, mut $service_candidate_watcher_proto_rx) =
-                broadcast_channel::<DeploymentWatcherProtocol>(10);
+                broadcast_channel::<ServiceCandidateWatcherProtocol>(10);
             let (watcher_tx, mut $watcher_rx) =
                 channel::<IdentityManagerProtocol<ServiceCandidate, ServiceIdentity>>(10);
             let mut $im = Box::new(TestIdentityManager::default());
