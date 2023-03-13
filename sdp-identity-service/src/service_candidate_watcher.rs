@@ -7,9 +7,7 @@ use sdp_common::service::ServiceCandidate;
 use sdp_common::traits::MaybeService;
 use sdp_common::watcher::SimpleWatchingProtocol;
 use sdp_common::{crd::ServiceIdentity, traits::Candidate};
-use sdp_macros::{
-    logger, sdp_error, sdp_info, sdp_log, service_candidate_protocol, when_ok, with_dollar_sign,
-};
+use sdp_macros::{logger, sdp_error, sdp_info, sdp_log, when_ok, with_dollar_sign};
 
 use crate::identity_manager::IdentityManagerProtocol;
 

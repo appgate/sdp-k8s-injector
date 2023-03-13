@@ -34,12 +34,20 @@ pub trait Annotated {
     }
 }
 
+pub fn generate_name(namespace: String, name: String) -> String {
+    format!("{}-{}", namespace, name)
+}
+
+pub fn generate_id(namespace: String, name: String) -> String {
+    format!("{}_{}", namespace, name)
+}
+
 pub trait Service: Named + Namespaced + Sized {
     fn service_name(&self) -> String {
-        format!("{}-{}", Namespaced::namespace(self), Named::name(self))
+        generate_name(Namespaced::namespace(self), Named::name(self))
     }
     fn service_id(&self) -> String {
-        format!("{}_{}", Namespaced::namespace(self), Named::name(self))
+        generate_id(Namespaced::namespace(self), Named::name(self))
     }
 }
 
@@ -47,12 +55,13 @@ pub trait MaybeService: Named + MaybeNamespaced + Sized {
     fn service_name(&self) -> Result<String, SDPServiceError> {
         let namespace =
             MaybeNamespaced::namespace(self).ok_or_else(|| "Namespace not found in resource")?;
-        Ok(format!("{}-{}", namespace, Named::name(self)))
+        Ok(generate_name(namespace, Named::name(self)))
     }
+
     fn service_id(&self) -> Result<String, SDPServiceError> {
         let namespace =
             MaybeNamespaced::namespace(self).ok_or_else(|| "Namespace not found in resource")?;
-        Ok(format!("{}_{}", namespace, Named::name(self)))
+        Ok(generate_id(namespace, Named::name(self)))
     }
 }
 

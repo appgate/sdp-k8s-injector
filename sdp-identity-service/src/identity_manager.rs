@@ -810,7 +810,7 @@ impl IdentityManagerRunner<ServiceLookup, ServiceIdentity> {
 #[cfg(test)]
 mod tests {
     use std::{
-        collections::{HashMap, HashSet},
+        collections::{BTreeMap, HashMap, HashSet},
         future,
         pin::Pin,
         sync::{Arc, Mutex},
