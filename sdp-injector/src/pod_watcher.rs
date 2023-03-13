@@ -9,7 +9,7 @@ use crate::deviceid::DeviceIdProviderRequestProtocol;
 
 logger!("PodWatcher");
 
-fn get_device_id(
+fn device_id_release_message(
     pod: &Pod,
     service_id: &String,
 ) -> Option<DeviceIdProviderRequestProtocol<ServiceIdentity>> {
@@ -43,6 +43,10 @@ fn get_device_id(
         })
 }
 
+/*
+ * Pods implement SimpleWatchingProtocol for DeviceIdProviderRequestProtocol
+ * This watching protocol is used to release device ids when pods are deleted
+ */
 impl SimpleWatchingProtocol<DeviceIdProviderRequestProtocol<ServiceIdentity>> for Pod {
     fn initialized(
         &self,
@@ -67,7 +71,7 @@ impl SimpleWatchingProtocol<DeviceIdProviderRequestProtocol<ServiceIdentity>> fo
                 if let Some("Evicted") = status.reason.as_ref().map(String::as_str) {
                     info!("[{}] Evicted POD: {} ", service_id,
                         status.message.as_ref().map(String::as_str).unwrap_or("No message"));
-                    get_device_id(self, &service_id)
+                    device_id_release_message(self, &service_id)
                 } else {
                     None
                 }
@@ -80,7 +84,7 @@ impl SimpleWatchingProtocol<DeviceIdProviderRequestProtocol<ServiceIdentity>> fo
         _ns: Option<Namespace>,
     ) -> Option<DeviceIdProviderRequestProtocol<ServiceIdentity>> {
         when_ok!((service_id:DeviceIdProviderRequestProtocol<ServiceIdentity> = self.service_id()) {
-            let msg = get_device_id(self, &service_id);
+            let msg = device_id_release_message(self, &service_id);
             if msg.is_none() {
                 info!("[{}] Ignoring Pod {}", service_id, service_id);
             }

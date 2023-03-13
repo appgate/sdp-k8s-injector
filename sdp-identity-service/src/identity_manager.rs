@@ -1,11 +1,10 @@
 use futures::Future;
-use k8s_openapi::api::apps::v1::Deployment;
 use kube::api::{DeleteParams, ListParams, PostParams};
 use kube::{Api, Client};
 use sdp_common::constants::SDP_CLUSTER_ID_ENV;
 pub use sdp_common::crd::{ServiceIdentity, ServiceIdentitySpec};
 use sdp_common::kubernetes::SDP_K8S_NAMESPACE;
-use sdp_common::service::{ServiceLookup, ServiceUser};
+use sdp_common::service::{ServiceCandidate, ServiceLookup, ServiceUser};
 use sdp_common::traits::{
     HasCredentials, Labeled, MaybeNamespaced, MaybeService, Named, Namespaced, Service,
 };
@@ -16,11 +15,12 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::fmt;
 use std::iter::FromIterator;
 use std::pin::Pin;
+use tokio::sync::broadcast::Sender as BroadcastSender;
 use tokio::sync::mpsc::{Receiver, Sender};
 
-use crate::deployment_watcher::DeploymentWatcherProtocol;
 use crate::errors::IdentityServiceError;
 use crate::identity_creator::IdentityCreatorProtocol;
+use crate::service_candidate_watcher::ServiceCandidateWatcherProtocol;
 
 logger!("IdentityManager");
 
@@ -105,8 +105,12 @@ trait ServiceIdentityAPI {
     ) -> Pin<Box<dyn Future<Output = Result<Vec<ServiceIdentity>, IdentityServiceError>> + Send + '_>>;
 }
 
-/// Messages exchanged between the the IdentityCreator and IdentityManager
-#[derive(Debug)]
+/*
+ * Protocol implemented to manage identities
+ * IdentityManager is the Receiver and it has several Senders: IdentityManager, IdentityCreator and each of
+ *  the ServiceCandidate Watchers
+ */
+#[derive(Debug, Clone)]
 pub enum IdentityManagerProtocol<From: MaybeService, To: Service + HasCredentials> {
     /// Message used to request a new ServiceIdentity for ServiceCandidate
     RequestServiceIdentity {
@@ -116,7 +120,7 @@ pub enum IdentityManagerProtocol<From: MaybeService, To: Service + HasCredential
     FoundServiceCandidate(From),
     DeletedServiceCandidate(From),
     /// Message to notify that a new ServiceUser have been created
-    /// IdentityCreator creates these ServiceUSer
+    /// IdentityCreator creates these ServiceUSer§
     FoundServiceUser(ServiceUser, bool),
     IdentityCreatorReady,
     DeploymentWatcherReady,
@@ -368,7 +372,7 @@ impl IdentityManagerRunner<ServiceLookup, ServiceIdentity> {
         mut identity_manager_rx: Receiver<IdentityManagerProtocol<F, ServiceIdentity>>,
         identity_manager_tx: Sender<IdentityManagerProtocol<F, ServiceIdentity>>,
         identity_creator_tx: Sender<IdentityCreatorProtocol>,
-        deployment_watcher_proto_tx: Sender<DeploymentWatcherProtocol>,
+        service_candidate_watcher_proto_tx: BroadcastSender<ServiceCandidateWatcherProtocol>,
         external_queue_tx: Option<&Sender<IdentityManagerProtocol<F, ServiceIdentity>>>,
     ) -> () {
         info!("Starting Identity Manager");
@@ -695,9 +699,8 @@ impl IdentityManagerRunner<ServiceLookup, ServiceIdentity> {
                             .expect("Error requesting new ServiceIdentity");
                     }
 
-                    deployment_watcher_proto_tx
-                        .send(DeploymentWatcherProtocol::IdentityManagerReady)
-                        .await
+                    service_candidate_watcher_proto_tx
+                        .send(ServiceCandidateWatcherProtocol::IdentityManagerReady)
                         .expect("Unable to notify DeploymentWatcher!");
                 }
                 IdentityManagerProtocol::DeletedServiceCandidate(service_candidate) => {
@@ -760,17 +763,23 @@ impl IdentityManagerRunner<ServiceLookup, ServiceIdentity> {
 
     pub async fn run(
         mut self,
-        identity_manager_proto_rx: Receiver<IdentityManagerProtocol<Deployment, ServiceIdentity>>,
-        identity_manager_proto_tx: Sender<IdentityManagerProtocol<Deployment, ServiceIdentity>>,
+        identity_manager_proto_rx: Receiver<
+            IdentityManagerProtocol<ServiceCandidate, ServiceIdentity>,
+        >,
+        identity_manager_proto_tx: Sender<
+            IdentityManagerProtocol<ServiceCandidate, ServiceIdentity>,
+        >,
         identity_creator_proto_tx: Sender<IdentityCreatorProtocol>,
-        deployment_watcher_proto_tx: Sender<DeploymentWatcherProtocol>,
-        external_queue_tx: Option<Sender<IdentityManagerProtocol<Deployment, ServiceIdentity>>>,
+        service_candidate_watcher_proto_tx: BroadcastSender<ServiceCandidateWatcherProtocol>,
+        external_queue_tx: Option<
+            Sender<IdentityManagerProtocol<ServiceCandidate, ServiceIdentity>>,
+        >,
     ) -> () {
         info!("Starting Identity Manager service");
         IdentityManagerRunner::initialize(&mut self.im).await;
 
         queue_info! {
-            IdentityManagerProtocol::<Deployment, ServiceIdentity>::IdentityManagerInitialized => external_queue_tx
+            IdentityManagerProtocol::<ServiceCandidate, ServiceIdentity>::IdentityManagerInitialized => external_queue_tx
         };
 
         // Ask Identity Creator to awake
@@ -791,7 +800,7 @@ impl IdentityManagerRunner<ServiceLookup, ServiceIdentity> {
             identity_manager_proto_rx,
             identity_manager_proto_tx,
             identity_creator_proto_tx,
-            deployment_watcher_proto_tx,
+            service_candidate_watcher_proto_tx,
             external_queue_tx.as_ref(),
         )
         .await;
@@ -810,20 +819,23 @@ mod tests {
     use futures::Future;
     use k8s_openapi::api::apps::v1::Deployment;
     use kube::{core::object::HasSpec, ResourceExt};
+    pub use sdp_common::crd::{SDPService, SDPServiceSpec};
     use sdp_common::{
+        service::ServiceCandidate,
         service::ServiceLookup,
         traits::{HasCredentials, Service},
     };
-    use sdp_macros::{deployment, service_identity, service_user};
+    use sdp_macros::{deployment, sdp_service, service_identity, service_user};
     use sdp_test_macros::{assert_message, assert_no_message};
+    use tokio::sync::broadcast::channel as broadcast_channel;
     use tokio::sync::mpsc::channel;
     use tokio::time::{sleep, timeout, Duration};
 
-    use crate::{
-        deployment_watcher::DeploymentWatcherProtocol, identity_creator::IdentityCreatorProtocol,
-        identity_manager::IdentityManagerProtocol,
-    };
     use crate::{errors::IdentityServiceError, identity_manager::ServiceUser};
+    use crate::{
+        identity_creator::IdentityCreatorProtocol, identity_manager::IdentityManagerProtocol,
+        service_candidate_watcher::ServiceCandidateWatcherProtocol,
+    };
 
     use super::{
         IdentityManager, IdentityManagerPool, IdentityManagerRunner, ServiceIdentity,
@@ -831,15 +843,15 @@ mod tests {
     };
 
     macro_rules! test_identity_manager {
-        (($im:ident($vs:expr), $watcher_rx:ident, $identity_manager_proto_tx:ident, $identity_creator_proto_rx:ident, $deployment_watched_proto_rx:ident, $counters:ident) => $e:expr) => {
+        (($im:ident($vs:expr), $watcher_rx:ident, $identity_manager_proto_tx:ident, $identity_creator_proto_rx:ident, $service_candidate_watcher_proto_rx:ident, $counters:ident) => $e:expr) => {
             let ($identity_manager_proto_tx, identity_manager_proto_rx) =
-                channel::<IdentityManagerProtocol<Deployment, ServiceIdentity>>(10);
+                channel::<IdentityManagerProtocol<ServiceCandidate, ServiceIdentity>>(10);
             let (identity_creator_proto_tx, mut $identity_creator_proto_rx) =
                 channel::<IdentityCreatorProtocol>(10);
-            let (deployment_watched_proto_tx, mut $deployment_watched_proto_rx) =
-                channel::<DeploymentWatcherProtocol>(10);
+            let (service_candidate_watcher_proto_tx, mut $service_candidate_watcher_proto_rx) =
+                broadcast_channel::<ServiceCandidateWatcherProtocol>(10);
             let (watcher_tx, mut $watcher_rx) =
-                channel::<IdentityManagerProtocol<Deployment, ServiceIdentity>>(10);
+                channel::<IdentityManagerProtocol<ServiceCandidate, ServiceIdentity>>(10);
             let mut $im = Box::new(TestIdentityManager::default());
             for i in $vs.clone() {
                 $im.register_identity(i);
@@ -853,7 +865,7 @@ mod tests {
                         identity_manager_proto_rx,
                         identity_manager_proto_tx_cp2,
                         identity_creator_proto_tx,
-                        deployment_watched_proto_tx,
+                        service_candidate_watcher_proto_tx,
                         Some(watcher_tx),
                     )
                     .await
@@ -982,6 +994,7 @@ mod tests {
         ];
         let d1 = deployment!("ns1", "dep1");
         let d2 = deployment!("ns1", "srv1");
+        let ss1 = sdp_service!("ns2", "srv2", "customrunner");
         test_service_identity_provider! {
             im(identities) => {
                 assert_eq!(im.identities().len(), 4);
@@ -992,6 +1005,7 @@ mod tests {
                 assert_eq!(sorted_is0, sorted_is1);
                 assert!(im.identity(&ServiceLookup::try_from_service(&d1).unwrap()).is_none());
                 assert!(im.identity(&ServiceLookup::try_from_service(&d2).unwrap()).is_some());
+                assert!(im.identity(&ServiceLookup::try_from_service(&ss1).unwrap()).is_some());
             }
         }
     }
@@ -1017,6 +1031,7 @@ mod tests {
         let d2_2 = deployment!("ns2", "srv2");
         let d1_2 = deployment!("ns2", "srv1");
         let d3_1 = deployment!("ns1", "srv3");
+        let ss3_1 = sdp_service!("ns1", "srv3", "customservice");
 
         test_service_identity_provider! {
             im(identities) => {
@@ -1070,6 +1085,22 @@ mod tests {
                 identities.sort_by(|a, b| a.service_id().partial_cmp(&b.service_id()).unwrap());
                 let identities: Vec<String> = identities.iter().map(|i| i.service_id()).collect();
                 assert_eq!(identities, vec!["ns1_srv1", "ns2_srv1", "ns2_srv2"]);
+            }
+        }
+
+        test_service_identity_provider! {
+            im(identities) => {
+                let c1 = service_user!(1);
+                let c2 = service_user!(2);
+                // push some credentials
+                im.push(c1.clone());
+                im.push(c2.clone());
+
+                assert_eq!(im.identities().len(), 1);
+
+                // ask for a new service identity from candidate SDPService, we can create it because we have creds
+                let d2_2_id = im.next_identity(&ServiceLookup::try_from_service(&ss3_1).unwrap());
+                check_service_identity(d2_2_id, &c1, "srv3", "ns1");
             }
         }
     }
@@ -1384,7 +1415,7 @@ mod tests {
                 // Request a new ServiceIdentity
                 let tx = identity_manager_tx.clone();
                 tx.send(IdentityManagerProtocol::RequestServiceIdentity {
-                    service_candidate: deployment!("ns1", "srv1"),
+                    service_candidate: ServiceCandidate::Deployment(deployment!("ns1", "srv1")),
                 }).await.expect("Unable to send RequestServiceIdentity message to IdentityManager");
                 assert_message!(m :: IdentityCreatorProtocol::StartService in identity_creator_rx);
                 assert_no_message!(identity_creator_rx);
@@ -1446,7 +1477,7 @@ mod tests {
 
                 // Request a new ServiceIdentity
                 tx.send(IdentityManagerProtocol::RequestServiceIdentity {
-                    service_candidate: deployment!("ns1", "srv1"),
+                    service_candidate:  ServiceCandidate::Deployment(deployment!("ns1", "srv1")),
                 }).await.expect("Unable to send RequestServiceIdentity message to IdentityManager");
 
                 // We have deactivated credentials so we can create it
@@ -1489,7 +1520,7 @@ mod tests {
 
                 // Request a new ServiceIdentity, second one
                 tx.send(IdentityManagerProtocol::RequestServiceIdentity {
-                    service_candidate: deployment!("ns2", "srv2"),
+                    service_candidate: ServiceCandidate::SDPService(sdp_service!("ns2", "srv2", "customservice")),
                 }).await.expect("[ns2_srv2] Unable to send RequestServiceIdentity message to IdentityManager");
 
                 // We have deactivated credentials so we can create it
@@ -1534,7 +1565,7 @@ mod tests {
 
                 // Request a new ServiceIdentity, no more credentials!
                 tx.send(IdentityManagerProtocol::RequestServiceIdentity {
-                    service_candidate: deployment!("ns3", "srv1"),
+                    service_candidate: ServiceCandidate::Deployment(deployment!("ns3", "srv1")),
                 }).await.expect("[ns3_srv1] Unable to send RequestServiceIdentity message to IdentityManager");
                 assert_message! {
                     (m :: IdentityManagerProtocol::IdentityManagerDebug(_) in watcher_rx) => {
@@ -1556,7 +1587,7 @@ mod tests {
 
                 // Request a new ServiceIdentity already created
                 tx.send(IdentityManagerProtocol::RequestServiceIdentity {
-                    service_candidate: deployment!("ns1", "srv1"),
+                    service_candidate: ServiceCandidate::Deployment(deployment!("ns1", "srv1")),
                 }).await.expect("[ns1_srv1] Unable to send RequestServiceIdentity message to IdentityManager");
                 assert_message! {
                     (m :: IdentityManagerProtocol::IdentityManagerDebug(_) in watcher_rx) => {
@@ -1569,6 +1600,31 @@ mod tests {
                 assert_message! {
                     (m :: IdentityManagerProtocol::IdentityManagerDebug(_) in watcher_rx) => {
                      if let IdentityManagerProtocol::IdentityManagerDebug(msg) = m {
+                            assert!(msg.eq("[ns1_srv1] ServiceIdentity already exists for service ns1_srv1"),
+                                    "Wrong message, got {}", msg);
+                        }
+                    }
+                }
+                // Create call count should remain the same because we are reusing ServiceIdentity
+                assert_eq!(counters.lock().unwrap().create_calls, 2);
+
+                assert_no_message!(identity_creator_rx);
+
+                // Request a new ServiceIdentity (this time from SDPSercice) already created
+                tx.send(IdentityManagerProtocol::RequestServiceIdentity {
+                    service_candidate: ServiceCandidate::SDPService(sdp_service!("ns1", "srv1", "custom_service")),
+                }).await.expect("[ns1_srv1] Unable to send RequestServiceIdentity message to IdentityManager");
+                assert_message! {
+                    (m :: IdentityManagerProtocol::IdentityManagerDebug(_) in watcher_rx) => {
+                        if let IdentityManagerProtocol::IdentityManagerDebug(msg) = m {
+                            assert!(msg.eq("[ns1_srv1] New ServiceIdentity requested for ServiceCandidate ns1_srv1"),
+                                    "Wrong message, got {}", msg);
+                        }
+                    }
+                }
+                assert_message! {
+                    (m :: IdentityManagerProtocol::IdentityManagerDebug(_) in watcher_rx) => {
+                        if let IdentityManagerProtocol::IdentityManagerDebug(msg) = m {
                             assert!(msg.eq("[ns1_srv1] ServiceIdentity already exists for service ns1_srv1"),
                                     "Wrong message, got {}", msg);
                         }
@@ -1608,7 +1664,7 @@ mod tests {
                 }
                 // Request a new ServiceIdentity
                 tx.send(IdentityManagerProtocol::RequestServiceIdentity {
-                service_candidate: deployment!("ns1", "srv1"),
+                service_candidate: ServiceCandidate::SDPService(sdp_service!("ns1", "srv1", "customservice")),
                 }).await.expect("[ns1_srv1] Unable to send RequestServiceIdentity message to IdentityManager");
 
                 // We have deactivated credentials so we can create it
@@ -1677,7 +1733,7 @@ mod tests {
                 }
                 // Request a new ServiceIdentity
                 tx.send(IdentityManagerProtocol::RequestServiceIdentity {
-                service_candidate: deployment!("ns1", "srv1"),
+                service_candidate: ServiceCandidate::Deployment(deployment!("ns1", "srv1")),
                 }).await.expect("[ns1_srv1] Unable to send RequestServiceIdentity message to IdentityManager");
 
                 // Since we have an empty pool we can not create identities
@@ -1704,7 +1760,7 @@ mod tests {
                     .await.expect("Unable to send message!");
                 // Request a new ServiceIdentity
                 tx.send(IdentityManagerProtocol::RequestServiceIdentity {
-                    service_candidate: deployment!("ns1", "srv1"),
+                    service_candidate: ServiceCandidate::Deployment(deployment!("ns1", "srv1")),
                 }).await.expect("[ns1_srv1] Unable to send RequestServiceIdentity message to IdentityManager");
                 // We ask IC to create a new credential
                 assert_message!(m :: IdentityCreatorProtocol::CreateIdentity in identity_creator_rx);

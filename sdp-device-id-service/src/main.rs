@@ -6,6 +6,7 @@ use sdp_common::crd::{DeviceId, ServiceIdentity};
 use sdp_common::kubernetes::{self, SDP_K8S_NAMESPACE};
 use sdp_common::service::get_log_config_path;
 use sdp_common::watcher::{watch, Watcher, WatcherWaitReady};
+use tokio::sync::broadcast::channel as broadcast_channel;
 use tokio::sync::mpsc::channel;
 
 mod device_id_errors;
@@ -41,7 +42,8 @@ async fn run() {
     let device_id_manager = DeviceIdManagerRunner::kube_runner(manager_client);
 
     let client = kubernetes::get_k8s_client().await;
-    let (watcher_proto_tx, watcher_proto_rx) = channel::<ServiceIdentityWatcherProtocol>(50);
+    let (watcher_proto_tx, watcher_proto_rx) =
+        broadcast_channel::<ServiceIdentityWatcherProtocol>(50);
     let api: Api<ServiceIdentity> = Api::namespaced(client, SDP_K8S_NAMESPACE);
     tokio::spawn(async move {
         let watcher = Watcher {

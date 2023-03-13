@@ -297,6 +297,20 @@ macro_rules! deployment {
 }
 
 #[macro_export]
+macro_rules! sdp_service {
+    ($namespace:literal, $name:literal, $kind:literal) => {{
+        let mut spec = SDPServiceSpec {
+            name: $name.to_string(),
+            kind: $kind.to_string(),
+        };
+        let mut d = SDPService::new($name, spec);
+        d.metadata.name = Some($name.to_string());
+        d.metadata.namespace = Some($namespace.to_string());
+        d
+    }};
+}
+
+#[macro_export]
 macro_rules! service_user {
     ($n:expr) => {
         ServiceUser {
@@ -357,5 +371,50 @@ macro_rules! device_id {
                 service_namespace: concat!(stringify!(ns), $n).to_string(),
             },
         )
+    };
+}
+
+#[macro_export]
+macro_rules! service_candidate_protocol {
+    ($t:ident) => {
+        impl ServiceCandidateProtocol<$t> for $t {
+            fn service<'a>(&'a self) -> &'a $t {
+                &self
+            }
+        }
+
+        impl SimpleWatchingProtocol<IdentityManagerProtocol<$t, ServiceIdentity>> for $t {
+            fn initialized(
+                &self,
+                ns: Option<Namespace>,
+            ) -> Option<IdentityManagerProtocol<$t, ServiceIdentity>> {
+                ServiceCandidateProtocol::initialized(self, ns)
+            }
+
+            fn applied(
+                &self,
+                ns: Option<Namespace>,
+            ) -> Option<IdentityManagerProtocol<$t, ServiceIdentity>> {
+                ServiceCandidateProtocol::applied(self, ns)
+            }
+
+            fn reapplied(
+                &self,
+                ns: Option<Namespace>,
+            ) -> Option<IdentityManagerProtocol<$t, ServiceIdentity>> {
+                ServiceCandidateProtocol::reapplied(self, ns)
+            }
+
+            fn deleted(
+                &self,
+                ns: Option<Namespace>,
+            ) -> Option<IdentityManagerProtocol<$t, ServiceIdentity>> {
+                ServiceCandidateProtocol::deleted(self, ns)
+            }
+
+            fn key(&self) -> Option<String> {
+                ServiceCandidateProtocol::key(self)
+            }
+        }
     };
 }

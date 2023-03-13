@@ -12,7 +12,7 @@ use uuid::Uuid;
 
 logger!("DeviceIDProvider");
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum DeviceIdProviderRequestProtocol<A: Service + HasCredentials> {
     FoundServiceIdentity(A),
     FoundDeviceId(DeviceId),
