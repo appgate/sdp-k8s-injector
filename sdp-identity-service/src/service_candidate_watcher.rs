@@ -1,16 +1,19 @@
 use k8s_openapi::api::apps::v1::Deployment;
 use k8s_openapi::api::core::v1::Namespace;
 use kube::ResourceExt;
-use log::{error, info};
 use sdp_common::annotations::SDP_INJECTOR_LABEL;
 use sdp_common::crd::SDPService;
 use sdp_common::service::ServiceCandidate;
 use sdp_common::traits::MaybeService;
 use sdp_common::watcher::SimpleWatchingProtocol;
 use sdp_common::{crd::ServiceIdentity, traits::Candidate};
-use sdp_macros::{service_candidate_protocol, when_ok};
+use sdp_macros::{
+    logger, sdp_error, sdp_info, sdp_log, service_candidate_protocol, when_ok, with_dollar_sign,
+};
 
 use crate::identity_manager::IdentityManagerProtocol;
+
+logger!("SDPServiceWatcher");
 
 #[derive(Debug, Clone)]
 pub enum ServiceCandidateWatcherProtocol {
