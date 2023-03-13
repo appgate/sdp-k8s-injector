@@ -64,7 +64,17 @@ data:
               "mountPath": "/etc/pod-info",
               "name": "pod-info"
             }
-          ]
+          ],
+          "readinessProbe": {
+            "exec": {
+              "command": [
+                "sh",
+                "-c",
+                "appgate_service_configurator status | grep '\"status\": \"Connected\"'"
+              ]
+            },
+            "initialDelaySeconds": 10
+          }
         },
         {
           "name": "sdp-driver",
