@@ -9,6 +9,7 @@ use kube::{core::admission::AdmissionRequest, Client, Config, Resource, Resource
 use log::error;
 
 use crate::{
+    annotations::SDP_ANNOTATION_SERVICE_NAME,
     errors::SDPServiceError,
     service::needs_injection,
     traits::{Annotated, Candidate, Labeled, MaybeNamespaced, MaybeService, Named, ObjectRequest},
@@ -46,16 +47,20 @@ impl Named for Pod {
     fn name(&self) -> String {
         /*
         To get the name for a pod we do:
-         1. Use `name_any` from kube crate (we get something like deployment-replicaset-pod)
-         2. If `name_any` can not provide that info, get the first owner and get the
+         1. Get the sername from annotation SDP_ANNOTATION_SERVICE_NAME
+         2. Use `name_any` from kube crate (we get something like deployment-replicaset-pod)
+         3. If `name_any` can not provide that info, get the first owner and get the
             name from there (we get something like deployment-replicaset)
-         3. If none of those worked we just return a random name to make sure there
+         4. If none of those worked we just return a random name to make sure there
             are not matches later in the registered services
-         3. If we got something we split by "-" and we remove 1 or 2 items from the right
+         5. If we got something we split by "-" and we remove 1 or 2 items from the right
             (depending where the name is coming from)
         */
         let name = self.name_any();
-        let maybe_name = (name != "")
+        let name_from_annotations = self
+            .annotation(SDP_ANNOTATION_SERVICE_NAME)
+            .map(Clone::clone);
+        let maybe_name = name_from_annotations.or((name != "")
             .then_some((name, 2))
             .or_else(|| {
                 let owners = self.owner_references();
@@ -65,7 +70,7 @@ impl Named for Pod {
                 let xs: Vec<&str> = name.split("-").collect();
                 let n = xs.len() - n;
                 xs[0..n].join("-")
-            });
+            }));
         match maybe_name {
             Some(name) if name == "" => {
                 error!("Empty service name for Pod");
@@ -261,9 +266,29 @@ mod test {
     use std::collections::BTreeMap;
 
     use crate::{
-        annotations::{SDP_INJECTOR_ANNOTATION_ENABLED, SDP_INJECTOR_ANNOTATION_STRATEGY},
-        traits::Candidate,
+        annotations::{
+            SDP_ANNOTATION_SERVICE_NAME, SDP_INJECTOR_ANNOTATION_ENABLED,
+            SDP_INJECTOR_ANNOTATION_STRATEGY,
+        },
+        traits::{Candidate, MaybeService},
     };
+
+    #[test]
+    fn test_pod_service_name_annotation() {
+        let p1 = pod!(0);
+        assert!(p1.service_id() == Ok("ns0_srv0".to_string()));
+        assert!(p1.service_name() == Ok("ns0-srv0".to_string()));
+
+        let p2 = pod!(1);
+        assert!(p2.service_id() == Ok("ns1_srv1".to_string()));
+        assert!(p2.service_name() == Ok("ns1-srv1".to_string()));
+
+        let p3 = pod!(2,  annotations => vec![
+            (SDP_ANNOTATION_SERVICE_NAME, "alter-ego"),
+        ]);
+        assert!(p3.service_id() == Ok("ns2_alter-ego".to_string()));
+        assert!(p3.service_name() == Ok("ns2-alter-ego".to_string()));
+    }
 
     #[test]
     fn test_sdp_injection_enabled() {
