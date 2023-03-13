@@ -64,7 +64,18 @@ data:
               "mountPath": "/etc/pod-info",
               "name": "pod-info"
             }
-          ]
+          ],
+          "readinessProbe": {
+            "exec": {
+              "command": [
+                "grep",
+                "Authentication succeeded.",
+                "/var/log/appgate-headless/log.log"
+              ]
+            },
+            "initialDelaySeconds": 5,
+            "periodSeconds": 5
+          }
         },
         {
           "name": "sdp-driver",
