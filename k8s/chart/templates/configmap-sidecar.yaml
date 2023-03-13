@@ -68,13 +68,12 @@ data:
           "readinessProbe": {
             "exec": {
               "command": [
-                "grep",
-                "Authentication succeeded.",
-                "/var/log/appgate-headless/log.log"
+                "sh",
+                "-c",
+                "appgate_service_configurator status | grep '\"status\": \"Connected\"'"
               ]
             },
-            "initialDelaySeconds": 5,
-            "periodSeconds": 5
+            "initialDelaySeconds": 10
           }
         },
         {
