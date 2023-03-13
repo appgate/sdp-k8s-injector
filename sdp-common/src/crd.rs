@@ -7,7 +7,6 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 use crate::{
-    annotations::SDP_ANNOTATION_SERVICE_NAME,
     errors::SDPServiceError,
     kubernetes::{admission_request_name, admission_request_namespace},
     service::{needs_injection, ServiceUser},
@@ -32,9 +31,7 @@ pub struct SDPServiceSpec {
 
 impl Named for SDPService {
     fn name(&self) -> String {
-        self.annotation(SDP_ANNOTATION_SERVICE_NAME)
-            .map(Clone::clone)
-            .unwrap_or(self.spec.name.clone())
+        self.spec.name.clone()
     }
 }
 
@@ -198,7 +195,7 @@ mod test {
         let s3 = sdp_service!("ns1", "name2", "kind1", annotations => vec![
             (SDP_ANNOTATION_SERVICE_NAME, "alter-ego"),
         ]);
-        assert!(s3.service_id() == Ok("ns1_alter-ego".to_string()));
-        assert!(s3.service_name() == Ok("ns1-alter-ego".to_string()));
+        assert!(s3.service_id() == Ok("ns1_name2".to_string()));
+        assert!(s3.service_name() == Ok("ns1-name2".to_string()));
     }
 }
