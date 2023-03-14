@@ -22,6 +22,7 @@ For ingress access, from external clients to SDP Gateway protected workloads in 
   * [Alternative Client Versions](#alternative-client-versions)
   * [Init Containers](#init-containers)
   * [Multiple Clusters](#multiple-clusters)
+  * [Injection for Non-Deployment Resource (Experimental)](#injection-for-non-deployment-resource--experimental-)
 * [Annotations](#annotations)
 * [Helm Values](#parameters)
   * [SDP Parameters](#sdp-parameters)
@@ -62,7 +63,7 @@ SDP Kubernetes Injector requires following configurations on the SDP Controller:
     * `ALLOW UDP up to <INTERNAL DNS IP> - port 53`
   * Policy/Entitlement to access the Controller API:
     * `ALLOW TCP up to <CONTROLLER ADMIN INTERFACE> - port 8443`
-  * See [Meta-Client](#meta-client-sdp-client-for-the-injector) for details.
+  * See [Meta-Client](#meta-client--sdp-client-for-the-injector-) for details.
 
 ### Kubernetes Requirements
 * SDP Kubernetes Injector requires [cert-manager](https://cert-manager.io/) to be deployed in the Kubernetes Cluster.
@@ -324,6 +325,39 @@ $ kubectl annotate Deployment <DEPLOYMENT> k8s.appgate.com/sdp-injector.disable-
 
 ### Multiple Clusters
 You can connect multiple Kubernetes clusters to a single SDP system by installing an injector on each cluster. When installing the Injector, set a unique cluster ID in the helm value `sdp.clusterID`. To prevent collision of resources created by the Injector, the SDP system will use this ID as a tag or prefix (e.g. Client Profiles, Service Users). It is advised to tag your admin users for each injector with the cluster ID.
+
+### Injection for Non-Deployment Resource (Experimental)
+The injector supports Deployments out-of-the-box, but it also offers an experimental feature to inject SDP clients to resources other than Deployments.
+
+Starting from v1.0.7, the injector bundles a new CustomResourceDefinition called `SDPService`. Below is an example to inject a SDP Client into a Pod.
+```yaml
+apiVersion: injector.sdp.com/v1
+kind: SDPService
+metadata:
+  name: example-pod
+  namespace: sdp-demo
+spec:
+  name: example-pod
+  kind: pod
+```
+
+When the injector finds a new SDPService in the cluster, it generates a user and device ID. By specifying associated SDPService name into the annotation`k8s.appgate.com/sdp-injector.service-name`, you can inject a client into a Pod. In the example below, we have given the name of the SDPService `example-pod` into the annotation.
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: sleepy-pod
+  namespace: sdp-demo
+  annotations:
+    k8s.appgate.com/sdp-injector.service-name: example-pod
+spec:
+ containers:
+   - name: ubuntu
+     image: ubuntu:latest
+     command: [ "/bin/bash", "-c", "--" ]
+     args: [ "while true; do sleep 30; done;" ]
+```
+
 
 ## Annotations
 SDP Kubernetes Injector supports various annotation-based behavior customization
