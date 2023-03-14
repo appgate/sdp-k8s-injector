@@ -152,6 +152,8 @@ spec:
                   key: sdp-injector-api-provider
             - name: SDP_CLUSTER_ID
               value: {{ required ".Values.sdp.clusterID is required" .Values.sdp.clusterID }}
+            - name: SDP_SYSTEM_NO_VERIFY
+              value: {{ .Values.sdp.insecure | quote }}
           image: "{{ default .Values.global.image.repository .Values.sdp.identityService.image.repository }}/sdp-identity-service:{{ default .Chart.AppVersion .Values.sdp.identityService.image.tag }}"
           imagePullPolicy: {{ default .Values.global.image.pullPolicy .Values.sdp.identityService.image.pullPolicy }}
           args:
