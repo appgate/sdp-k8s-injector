@@ -389,7 +389,7 @@ impl ServiceEnvironment {
         E: IdentityStore<ServiceIdentity>,
         R: ObjectRequest<Pod> + MaybeService + Annotated,
     {
-        if let Some(e) = ServiceEnvironment::from_pod(request) {
+        if let Some(e) = ServiceEnvironment::from_pod(request)? {
             Ok(e)
         } else {
             ServiceEnvironment::from_identity_store(request, store).await
@@ -428,17 +428,19 @@ impl ServiceEnvironment {
         })
     }
 
-    fn from_pod<R: ObjectRequest<Pod> + MaybeService + Annotated>(request: &R) -> Option<Self> {
+    fn from_pod<R: ObjectRequest<Pod> + MaybeService + Annotated>(
+        request: &R,
+    ) -> Result<Option<Self>, SDPServiceError> {
         info!("Building service environment from pod");
-        let pod = request.object()?;
+        let pod = request.object().ok_or("Could not get pod in request")?;
         // Need all three annotation to build service environment from pod
         if let (Some(config), Some(secret), Some(device_id)) = (
             pod.annotation(SDP_ANNOTATION_CLIENT_CONFIG),
             pod.annotation(SDP_ANNOTATION_CLIENT_SECRETS),
             pod.annotation(SDP_ANNOTATION_CLIENT_DEVICE_ID),
         ) {
-            let service_id = request.service_id().ok()?;
-            Some(ServiceEnvironment {
+            let service_id = request.service_id()?;
+            Ok(Some(ServiceEnvironment {
                 service_name: service_id,
                 client_config: config.to_string(),
                 client_secret_name: secret.to_string(),
@@ -448,10 +450,10 @@ impl ServiceEnvironment {
                 client_device_id: device_id.to_string(),
                 n_containers: "0".to_string(),
                 k8s_dns_service_ip: None,
-            })
+            }))
         } else {
             warn!("Missing annotations to infer service environment from pod");
-            None
+            Ok(None)
         }
     }
 
@@ -2373,8 +2375,8 @@ Pod is missing required volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-
         let mut pod = pod!(0);
         let request = TestObjectRequest::new(pod);
         let mut env = ServiceEnvironment::from_pod(&request);
-        assert!(env.is_none());
-        assert!(env.as_ref().is_none());
+        assert!(env.is_ok());
+        assert!(env.as_ref().unwrap().is_none());
 
         // Contains all three necessary annotations
         pod = pod!(0, annotations => vec![
@@ -2384,9 +2386,9 @@ Pod is missing required volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-
         ]);
         let request = TestObjectRequest::new(pod);
         env = ServiceEnvironment::from_pod(&request);
-        assert!(env.is_some());
-        assert!(env.as_ref().is_some());
-        if let Some(env) = env {
+        assert!(env.is_ok());
+        assert!(env.as_ref().unwrap().is_some());
+        if let Ok(Some(env)) = env {
             assert_eq!(env.service_name, "ns0_srv0".to_string());
             assert_eq!(env.client_config, "some-config-map".to_string());
             assert_eq!(env.client_secret_name, "some-secrets".to_string());
@@ -2407,8 +2409,8 @@ Pod is missing required volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-
         ]);
         let request = TestObjectRequest::new(pod);
         env = ServiceEnvironment::from_pod(&request);
-        assert!(env.is_none());
-        assert!(env.as_ref().is_none());
+        assert!(env.is_ok());
+        assert!(env.as_ref().unwrap().is_none());
 
         // Missing secret and device_id annotation
         pod = pod!(1, annotations => vec![
@@ -2416,8 +2418,8 @@ Pod is missing required volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-
         ]);
         let request = TestObjectRequest::new(pod);
         env = ServiceEnvironment::from_pod(&request);
-        assert!(env.is_none());
-        assert!(env.as_ref().is_none());
+        assert!(env.is_ok());
+        assert!(env.as_ref().unwrap().is_none());
 
         // Missing secret and config annotation
         pod = pod!(1, annotations => vec![
@@ -2425,8 +2427,8 @@ Pod is missing required volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-
         ]);
         let request = TestObjectRequest::new(pod);
         env = ServiceEnvironment::from_pod(&request);
-        assert!(env.is_none());
-        assert!(env.as_ref().is_none());
+        assert!(env.is_ok());
+        assert!(env.as_ref().unwrap().is_none());
 
         // Missing secret annotation
         pod = pod!(1, annotations => vec![
@@ -2435,8 +2437,8 @@ Pod is missing required volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-
         ]);
         let request = TestObjectRequest::new(pod);
         env = ServiceEnvironment::from_pod(&request);
-        assert!(env.is_none());
-        assert!(env.as_ref().is_none());
+        assert!(env.is_ok());
+        assert!(env.as_ref().unwrap().is_none());
 
         // Missing config annotation
         pod = pod!(1, annotations => vec![
@@ -2445,8 +2447,8 @@ Pod is missing required volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-
         ]);
         let request = TestObjectRequest::new(pod);
         env = ServiceEnvironment::from_pod(&request);
-        assert!(env.is_none());
-        assert!(env.as_ref().is_none());
+        assert!(env.is_ok());
+        assert!(env.as_ref().unwrap().is_none());
 
         // Missing device_id annotation
         pod = pod!(1, annotations => vec![
@@ -2455,8 +2457,8 @@ Pod is missing required volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-
         ]);
         let request = TestObjectRequest::new(pod);
         env = ServiceEnvironment::from_pod(&request);
-        assert!(env.is_none());
-        assert!(env.as_ref().is_none());
+        assert!(env.is_ok());
+        assert!(env.as_ref().unwrap().is_none());
     }
 
     #[tokio::test]
