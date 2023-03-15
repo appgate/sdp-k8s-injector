@@ -384,6 +384,7 @@ SDP Kubernetes Injector supports various annotation-based behavior customization
 | `sdp.adminSecret`                         | Name of the secret for initial authentication                                            | `""`                                    |
 | `sdp.clientVersion`                       | Version of the SDP client to inject as sidecars.                                         | `6.1`                                   |
 | `sdp.clusterID`                           | An identifier to prefix service users and client profiles                                | `""`                                    |
+| `sdp.insecure`                            | Disable SSL verification when connecting to SDP                                          | `false`                                 |
 | `sdp.metaClient.enabled`                  | Whether to set up an SDP client on the Identity Service                                  | `false`                                 |
 | `sdp.metaClient.adminSecret`              | Name of the secret for initial authentication                                            | `""`                                    |
 | `sdp.metaClient.adminConfig`              | Name of the config for initial authentication                                            | `""`                                    |
@@ -415,7 +416,6 @@ SDP Kubernetes Injector supports various annotation-based behavior customization
 | `sdp.dnsmasq.image.tag`                   | SDP Dnsmasq image tag. If set, it overrides `sdp.clientVersion`.                         | `""`                                    |
 | `sdp.dnsmasq.image.pullPolicy`            | SDP Dnsmasq image pull policy. If set, it overrides `.global.image.pullPolicy`.          | `Always`                                |
 | `sdp.dnsmasq.dnsConfig.searches`          | Search domains to add to the Pod DNS configuration                                       | `["svc.cluster.local","cluster.local"]` |
-
 
 ### Kubernetes parameters
 
