@@ -174,3 +174,28 @@ impl Namespaced for DeviceId {
 }
 
 impl Service for DeviceId {}
+
+#[cfg(test)]
+mod test {
+    use super::{SDPService, SDPServiceSpec};
+    use crate::{annotations::SDP_ANNOTATION_SERVICE_NAME, traits::MaybeService};
+    use sdp_macros::sdp_service;
+    use std::collections::BTreeMap;
+
+    #[test]
+    fn test_sdp_service_service_name_annotation() {
+        let s1 = sdp_service!("ns1", "name1", "kind1");
+        assert!(s1.service_id() == Ok("ns1_name1".to_string()));
+        assert!(s1.service_name() == Ok("ns1-name1".to_string()));
+
+        let s2 = sdp_service!("ns1", "name2", "kind1");
+        assert!(s2.service_id() == Ok("ns1_name2".to_string()));
+        assert!(s2.service_name() == Ok("ns1-name2".to_string()));
+
+        let s3 = sdp_service!("ns1", "name2", "kind1", annotations => vec![
+            (SDP_ANNOTATION_SERVICE_NAME, "alter-ego"),
+        ]);
+        assert!(s3.service_id() == Ok("ns1_name2".to_string()));
+        assert!(s3.service_name() == Ok("ns1-name2".to_string()));
+    }
+}
