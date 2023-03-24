@@ -5,7 +5,7 @@ description: Helm chart for SDP Kubernetes Injector CRD
 type: application
 
 # Chart version should remain consistent with ../chart/Chart.yaml
-version: "1.0.7"
+version: "1.0.8"
 
 # Chart appVersion should be the same as ../chart/Chart.yaml
 appVersion: "1.0.7"
