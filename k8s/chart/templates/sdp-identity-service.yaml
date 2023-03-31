@@ -129,7 +129,7 @@ spec:
         - name: {{ .Chart.Name }}-identity-service
           env:
             - name: SDP_SYSTEM_NO_VERIFY
-              value: {{ .Values.sdp.sdpSystemNoVerify | quote }}
+              value: {{ .Values.sdp.identityService.sdpSystemNoVerify | quote }}
             - name: SDP_LOG_CONFIG_FILE
               value: /opt/sdp-identity-service/log4rs.yaml
             - name: SDP_SYSTEM_HOSTS
