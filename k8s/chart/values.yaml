@@ -82,7 +82,7 @@ sdp:
   ## @param sdp.identityService.image.tag SDP Identity Service image tag. If set, it overrides `.chart.appVersion`.
   ## @param sdp.identityService.image.pullPolicy SDP Identity Service pull policy. If set, it overrides `.global.image.pullPolicy`.
   identityService:
-    sdpSystemNoVerify: 0
+    sdpSystemNoVerify: "false"
     logLevel: info
     replica: 1
     image:
