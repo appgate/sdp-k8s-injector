@@ -366,6 +366,7 @@ SDP Kubernetes Injector supports various annotation-based behavior customization
 | `sdp.deviceIdService.image.repository`    | SDP Device ID Service image repository. If set, it overrides `.global.image.repository`. | `""`                                    |
 | `sdp.deviceIdService.image.tag`           | SDP Device ID Service image tag. If set, it overrides `.chart.appVersion`.               | `""`                                    |
 | `sdp.deviceIdService.image.pullPolicy`    | SDP Device ID Service pull policy. If set, it overrides `.global.image.pullPolicy`.      | `Always`                                |
+| `sdp.identityService.sdpSystemNoVerify`   | Do not verify SDP System certificate                                                     | `false`                                 |
 | `sdp.identityService.logLevel`            | SDP Identity Service log level.                                                          | `info`                                  |
 | `sdp.identityService.replica`             | Number of SDP Identity Service replicas to deploy                                        | `1`                                     |
 | `sdp.identityService.image.repository`    | SDP Identity Service image repository. If set, it overrides `.global.image.repository`.  | `""`                                    |
@@ -381,7 +382,6 @@ SDP Kubernetes Injector supports various annotation-based behavior customization
 | `sdp.dnsmasq.image.tag`                   | SDP Dnsmasq image tag. If set, it overrides `sdp.clientVersion`.                         | `""`                                    |
 | `sdp.dnsmasq.image.pullPolicy`            | SDP Dnsmasq image pull policy. If set, it overrides `.global.image.pullPolicy`.          | `Always`                                |
 | `sdp.dnsmasq.dnsConfig.searches`          | Search domains to add to the Pod DNS configuration                                       | `["svc.cluster.local","cluster.local"]` |
-
 
 ### Kubernetes parameters
 
