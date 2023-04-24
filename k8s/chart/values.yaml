@@ -26,12 +26,10 @@ sdp:
   ## @param sdp.adminSecret Name of the secret for initial authentication
   ## @param sdp.clientVersion Version of the SDP client to inject as sidecars.
   ## @param sdp.clusterID An identifier to prefix service users and client profiles
-  ## @param sdp.sdpSystemNoVerify Do not verify SDP System certificate
   host: ""
   adminSecret: ""
   clientVersion: 6.1
   clusterID: ""
-  sdpSystemNoVerify: "false"
 
   ## @param sdp.metaClient.enabled Whether to set up an SDP client on the Identity Service
   ## @param sdp.metaClient.adminSecret Name of the secret for initial authentication
@@ -76,6 +74,7 @@ sdp:
       tag: ""
       pullPolicy: Always
 
+  ## @param sdp.identityService.sdpSystemNoVerify Do not verify SDP System certificate
   ## @param sdp.identityService.logLevel SDP Identity Service log level.
   ## @param sdp.identityService.replica Number of SDP Identity Service replicas to deploy
   ## @param sdp.identityService.image.repository SDP Identity Service image repository. If set, it overrides `.global.image.repository`.
