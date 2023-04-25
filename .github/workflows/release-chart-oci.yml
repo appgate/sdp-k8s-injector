@@ -25,19 +25,6 @@ jobs:
         with:
           version: 3.7.2
 
-      - uses: mikefarah/yq@master
-        id: thisChartVersion
-        with:
-          cmd: yq eval .version k8s/crd/Chart.yaml
-      - name: Push?
-        id: should-push
-        shell: bash
-        run: |
-          wget --quiet https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 -O ./yq && chmod +x ./yq
-          MASTER_CHART_VERSION=$(curl --silent https://raw.githubusercontent.com/appgate/sdp-k8s-injector/main/k8s/chart/Chart.yaml | ./yq -r .version)
-          THIS_CHART_VERSION=$(./yq -r .version k8s/chart/Chart.yaml)
-          echo SHOULD_PUSH="$([[ "${MASTER_CHART_VERSION}" == "${THIS_CHART_VERSION}" ]]; echo $?)" >> $GITHUB_ENV
-
       - name: Login to GitHub Container Registry
         run: helm registry login ghcr.io/${{ github.repository }} --username ${{ github.repository_owner }} --password ${{ secrets.GITHUB_TOKEN }}
 
@@ -48,7 +35,7 @@ jobs:
         run: helm package k8s/crd --dependency-update
 
       - name: Push chart
-        if: ${{ (github.ref == 'refs/heads/main') && (env.SHOULD_PUSH == 1) }}
+        if: ${{ github.ref == 'refs/heads/main' }}
         run: helm push sdp-k8s-injector-crd-${{ steps.chartVersion.outputs.result }}.tgz oci://ghcr.io/appgate/charts
 
   helm-k8s-injector:
@@ -69,19 +56,6 @@ jobs:
         with:
           version: 3.7.2
 
-      - uses: mikefarah/yq@master
-        id: thisChartVersion
-        with:
-          cmd: yq eval .version k8s/crd/Chart.yaml
-      - name: Push?
-        id: should-push
-        shell: bash
-        run: |
-          wget --quiet https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 -O ./yq && chmod +x ./yq
-          MASTER_CHART_VERSION=$(curl --silent https://raw.githubusercontent.com/appgate/sdp-k8s-injector/main/k8s/chart/Chart.yaml | ./yq -r .version)
-          THIS_CHART_VERSION=$(./yq -r .version k8s/chart/Chart.yaml)
-          echo SHOULD_PUSH="$([[ "${MASTER_CHART_VERSION}" == "${THIS_CHART_VERSION}" ]]; echo $?)" >> $GITHUB_ENV
-
       - name: Login to GitHub Container Registry
         run: helm registry login ghcr.io/${{ github.repository }} --username ${{ github.repository_owner }} --password ${{ secrets.GITHUB_TOKEN }}
 
@@ -92,5 +66,5 @@ jobs:
         run: helm package k8s/chart --dependency-update
 
       - name: Push chart
-        if: ${{ (github.ref == 'refs/heads/main') && (env.SHOULD_PUSH == 1) }}
+        if: ${{ github.ref == 'refs/heads/main' }}
         run: helm push sdp-k8s-injector-${{ steps.chartVersion.outputs.result }}.tgz oci://ghcr.io/appgate/charts

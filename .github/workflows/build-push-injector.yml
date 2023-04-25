@@ -33,19 +33,6 @@ jobs:
             echo PROFILE="debug" >> $GITHUB_ENV
           fi
 
-      - uses: mikefarah/yq@master
-        id: thisChartVersion
-        with:
-          cmd: yq eval .version k8s/crd/Chart.yaml
-      - name: Push?
-        id: should-push
-        shell: bash
-        run: |
-          wget --quiet https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 -O ./yq && chmod +x ./yq
-          MASTER_CHART_VERSION=$(curl --silent https://raw.githubusercontent.com/appgate/sdp-k8s-injector/main/k8s/chart/Chart.yaml | ./yq -r .version)
-          THIS_CHART_VERSION=$(./yq -r .version k8s/chart/Chart.yaml)
-          echo SHOULD_PUSH="$([[ "${MASTER_CHART_VERSION}" == "${THIS_CHART_VERSION}" ]]; echo $?)" >> $GITHUB_ENV
-
       - name: Login to GitHub Container Registry
         uses: docker/login-action@v2
         with:
@@ -68,7 +55,7 @@ jobs:
           build-args: PROFILE=${{ env.PROFILE }}
           context: .
           file: sdp-device-id-service/Dockerfile
-          push: ${{ (github.ref == 'refs/heads/main') && (env.SHOULD_PUSH == 1) }}
+          push: ${{ github.ref == 'refs/heads/main' }}
           tags: |
             ghcr.io/${{ github.repository }}/sdp-device-id-service:${{ env.VERSION }}
             ghcr.io/${{ github.repository }}/sdp-device-id-service:latest
@@ -79,7 +66,7 @@ jobs:
           build-args: PROFILE=${{ env.PROFILE }}
           context: .
           file: sdp-identity-service/Dockerfile
-          push: ${{ (github.ref == 'refs/heads/main') && (env.SHOULD_PUSH == 1) }}
+          push: ${{ github.ref == 'refs/heads/main' }}
           tags: |
             ghcr.io/${{ github.repository }}/sdp-identity-service:${{ env.VERSION }}
             ghcr.io/${{ github.repository }}/sdp-identity-service:latest
@@ -90,7 +77,7 @@ jobs:
           build-args: PROFILE=${{ env.PROFILE }}
           context: .
           file: sdp-injector/Dockerfile
-          push: ${{ (github.ref == 'refs/heads/main') && (env.SHOULD_PUSH == 1) }}
+          push: ${{ github.ref == 'refs/heads/main' }}
           tags: |
             ghcr.io/${{ github.repository }}/sdp-injector:${{ env.VERSION }}
             ghcr.io/${{ github.repository }}/sdp-injector:latest
