@@ -26,7 +26,10 @@ pub enum DeviceIdProviderResponseProtocol<A: Service + HasCredentials> {
 }
 
 #[derive(Debug)]
-pub struct RegisteredDeviceId(usize, HashSet<Uuid>, usize, Vec<Uuid>);
+pub struct RegisteredDeviceId {
+    assigned: HashSet<Uuid>,
+    avaiable: Vec<Uuid>,
+}
 
 pub trait IdentityStore<A: Service + HasCredentials>: Send + Sync {
     fn pop_device_id<'a>(
@@ -84,7 +87,7 @@ impl IdentityStore<ServiceIdentity> for InMemoryIdentityStore {
     {
         let fut = async move {
             let mut errors = Vec::new();
-            let mut uuids: Vec<Uuid> = vec!();
+            let mut uuids: Vec<Uuid> = vec![];
             for deviceid in &service.spec.device_ids {
                 match Uuid::try_parse(&deviceid) {
                     Ok(uuid) => {
@@ -104,7 +107,10 @@ impl IdentityStore<ServiceIdentity> for InMemoryIdentityStore {
                 let n = uuids.len();
                 self.device_ids.insert(
                     service.service_id(),
-                    RegisteredDeviceId(n, HashSet::from_iter(uuids.clone()), n, uuids),
+                    RegisteredDeviceId {
+                        assigned: HashSet::from_iter(uuids.clone()),
+                        avaiable: uuids,
+                    },
                 );
                 Ok(self.identities.insert(service.service_id(), service))
             }
@@ -141,28 +147,20 @@ impl IdentityStore<ServiceIdentity> for InMemoryIdentityStore {
     {
         let fut = async move {
             let sid = self.identities.get(&service_id.to_string());
-            let ds = self.device_ids.get(&service_id.to_string());
-            match (sid, ds) {
-                (
-                    Some(sid),
-                    Some(RegisteredDeviceId(
-                        n_all_uuids,
-                        all_uuids,
-                        n_available_uuids,
-                        available_uuids,
-                    )),
-                ) => {
-                    let (uuid, available_uuids) = if *n_available_uuids == 0 {
+            let mut ds: &mut Option<&mut RegisteredDeviceId> =
+                &mut self.device_ids.get_mut(&service_id.to_string());
+            match (sid, &mut ds) {
+                (Some(sid), Some(registered_device_ids)) => {
+                    let uuid = if registered_device_ids.avaiable.len() == 0 {
                         format!(
                             "Requested device id for {} but no device ids are available, creating dynamically a new one!",
                             service_id
                         );
-                        (Uuid::new_v4(), available_uuids.clone())
+                        Uuid::new_v4()
                     } else {
                         // Get first uuid
-                        let mut available_uuids = available_uuids.clone();
-                        let uuid = available_uuids.remove(0);
-                        (uuid, available_uuids)
+                        let uuid = registered_device_ids.avaiable.remove(0);
+                        uuid
                     };
                     info!(
                         "[{}] DeviceID {} assigned to service {}",
@@ -172,19 +170,11 @@ impl IdentityStore<ServiceIdentity> for InMemoryIdentityStore {
                         "[{}] Service {} has {} DeviceIDs available {:?}",
                         service_id,
                         service_id,
-                        available_uuids.len(),
-                        &available_uuids
+                        registered_device_ids.avaiable.len(),
+                        &registered_device_ids.avaiable
                     );
                     // Update current data
-                    self.device_ids.insert(
-                        service_id.to_string(),
-                        RegisteredDeviceId(
-                            *n_all_uuids,
-                            all_uuids.clone(),
-                            available_uuids.len(),
-                            available_uuids,
-                        ),
-                    );
+                    registered_device_ids.assigned.insert(uuid);
                     Ok((sid.clone(), uuid))
                 }
                 _ => {
@@ -219,40 +209,17 @@ impl IdentityStore<ServiceIdentity> for InMemoryIdentityStore {
             let service_id = service_id.to_string();
             match (
                 self.identities.get(&service_id),
-                self.device_ids.get(&service_id),
+                &mut self.device_ids.get_mut(&service_id),
             ) {
-                (Some(_), Some(RegisteredDeviceId(n_all, all, n_available, available)))
-                    if all.contains(&uuid) =>
-                {
-                    if n_available < n_all {
-                        if !available.contains(&uuid) {
-                            info!("[{}] Pushing DeviceID {} to the list of available DeviceIDs for service {}", service_id, uuid, service_id);
-                            let mut available = available.clone();
-                            available.push(uuid.clone());
-                            self.device_ids.insert(
-                                service_id.to_string(),
-                                RegisteredDeviceId(
-                                    *n_all,
-                                    all.clone(),
-                                    *n_available + 1,
-                                    available.to_vec(),
-                                ),
-                            );
-                            Ok(Some(uuid.clone()))
-                        } else {
-                            warn!("[{}] DeviceID {} is already in the list of available device-ids for service {}", service_id, uuid, service_id);
-                            Ok(None)
-                        }
+                (Some(_), Some(registered_device_id)) => {
+                    if !&registered_device_id.avaiable.contains(&uuid) {
+                        info!("[{}] Pushing DeviceID {} to the list of available DeviceIDs for service {}", service_id, uuid, service_id);
+                        registered_device_id.avaiable.push(uuid.clone());
+                        Ok(Some(uuid.clone()))
                     } else {
-                        warn!("[{}] Unable to push DeviceID {} into the list of available devices for service {}. List of devices is complete.", service_id, uuid, service_id);
+                        warn!("[{}] DeviceID {} is already in the list of available device-ids for service {}", service_id, uuid, service_id);
                         Ok(None)
                     }
-                }
-                (Some(_), Some(RegisteredDeviceId(_, _, _, _))) => {
-                    Err(SDPServiceError::from_string(format!(
-                        "Device id {} is not in the list of allowed device ids for service {}",
-                        uuid, service_id
-                    )))
                 }
                 (None, _) => Err(SDPServiceError::from_string(format!(
                     "Service id {} is not registered",
