@@ -48,27 +48,9 @@ pub trait IdentityStore<A: Service + HasCredentials>: Send + Sync {
         service: A,
     ) -> Pin<Box<dyn Future<Output = Result<Option<A>, SDPServiceError>> + Send + '_>>;
 
-    fn register_device_ids(
-        &mut self,
-        device_id: DeviceId,
-    ) -> Pin<
-        Box<dyn Future<Output = Result<Option<RegisteredDeviceId>, SDPServiceError>> + Send + '_>,
-    >;
-
     fn unregister_service<'a>(
         &'a mut self,
         service_id: &'a str,
-    ) -> Pin<
-        Box<
-            dyn Future<Output = Result<Option<(A, RegisteredDeviceId)>, SDPServiceError>>
-                + Send
-                + '_,
-        >,
-    >;
-
-    fn unregister_device_ids<'a>(
-        &'a mut self,
-        device_id: &'a str,
     ) -> Pin<
         Box<
             dyn Future<Output = Result<Option<(A, RegisteredDeviceId)>, SDPServiceError>>
@@ -103,26 +85,16 @@ impl IdentityStore<ServiceIdentity> for InMemoryIdentityStore {
         service: ServiceIdentity,
     ) -> Pin<Box<dyn Future<Output = Result<Option<ServiceIdentity>, SDPServiceError>> + Send + '_>>
     {
-        let fut = async move { Ok(self.identities.insert(service.service_id(), service)) };
-        Box::pin(fut)
-    }
-
-    fn register_device_ids(
-        &mut self,
-        device_id: DeviceId,
-    ) -> Pin<
-        Box<dyn Future<Output = Result<Option<RegisteredDeviceId>, SDPServiceError>> + Send + '_>,
-    > {
         let fut = async move {
             let mut errors = Vec::new();
-            let mut uuids = Vec::new();
-            for uuid in &device_id.spec.uuids {
-                match Uuid::try_parse(&uuid) {
+            let mut uuids: Vec<Uuid> = vec!();
+            for deviceid in &service.spec.device_ids {
+                match Uuid::try_parse(&deviceid) {
                     Ok(uuid) => {
                         uuids.push(uuid);
                     }
                     Err(_) => {
-                        errors.push(uuid.clone());
+                        errors.push(deviceid.clone());
                     }
                 }
             }
@@ -133,10 +105,11 @@ impl IdentityStore<ServiceIdentity> for InMemoryIdentityStore {
                 )))
             } else {
                 let n = uuids.len();
-                Ok(self.device_ids.insert(
-                    device_id.service_id(),
+                self.device_ids.insert(
+                    service.service_id(),
                     RegisteredDeviceId(n, HashSet::from_iter(uuids.clone()), n, uuids),
-                ))
+                );
+                Ok(self.identities.insert(service.service_id(), service))
             }
         };
         Box::pin(fut)
@@ -156,28 +129,6 @@ impl IdentityStore<ServiceIdentity> for InMemoryIdentityStore {
         let fut = async move {
             let device_id = self.device_ids.remove(service_id);
             let service_id = self.identities.remove(service_id);
-            match (service_id, device_id) {
-                (Some(sid), Some(did)) => Ok(Some((sid, did))),
-                _ => Ok(None),
-            }
-        };
-        Box::pin(fut)
-    }
-
-    fn unregister_device_ids<'a>(
-        &'a mut self,
-        device_id: &'a str,
-    ) -> Pin<
-        Box<
-            dyn Future<
-                    Output = Result<Option<(ServiceIdentity, RegisteredDeviceId)>, SDPServiceError>,
-                > + Send
-                + '_,
-        >,
-    > {
-        let fut = async move {
-            let service_id = self.identities.remove(device_id);
-            let device_id = self.device_ids.remove(device_id);
             match (service_id, device_id) {
                 (Some(sid), Some(did)) => Ok(Some((sid, did))),
                 _ => Ok(None),
@@ -343,20 +294,6 @@ impl DeviceIdProvider<ServiceIdentity> {
                             info!("[{}] Unregistering service {}", service_id, service_id);
                             if let Err(err) = self.store.unregister_service(&service_id).await {
                                 error!("[{}] Unable to unregister service {}: {}", service_id, service_id, err);
-                            };
-                        },
-                        Some(DeviceIdProviderRequestProtocol::FoundDeviceId(id)) => {
-                            let service_id = id.service_id();
-                            info!("[{}] Registering new DeviceID for service {}", service_id, service_id);
-                            if let Err(err) = self.store.register_device_ids(id).await {
-                                error!("[{}] Unable to register DeviceID {}: {}", service_id, service_id, err);
-                            }
-                        },
-                        Some(DeviceIdProviderRequestProtocol::DeletedDeviceId(id)) => {
-                            let service_id = id.service_id();
-                            info!("[{}] Unregistering DeviceID for service {}", service_id, service_id);
-                            if let Err(err) = self.store.unregister_device_ids(&service_id).await {
-                                error!("[{}] Unable to unregister DeviceID for service {}: {}", service_id, service_id, err);
                             };
                         },
                         Some(DeviceIdProviderRequestProtocol::ReleasedDeviceId(service_id, uuid)) => {

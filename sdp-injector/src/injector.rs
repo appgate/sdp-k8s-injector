@@ -24,7 +24,6 @@ use sdp_common::annotations::{
     SDP_INJECTOR_ANNOTATION_STRATEGY,
 };
 use sdp_common::constants::{MAX_PATCH_ATTEMPTS, SDP_DEFAULT_CLIENT_VERSION_ENV};
-use sdp_common::crd::DeviceId;
 use sdp_common::errors::SDPServiceError;
 use sdp_common::patch_annotation;
 use sdp_common::traits::{
@@ -262,37 +261,6 @@ impl IdentityStore<ServiceIdentity> for KubeIdentityStore {
         Box::pin(async move {
             Err(SDPServiceError::from(
                 "Registry does not support register of service identities",
-            ))
-        })
-    }
-
-    fn register_device_ids(
-        &mut self,
-        _device_id: DeviceId,
-    ) -> Pin<
-        Box<dyn Future<Output = Result<Option<RegisteredDeviceId>, SDPServiceError>> + Send + '_>,
-    > {
-        Box::pin(async move {
-            Err(SDPServiceError::from(
-                "Registry does not support register of device ids",
-            ))
-        })
-    }
-
-    fn unregister_device_ids<'a>(
-        &'a mut self,
-        _device_id: &'a str,
-    ) -> Pin<
-        Box<
-            dyn Future<
-                    Output = Result<Option<(ServiceIdentity, RegisteredDeviceId)>, SDPServiceError>,
-                > + Send
-                + '_,
-        >,
-    > {
-        Box::pin(async move {
-            Err(SDPServiceError::from(
-                "Registry does not support unregister if device ids",
             ))
         })
     }
@@ -1141,7 +1109,7 @@ mod tests {
     use kube::core::ObjectMeta;
     use sdp_common::annotations::SDP_INJECTOR_ANNOTATION_ENABLED;
     use sdp_common::constants::SDP_DEFAULT_CLIENT_VERSION_ENV;
-    use sdp_common::crd::{DeviceId, DeviceIdSpec, ServiceIdentity, ServiceIdentitySpec};
+    use sdp_common::crd::{ServiceIdentity, ServiceIdentitySpec};
     use sdp_common::service::{
         containers, init_containers, security_context, volume_names, ServiceUser,
     };
@@ -1149,7 +1117,7 @@ mod tests {
         Annotated, Candidate, MaybeNamespaced, MaybeService, Named, Namespaced, ObjectRequest,
         Validated,
     };
-    use sdp_macros::{service_device_ids, service_identity, service_user};
+    use sdp_macros::{service_identity, service_user};
     use sdp_test_macros::{pod, set_pod_field};
     use serde_json::json;
     use std::collections::{BTreeMap, HashMap, HashSet};
@@ -1996,12 +1964,6 @@ Pod is missing required volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-
                 .register_service(service_identity!(n))
                 .await
                 .expect("Unable to register service identity");
-            identity_storage
-                .lock()
-                .await
-                .register_device_ids(service_device_ids!(n))
-                .await
-                .expect("Unable to register device id");
 
             let request = TestObjectRequest::new(pod.clone());
             let mut env = ServiceEnvironment::create(&request, identity_storage.lock().await)
@@ -2052,12 +2014,7 @@ Pod is missing required volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-
                 .register_service(service_identity!(n))
                 .await
                 .expect("Unable to register service identity");
-            identity_storage
-                .lock()
-                .await
-                .register_device_ids(service_device_ids!(n))
-                .await
-                .expect("Unable to register device id");
+
         }
 
         let mut results: Vec<TestResult> = vec![];
@@ -2227,19 +2184,12 @@ Pod is missing required volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-
             );
         }
         let id = service_identity!(1);
-        let ds = service_device_ids!(1);
         store
             .lock()
             .await
             .register_service(id)
             .await
             .expect("Unable to register service identity");
-        store
-            .lock()
-            .await
-            .register_device_ids(ds)
-            .await
-            .expect("Unable to register device ids");
 
         let env = ServiceEnvironment::from_identity_store(&request, store.lock().await).await;
         assert!(env.is_ok());
@@ -2415,19 +2365,12 @@ Pod is missing required volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-
         let ch_tx = ch.0;
         let t1 = tokio::spawn(async move {
             let id = service_identity!(1);
-            let ds = service_device_ids!(1);
             Arc::clone(&store)
                 .lock()
                 .await
                 .register_service(id)
                 .await
                 .expect("Unable to register service identity");
-            Arc::clone(&store)
-                .lock()
-                .await
-                .register_device_ids(ds)
-                .await
-                .expect("Unable to register device ids");
             ch_tx
                 .send(true)
                 .await

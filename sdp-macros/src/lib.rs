@@ -335,6 +335,11 @@ macro_rules! service_identity {
                 service_name: service_name.to_string(),
                 labels: HashMap::new(),
                 disabled: false,
+                device_ids: vec![format!(
+                    "00000000-0000-0000-0000-0000000000{:0width$}",
+                    $n,
+                    width = 2
+                )]
             },
         );
         id.metadata.namespace = Some("sdp-system".to_string());
@@ -342,23 +347,6 @@ macro_rules! service_identity {
     }};
 }
 
-#[macro_export]
-macro_rules! service_device_ids {
-    ($n:tt) => {
-        DeviceId::new(
-            format!("{}{}", stringify!(id), $n).as_str(),
-            DeviceIdSpec {
-                service_name: format!("{}{}", stringify!(srv), $n),
-                service_namespace: format!("{}{}", stringify!(ns), $n),
-                uuids: vec![format!(
-                    "00000000-0000-0000-0000-0000000000{:0width$}",
-                    $n,
-                    width = 2
-                )],
-            },
-        )
-    };
-}
 
 #[macro_export]
 macro_rules! device_id {

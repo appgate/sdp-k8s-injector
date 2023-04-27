@@ -120,6 +120,7 @@ pub struct ServiceIdentitySpec {
     pub service_namespace: String,
     pub labels: HashMap<String, String>,
     pub disabled: bool,
+    pub device_ids: Vec<String>,
 }
 
 impl Named for ServiceIdentity {
