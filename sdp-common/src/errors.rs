@@ -2,7 +2,7 @@ use std::{error::Error as StdError, fmt::Display};
 
 use crate::sdp::errors::SDPClientError;
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct SDPServiceError {
     pub who: Option<String>,
     pub error: String,

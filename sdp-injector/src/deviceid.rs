@@ -104,7 +104,6 @@ impl IdentityStore<ServiceIdentity> for InMemoryIdentityStore {
                     errors.join(",")
                 )))
             } else {
-                let n = uuids.len();
                 self.device_ids.insert(
                     service.service_id(),
                     RegisteredDeviceId {
@@ -146,17 +145,19 @@ impl IdentityStore<ServiceIdentity> for InMemoryIdentityStore {
     ) -> Pin<Box<dyn Future<Output = Result<(ServiceIdentity, Uuid), SDPServiceError>> + Send + '_>>
     {
         let fut = async move {
-            let sid = self.identities.get(&service_id.to_string());
+            let mut sid = &mut self.identities.get_mut(&service_id.to_string());
             let mut ds: &mut Option<&mut RegisteredDeviceId> =
                 &mut self.device_ids.get_mut(&service_id.to_string());
-            match (sid, &mut ds) {
+            match (&mut sid, &mut ds) {
                 (Some(sid), Some(registered_device_ids)) => {
                     let uuid = if registered_device_ids.avaiable.len() == 0 {
                         format!(
                             "Requested device id for {} but no device ids are available, creating dynamically a new one!",
                             service_id
                         );
-                        Uuid::new_v4()
+                        let uuid = Uuid::new_v4();
+                        sid.spec.device_ids.push(uuid.to_string());
+                        uuid
                     } else {
                         // Get first uuid
                         let uuid = registered_device_ids.avaiable.remove(0);
@@ -301,6 +302,106 @@ impl DeviceIdProvider<ServiceIdentity> {
     pub fn new(store: Option<Box<dyn IdentityStore<ServiceIdentity> + Send>>) -> Self {
         DeviceIdProvider {
             store: store.unwrap_or(Box::new(InMemoryIdentityStore::new())),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+
+    use sdp_common::service::{ServiceIdentity, ServiceUser};
+    use sdp_common::crd::ServiceIdentitySpec;
+    use sdp_common::errors::SDPServiceError;
+    use sdp_macros::{service_identity, service_user};
+    use uuid::Uuid;
+
+    use super::{IdentityStore, InMemoryIdentityStore};
+
+    #[tokio::test]
+    async fn test_in_memory_identity_store_0() {
+        let mut store = InMemoryIdentityStore::default();
+
+        // Try to get a device_id. Fails because we don't have any service identity registered
+        let maybe_device_id = store.pop_device_id("service1").await;
+        assert!(maybe_device_id.is_err());
+        assert_eq!(maybe_device_id.err(),
+            Some(SDPServiceError::from_string(format!("ServiceIdentity and/or DeviceId is missing for service service1")))
+        );
+
+        // Register a new service identity
+        let maybe_service_identity = store.register_service(service_identity!(1)).await;
+        assert!(maybe_service_identity.is_ok());
+        if let Ok(Some(service_identity)) = store.register_service(service_identity!(1)).await {
+            assert_eq!(service_identity.spec, service_identity!(1).spec)
+        } else {
+            assert!(false, "Error registering service identity");
+        }
+
+        let mut used_uuids = vec![];
+        // Try to get three, we should get a new one
+        for i in 0 .. 3 {
+            let maybe_device_id = store.pop_device_id("ns1_srv1").await;
+            if let Ok((s, uuid)) = maybe_device_id {
+                used_uuids.push(uuid);
+                let mut expected_s = service_identity!(1);
+                expected_s.spec.device_ids = used_uuids.iter().map(Uuid::to_string).collect::<Vec<String>>().clone();
+                assert_eq!(s.spec, expected_s.spec);
+                if i == 0 {
+                    // These should be reused
+                    assert_eq!(uuid.to_string(), format!("00000000-0000-0000-0000-000000000001"));
+                } else {
+                    // This should be a new one
+                    assert_ne!(uuid.to_string(), format!("00000000-0000-0000-0000-000000000001"));
+                }
+            } else {
+                println!("Error getting devide id: {:?}", maybe_device_id);
+                assert!(false);
+            }
+        }
+
+        // Release the device ids
+        for i in 0 .. 3 {
+            let result = store.push_device_id("ns1_srv1", used_uuids[i]).await;
+            if let Ok(Some(uuid)) = result {
+                assert_eq!(uuid.to_string(), used_uuids[i].to_string());
+            } else {
+                println!("Error pushing devide id: {:?}", result);
+                assert!(false);
+    
+            }
+        }
+        // Now we get them again and they should be reused
+        let mut expected_s = service_identity!(1);
+        expected_s.spec.device_ids = used_uuids.iter().map(Uuid::to_string).collect::<Vec<String>>().clone();
+        for i in 0 .. 4 {
+            let maybe_device_id = store.pop_device_id("ns1_srv1").await;
+            if let Ok((s, uuid)) = maybe_device_id {
+                if i < 3 {
+                    assert_eq!(uuid.to_string(), used_uuids[i].to_string());
+                } else {
+                    // This should be a new device id
+                    assert!(!used_uuids.iter().map(Uuid::to_string).collect::<Vec<String>>().contains(&uuid.to_string()));
+                    expected_s.spec.device_ids.push(uuid.to_string());
+                }
+                assert_eq!(s.spec, expected_s.spec);
+            } else {
+                println!("Error getting devide id: {:?}", maybe_device_id);
+                assert!(false);
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn test_in_memory_identity_store_1() {
+        let mut store = InMemoryIdentityStore::default();
+
+        let result = store.push_device_id("ns1_srv1", Uuid::new_v4()).await;
+
+        if let Err(err) = result {
+            assert_eq!(err, SDPServiceError::from_string(format!("Service id ns1_srv1 is not registered")));
+        } else {
+            assert!(false, "We should not be able to push device ids when there is no service identity registered");
         }
     }
 }
