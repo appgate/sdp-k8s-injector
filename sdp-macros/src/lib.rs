@@ -339,14 +339,13 @@ macro_rules! service_identity {
                     "00000000-0000-0000-0000-0000000000{:0width$}",
                     $n,
                     width = 2
-                )]
+                )],
             },
         );
         id.metadata.namespace = Some("sdp-system".to_string());
         id
     }};
 }
-
 
 #[macro_export]
 macro_rules! device_id {

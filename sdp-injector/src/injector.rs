@@ -2014,7 +2014,6 @@ Pod is missing required volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-
                 .register_service(service_identity!(n))
                 .await
                 .expect("Unable to register service identity");
-
         }
 
         let mut results: Vec<TestResult> = vec![];
