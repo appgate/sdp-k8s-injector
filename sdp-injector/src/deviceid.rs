@@ -2,7 +2,6 @@ use std::collections::{HashMap, HashSet};
 use std::pin::Pin;
 
 use futures::Future;
-use sdp_common::crd::DeviceId;
 use sdp_common::errors::SDPServiceError;
 use sdp_common::service::ServiceIdentity;
 use sdp_common::traits::{HasCredentials, Service};
@@ -15,9 +14,7 @@ logger!("DeviceIDProvider");
 #[derive(Debug, Clone)]
 pub enum DeviceIdProviderRequestProtocol<A: Service + HasCredentials> {
     FoundServiceIdentity(A),
-    FoundDeviceId(DeviceId),
     DeletedServiceIdentity(A),
-    DeletedDeviceId(DeviceId),
     RequestDeviceId(Sender<DeviceIdProviderResponseProtocol<A>>, String),
     ReleasedDeviceId(String, Uuid),
 }
