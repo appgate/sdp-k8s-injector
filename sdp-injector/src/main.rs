@@ -16,7 +16,7 @@ use hyper::service::{make_service_fn, service_fn};
 use hyper::Server;
 use k8s_openapi::api::core::v1::Pod;
 use kube::{Api, Client, Config};
-use sdp_common::crd::{DeviceId, ServiceIdentity};
+use sdp_common::crd::ServiceIdentity;
 use sdp_common::kubernetes::{KUBE_SYSTEM_NAMESPACE, SDP_K8S_NAMESPACE};
 use sdp_common::service::get_log_config_path;
 use sdp_common::watcher::{watch, Watcher};
@@ -36,7 +36,6 @@ const SDP_K8S_HOST_ENV: &str = "SDP_K8S_HOST";
 const SDP_K8S_HOST_DEFAULT: &str = "kubernetes.default.svc";
 const SDP_K8S_NO_VERIFY_ENV: &str = "SDP_K8S_NO_VERIFY";
 
-mod device_id_watcher;
 mod deviceid;
 mod errors;
 mod files_watcher;
@@ -75,7 +74,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let service_identity_api: Api<ServiceIdentity> =
         Api::namespaced(k8s_client.clone(), SDP_K8S_NAMESPACE);
     let pods_api: Api<Pod> = Api::all(k8s_client.clone());
-    let device_ids_api: Api<DeviceId> = Api::namespaced(k8s_client.clone(), SDP_K8S_NAMESPACE);
     let (device_id_tx, device_id_rx) =
         channel::<DeviceIdProviderRequestProtocol<ServiceIdentity>>(50);
     let store = KubeIdentityStore {
@@ -124,7 +122,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
     // We register new ServiceIdentity entities in the store when created and de unregister them when deleted.
     let (watcher_tx, watcher_rx) = channel::<DeviceIdProviderRequestProtocol<ServiceIdentity>>(50);
     let watcher_tx2 = watcher_tx.clone();
-    let watcher_tx3 = watcher_tx.clone();
     tokio::spawn(async move {
         let watcher: Watcher<ServiceIdentity, DeviceIdProviderRequestProtocol<ServiceIdentity>> =
             Watcher {
@@ -143,25 +140,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
         }
     });
 
-    // Thread to watch DeviceId entities
-    // We register new DeviceId entities in the store when created and de unregister them when deleted.
-    tokio::spawn(async move {
-        let watcher = Watcher {
-            api_ns: None,
-            api: device_ids_api,
-            queue_tx: watcher_tx2,
-            notification_message: None,
-        };
-        let w = watch::<
-            DeviceId,
-            DeviceIdProviderRequestProtocol<ServiceIdentity>,
-            DeviceIdProviderRequestProtocol<ServiceIdentity>,
-        >(watcher, None);
-        if let Err(e) = w.await {
-            panic!("Unable to start DeviceID Watcher: {}", e);
-        }
-    });
-
     // Thread to watch Pod entities
     // When a Pod that is a candidate has been deleted, we just return back the device id
     // it was using to the device ids provider.
@@ -169,7 +147,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         let watcher = Watcher {
             api_ns: None,
             api: pods_api,
-            queue_tx: watcher_tx3,
+            queue_tx: watcher_tx2,
             notification_message: None,
         };
         let w = watch::<

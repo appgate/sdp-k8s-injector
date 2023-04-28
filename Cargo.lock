@@ -1587,25 +1587,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "sdp-device-id-service"
-version = "1.0.7"
-dependencies = [
- "clap",
- "futures",
- "k8s-openapi",
- "kube",
- "log",
- "log4rs",
- "sdp-common",
- "sdp-macros",
- "sdp-proc-macros",
- "sdp-test-macros",
- "serde_json",
- "tokio",
- "uuid",
-]
-
-[[package]]
 name = "sdp-identity-service"
 version = "1.0.7"
 dependencies = [
