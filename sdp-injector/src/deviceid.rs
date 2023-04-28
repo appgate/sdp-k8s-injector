@@ -111,7 +111,10 @@ impl IdentityStore<ServiceIdentity> for InMemoryIdentityStore {
                         avaiable: uuids,
                     },
                 );
-                Ok(self.identities.insert(service.service_id(), service))
+                Ok(self
+                    .identities
+                    .insert(service.service_id(), service.clone())
+                    .or_else(|| Some(service)))
             }
         };
         Box::pin(fut)
@@ -208,11 +211,14 @@ impl IdentityStore<ServiceIdentity> for InMemoryIdentityStore {
     ) -> Pin<Box<dyn Future<Output = Result<Option<Uuid>, SDPServiceError>> + Send + '_>> {
         let fut = async move {
             let service_id = service_id.to_string();
+            // TODO: We need to call the release API here
             match (
                 self.identities.get(&service_id),
                 &mut self.device_ids.get_mut(&service_id),
             ) {
-                (Some(_), Some(registered_device_id)) => {
+                (Some(_), Some(registered_device_id))
+                    if registered_device_id.assigned.contains(&uuid) =>
+                {
                     if !&registered_device_id.avaiable.contains(&uuid) {
                         info!("[{}] Pushing DeviceID {} to the list of available DeviceIDs for service {}", service_id, uuid, service_id);
                         registered_device_id.avaiable.push(uuid.clone());
@@ -222,6 +228,10 @@ impl IdentityStore<ServiceIdentity> for InMemoryIdentityStore {
                         Ok(None)
                     }
                 }
+                (Some(_), Some(_)) => Err(SDPServiceError::from_string(format!(
+                    "Device id {} is not registered for service {}",
+                    &uuid, service_id
+                ))),
                 (None, _) => Err(SDPServiceError::from_string(format!(
                     "Service id {} is not registered",
                     service_id
@@ -310,9 +320,9 @@ impl DeviceIdProvider<ServiceIdentity> {
 mod tests {
     use std::collections::HashMap;
 
-    use sdp_common::service::{ServiceIdentity, ServiceUser};
     use sdp_common::crd::ServiceIdentitySpec;
     use sdp_common::errors::SDPServiceError;
+    use sdp_common::service::{ServiceIdentity, ServiceUser};
     use sdp_macros::{service_identity, service_user};
     use uuid::Uuid;
 
@@ -325,8 +335,11 @@ mod tests {
         // Try to get a device_id. Fails because we don't have any service identity registered
         let maybe_device_id = store.pop_device_id("service1").await;
         assert!(maybe_device_id.is_err());
-        assert_eq!(maybe_device_id.err(),
-            Some(SDPServiceError::from_string(format!("ServiceIdentity and/or DeviceId is missing for service service1")))
+        assert_eq!(
+            maybe_device_id.err(),
+            Some(SDPServiceError::from_string(format!(
+                "ServiceIdentity and/or DeviceId is missing for service service1"
+            )))
         );
 
         // Register a new service identity
@@ -340,19 +353,29 @@ mod tests {
 
         let mut used_uuids = vec![];
         // Try to get three, we should get a new one
-        for i in 0 .. 3 {
+        for i in 0..3 {
             let maybe_device_id = store.pop_device_id("ns1_srv1").await;
             if let Ok((s, uuid)) = maybe_device_id {
                 used_uuids.push(uuid);
                 let mut expected_s = service_identity!(1);
-                expected_s.spec.device_ids = used_uuids.iter().map(Uuid::to_string).collect::<Vec<String>>().clone();
+                expected_s.spec.device_ids = used_uuids
+                    .iter()
+                    .map(Uuid::to_string)
+                    .collect::<Vec<String>>()
+                    .clone();
                 assert_eq!(s.spec, expected_s.spec);
                 if i == 0 {
                     // These should be reused
-                    assert_eq!(uuid.to_string(), format!("00000000-0000-0000-0000-000000000001"));
+                    assert_eq!(
+                        uuid.to_string(),
+                        format!("00000000-0000-0000-0000-000000000001")
+                    );
                 } else {
                     // This should be a new one
-                    assert_ne!(uuid.to_string(), format!("00000000-0000-0000-0000-000000000001"));
+                    assert_ne!(
+                        uuid.to_string(),
+                        format!("00000000-0000-0000-0000-000000000001")
+                    );
                 }
             } else {
                 println!("Error getting devide id: {:?}", maybe_device_id);
@@ -361,27 +384,34 @@ mod tests {
         }
 
         // Release the device ids
-        for i in 0 .. 3 {
+        for i in 0..3 {
             let result = store.push_device_id("ns1_srv1", used_uuids[i]).await;
             if let Ok(Some(uuid)) = result {
                 assert_eq!(uuid.to_string(), used_uuids[i].to_string());
             } else {
                 println!("Error pushing devide id: {:?}", result);
                 assert!(false);
-    
             }
         }
         // Now we get them again and they should be reused
         let mut expected_s = service_identity!(1);
-        expected_s.spec.device_ids = used_uuids.iter().map(Uuid::to_string).collect::<Vec<String>>().clone();
-        for i in 0 .. 4 {
+        expected_s.spec.device_ids = used_uuids
+            .iter()
+            .map(Uuid::to_string)
+            .collect::<Vec<String>>()
+            .clone();
+        for i in 0..4 {
             let maybe_device_id = store.pop_device_id("ns1_srv1").await;
             if let Ok((s, uuid)) = maybe_device_id {
                 if i < 3 {
                     assert_eq!(uuid.to_string(), used_uuids[i].to_string());
                 } else {
                     // This should be a new device id
-                    assert!(!used_uuids.iter().map(Uuid::to_string).collect::<Vec<String>>().contains(&uuid.to_string()));
+                    assert!(!used_uuids
+                        .iter()
+                        .map(Uuid::to_string)
+                        .collect::<Vec<String>>()
+                        .contains(&uuid.to_string()));
                     expected_s.spec.device_ids.push(uuid.to_string());
                 }
                 assert_eq!(s.spec, expected_s.spec);
@@ -397,11 +427,60 @@ mod tests {
         let mut store = InMemoryIdentityStore::default();
 
         let result = store.push_device_id("ns1_srv1", Uuid::new_v4()).await;
-
         if let Err(err) = result {
-            assert_eq!(err, SDPServiceError::from_string(format!("Service id ns1_srv1 is not registered")));
+            assert_eq!(
+                err,
+                SDPServiceError::from_string(format!("Service id ns1_srv1 is not registered"))
+            );
         } else {
             assert!(false, "We should not be able to push device ids when there is no service identity registered");
         }
+
+        // Register a new service identity
+        let result = store.register_service(service_identity!(1)).await;
+        if let Ok(Some(service_identity)) = result {
+            assert_eq!(service_identity.spec, service_identity!(1).spec)
+        } else {
+            println!("Error registering service identity: {:?}", result);
+            assert!(false, "Error registering service identity");
+        }
+
+        // Check that we can push a new device even if this was not part of the ones in service identity
+        let test_device_id = "d587f3e1-ee5b-4ea7-8023-32c88d5d0afb";
+        if let Err(err) = store
+            .push_device_id("ns1_srv1", Uuid::parse_str(test_device_id).unwrap())
+            .await
+        {
+            assert_eq!(
+                err.error,
+                format!(
+                    "Device id {} is not registered for service ns1_srv1",
+                    test_device_id
+                )
+            );
+        } else {
+            assert!(
+                false,
+                "We should not be able to push a device id that was not regitered before"
+            )
+        }
+
+        // Get the original device we had
+        let (s, uuid) = store
+            .pop_device_id("ns1_srv1")
+            .await
+            .expect("We should be able to get a device id");
+        assert!(!s.spec.device_ids.contains(&test_device_id.to_string()));
+        assert_eq!(
+            uuid.to_string(),
+            format!("00000000-0000-0000-0000-000000000001")
+        );
+
+        let (s, uuid) = store
+            .pop_device_id("ns1_srv1")
+            .await
+            .expect("We should be able to get a device id");
+        assert!(!s.spec.device_ids.contains(&test_device_id.to_string()));
+        assert!(s.spec.device_ids.contains(&uuid.to_string()));
     }
 }
