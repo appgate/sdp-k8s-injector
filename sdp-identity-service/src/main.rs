@@ -7,7 +7,7 @@ use clap::{Parser, Subcommand};
 use k8s_openapi::api::{apps::v1::Deployment, core::v1::Namespace};
 use kube::{Api, CustomResourceExt};
 use log::error;
-use sdp_common::watcher::{watch, WatcherWaitReady};
+use sdp_common::{watcher::{watch, WatcherWaitReady}, crd::AssignedDeviceId};
 use sdp_common::{crd::SDPService, sdp::system::get_sdp_system, service::ServiceCandidate};
 use sdp_common::{crd::ServiceIdentity, watcher::Watcher};
 use sdp_common::{kubernetes::get_k8s_client, service::get_log_config_path};
@@ -25,6 +25,9 @@ const CREDENTIALS_POOL_SIZE: usize = 10;
 
 fn show_crds() {
     let crd = ServiceIdentity::crd();
+    let p = serde_json::to_string(&crd);
+    println!("{}", p.unwrap());
+    let crd = AssignedDeviceId::crd();
     let p = serde_json::to_string(&crd);
     println!("{}", p.unwrap());
 }
@@ -46,7 +49,6 @@ struct IdentityService {
 
 #[tokio::main]
 async fn main() -> () {
-    log4rs::init_file(get_log_config_path(), Default::default()).unwrap();
 
     // Exit on panics from other threads
     panic::set_hook(Box::new(|info| {
@@ -60,6 +62,7 @@ async fn main() -> () {
             show_crds();
         }
         IdentityServiceCommands::Run => {
+            log4rs::init_file(get_log_config_path(), Default::default()).unwrap();
             let client = get_k8s_client().await;
             let identity_manager_client = client.clone();
             let deployment_watcher_client = client.clone();
