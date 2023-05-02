@@ -74,10 +74,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let service_identity_api: Api<ServiceIdentity> =
         Api::namespaced(k8s_client.clone(), SDP_K8S_NAMESPACE);
     let pods_api: Api<Pod> = Api::all(k8s_client.clone());
+    let assigned_device_ids_api = Api::namespaced(k8s_client.clone(), SDP_K8S_NAMESPACE);
     let (device_id_tx, device_id_rx) =
         channel::<DeviceIdProviderRequestProtocol<ServiceIdentity>>(50);
     let store = KubeIdentityStore {
         device_id_q_tx: device_id_tx.clone(),
+        assigned_device_ids_api: assigned_device_ids_api,
     };
     let sdp_sidecars: SDPSidecars =
         load_sidecar_containers().expect("Unable to load the sidecar context");
@@ -93,7 +95,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let sdp_injector_context = Arc::new(SDPInjectorContext {
         sdp_sidecars: Arc::new(sdp_sidecars),
         ns_api: Api::all(k8s_client.clone()),
-        services_api: Api::namespaced(k8s_client, KUBE_SYSTEM_NAMESPACE),
+        services_api: Api::namespaced(k8s_client.clone(), KUBE_SYSTEM_NAMESPACE),
         identity_store: AsyncMutex::new(store),
         attempts_store: AsyncMutex::new(HashMap::new()),
         server_version: version,
@@ -163,7 +165,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
     // Spawn the main Store
     tokio::spawn(async move {
         let mut device_id_provider = DeviceIdProvider::new(None);
-        device_id_provider.run(device_id_rx, watcher_rx).await;
+        device_id_provider
+            .run(
+                device_id_rx,
+                watcher_rx,
+                Api::namespaced(k8s_client, SDP_K8S_NAMESPACE),
+            )
+            .await;
     });
 
     info!("Starting SDP Injector server");
