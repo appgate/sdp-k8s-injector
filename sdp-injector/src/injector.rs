@@ -12,7 +12,7 @@ use k8s_openapi::api::core::v1::{
     PodDNSConfig, PodSecurityContext, SecretKeySelector, Service as KubeService, Sysctl, Volume,
 };
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::Status;
-use kube::api::{DynamicObject, ListParams};
+use kube::api::{DynamicObject, ListParams, PostParams};
 use kube::core::admission::{AdmissionRequest, AdmissionResponse, AdmissionReview};
 use kube::Api;
 use rustls::{Certificate, PrivateKey, ServerConfig};
@@ -24,6 +24,7 @@ use sdp_common::annotations::{
     SDP_INJECTOR_ANNOTATION_STRATEGY,
 };
 use sdp_common::constants::{MAX_PATCH_ATTEMPTS, SDP_DEFAULT_CLIENT_VERSION_ENV};
+use sdp_common::crd::{AssignedDeviceId, AssignedDeviceIdSpec};
 use sdp_common::errors::SDPServiceError;
 use sdp_common::patch_annotation;
 use sdp_common::traits::{
@@ -216,6 +217,7 @@ pub enum SDPPatchResponse {
 
 pub struct KubeIdentityStore {
     pub device_id_q_tx: Sender<DeviceIdProviderRequestProtocol<ServiceIdentity>>,
+    pub assigned_device_ids_api: Api<AssignedDeviceId>,
 }
 
 impl IdentityStore<ServiceIdentity> for KubeIdentityStore {
@@ -270,8 +272,27 @@ impl IdentityStore<ServiceIdentity> for KubeIdentityStore {
             match timeout(Duration::from_secs(5), q_rx.recv()).await {
                 Ok(Some(DeviceIdProviderResponseProtocol::AssignedDeviceId(
                     service_identity,
-                    device_id,
-                ))) => Ok((service_identity, device_id)),
+                    uuid,
+                ))) => {
+                    let device_id = uuid.to_string();
+                    let assigned_device_id = AssignedDeviceId::new(
+                        &device_id,
+                        AssignedDeviceIdSpec {
+                            device_id: device_id.to_string(),
+                            distinguished_name: service_identity
+                                .spec
+                                .service_user
+                                .distinguished_name(&device_id),
+                        },
+                    );
+                    self.assigned_device_ids_api
+                        .create(&PostParams::default(), &&assigned_device_id)
+                        .await
+                        .map_err(SDPServiceError::from_error(
+                            "Unable to create AssignedDeviceId",
+                        ))?;
+                    Ok((service_identity, uuid))
+                }
                 Ok(Some(DeviceIdProviderResponseProtocol::NotFound)) | Ok(None) => {
                     Err(SDPServiceError::from_string(format!(
                         "Device id not found for service {}",
