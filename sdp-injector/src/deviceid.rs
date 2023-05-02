@@ -2,6 +2,9 @@ use std::collections::{HashMap, HashSet};
 use std::pin::Pin;
 
 use futures::Future;
+use kube::api::DeleteParams;
+use kube::Api;
+use sdp_common::crd::AssignedDeviceId;
 use sdp_common::errors::SDPServiceError;
 use sdp_common::service::ServiceIdentity;
 use sdp_common::traits::{HasCredentials, Service, WithDeviceIds};
@@ -325,6 +328,7 @@ impl DeviceIdProvider<ServiceIdentity> {
         &mut self,
         mut provider_rx: Receiver<DeviceIdProviderRequestProtocol<ServiceIdentity>>,
         mut watcher_rx: Receiver<DeviceIdProviderRequestProtocol<ServiceIdentity>>,
+        assigned_device_id_api: Api<AssignedDeviceId>,
     ) {
         info!("Starting DeviceID Provider");
         loop {
@@ -349,6 +353,9 @@ impl DeviceIdProvider<ServiceIdentity> {
                             info!("[{}] Released DeviceID {} for service {}", service_id, uuid.to_string(), service_id);
                             if let Err(err) = self.store.push_device_id(&service_id, uuid, false).await {
                                 error!("[{}] Unable to release DeviceID {} for service {}: {}", service_id, uuid, service_id, err);
+                            };
+                            if let Err(err) = assigned_device_id_api.delete(&uuid.to_string(), &DeleteParams::default()).await {
+                                error!("[{}] Unable to delete AssignedDEviceId {} for service {}: {}", service_id, uuid, service_id, err);
                             }
                         },
                         Some(_) => {}
