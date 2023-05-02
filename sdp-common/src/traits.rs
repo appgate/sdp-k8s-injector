@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use k8s_openapi::api::core::v1::Pod;
 use kube::Resource;
@@ -70,4 +70,18 @@ pub trait ObjectRequest<O: Resource> {
 
 pub trait HasCredentials {
     fn credentials<'a>(&'a self) -> &'a ServiceUser;
+}
+
+pub trait WithDeviceIds {
+    fn assigned_device_ids<'a>(&'a mut self) -> &'a HashSet<String>;
+
+    fn available_device_ids<'a>(&'a mut self) -> &'a HashSet<String>;
+
+    fn add_available_device_id<'a>(&'a mut self, device_id: String) -> &'a HashSet<String>;
+
+    fn add_assigned_device_id<'a>(&'a mut self, device_id: String) -> &'a HashSet<String>;
+
+    fn remove_available_device_id<'a>(&'a mut self, device_id: String) -> &'a HashSet<String>;
+
+    fn remove_assigned_device_id<'a>(&'a mut self, device_id: String) -> &'a HashSet<String>;
 }

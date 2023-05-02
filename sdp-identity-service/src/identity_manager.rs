@@ -185,7 +185,8 @@ impl ServiceIdentityProvider for IdentityManagerPool {
                             service_user,
                             labels: Labeled::labels(from).unwrap(), // Safe since if it has service_name it has labels
                             disabled: false,
-                            device_ids: vec![],
+                            available_device_ids: Some(HashSet::new()),
+                            assigned_device_ids: Some(HashSet::new()),
                         };
                         ServiceIdentity::new(&service_name, service_identity_spec)
                     }) {

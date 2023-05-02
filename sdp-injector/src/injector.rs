@@ -219,6 +219,40 @@ pub struct KubeIdentityStore {
 }
 
 impl IdentityStore<ServiceIdentity> for KubeIdentityStore {
+    fn get_service<'a, 'b>(
+        &'a mut self,
+        _service_id: &'b str,
+    ) -> Pin<
+        Box<
+            dyn Future<Output = Result<Option<&'a mut ServiceIdentity>, SDPServiceError>>
+                + Send
+                + '_,
+        >,
+    > {
+        Box::pin(async move {
+            Err(SDPServiceError::from(
+                "Registry does not support register of service identities",
+            ))
+        })
+    }
+
+    fn get_device_ids<'a>(
+        &'a mut self,
+        _service_id: &'a str,
+    ) -> Pin<
+        Box<
+            dyn Future<Output = Result<Option<&'a mut RegisteredDeviceId>, SDPServiceError>>
+                + Send
+                + '_,
+        >,
+    > {
+        Box::pin(async move {
+            Err(SDPServiceError::from(
+                "Registry does not support register of service identities",
+            ))
+        })
+    }
+
     fn pop_device_id<'a>(
         &'a mut self,
         service_id: &'a str,
@@ -287,6 +321,7 @@ impl IdentityStore<ServiceIdentity> for KubeIdentityStore {
         &'a mut self,
         _service_id: &'a str,
         _uuid: Uuid,
+        _force: bool,
     ) -> Pin<Box<dyn Future<Output = Result<Option<Uuid>, SDPServiceError>> + Send + '_>> {
         Box::pin(async move {
             Err(SDPServiceError::from(

@@ -324,7 +324,7 @@ macro_rules! service_user {
 
 #[macro_export]
 macro_rules! service_identity {
-    ($n:expr) => {{
+    ($n:expr, $assigned_device_ids:expr, $available_device_ids:expr) => {{
         let service_name = format!("{}{}", stringify!(srv), $n);
         let service_ns = format!("{}{}", stringify!(ns), $n);
         let mut id: ServiceIdentity = ServiceIdentity::new(
@@ -335,30 +335,25 @@ macro_rules! service_identity {
                 service_name: service_name.to_string(),
                 labels: HashMap::new(),
                 disabled: false,
-                device_ids: vec![format!(
-                    "00000000-0000-0000-0000-0000000000{:0width$}",
-                    $n,
-                    width = 2
-                )],
+                available_device_ids: $available_device_ids,
+                assigned_device_ids: $assigned_device_ids,
             },
         );
         id.metadata.namespace = Some("sdp-system".to_string());
         id
     }};
-}
 
-#[macro_export]
-macro_rules! device_id {
-    ($n: tt) => {
-        DeviceId::new(
-            concat!(stringify!(id), $n),
-            DeviceIdSpec {
-                uuids: vec![],
-                service_name: concat!(stringify!(srv), $n).to_string(),
-                service_namespace: concat!(stringify!(ns), $n).to_string(),
-            },
+    ($n:expr) => {{
+        service_identity!(
+            $n,
+            Some(HashSet::new()),
+            Some(HashSet::from_iter(vec![format!(
+                "00000000-0000-0000-0000-0000000000{:0width$}",
+                $n,
+                width = 2
+            )]))
         )
-    };
+    }};
 }
 
 #[macro_export]

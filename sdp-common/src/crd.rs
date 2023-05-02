@@ -4,7 +4,7 @@ use kube::{
 };
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::{
     errors::SDPServiceError,
@@ -12,7 +12,7 @@ use crate::{
     service::{needs_injection, ServiceUser},
     traits::{
         Annotated, Candidate, HasCredentials, Labeled, MaybeNamespaced, MaybeService, Named,
-        Namespaced, Service,
+        Namespaced, Service, WithDeviceIds,
     },
 };
 
@@ -120,7 +120,8 @@ pub struct ServiceIdentitySpec {
     pub service_namespace: String,
     pub labels: HashMap<String, String>,
     pub disabled: bool,
-    pub device_ids: Vec<String>,
+    pub available_device_ids: Option<HashSet<String>>,
+    pub assigned_device_ids: Option<HashSet<String>>,
 }
 
 impl Named for ServiceIdentity {
@@ -140,4 +141,72 @@ impl HasCredentials for ServiceIdentity {
         &self.spec.service_user
     }
 }
+
 impl Service for ServiceIdentity {}
+
+impl WithDeviceIds for ServiceIdentity {
+    fn assigned_device_ids<'a>(&'a mut self) -> &'a HashSet<String> {
+        if self.spec.assigned_device_ids.is_none() {
+            self.spec.assigned_device_ids = Some(HashSet::new());
+        }
+        self.spec.assigned_device_ids.as_ref().unwrap()
+    }
+
+    fn available_device_ids<'a>(&'a mut self) -> &'a HashSet<String> {
+        if self.spec.available_device_ids.is_none() {
+            self.spec.available_device_ids = Some(HashSet::new());
+        }
+        &self.spec.available_device_ids.as_ref().unwrap()
+    }
+
+    fn add_available_device_id<'a>(&'a mut self, device_id: String) -> &'a HashSet<String> {
+        match self.spec.available_device_ids.as_mut() {
+            None => {
+                self.spec.available_device_ids = Some(HashSet::from_iter(vec![device_id]));
+            }
+            Some(hs) => {
+                hs.insert(device_id);
+            }
+        }
+        &self.spec.available_device_ids.as_ref().unwrap()
+    }
+
+    fn add_assigned_device_id<'a>(&'a mut self, device_id: String) -> &'a HashSet<String> {
+        match self.spec.assigned_device_ids.as_mut() {
+            None => {
+                self.spec.assigned_device_ids = Some(HashSet::from_iter(vec![device_id]));
+            }
+            Some(hs) => {
+                hs.insert(device_id);
+            }
+        }
+        self.spec.assigned_device_ids.as_ref().unwrap()
+    }
+
+    fn remove_available_device_id<'a>(&'a mut self, device_id: String) -> &'a HashSet<String> {
+        match self.spec.available_device_ids.as_mut() {
+            Some(hs) => {
+                hs.remove(&device_id);
+            }
+            None => {
+                self.spec.available_device_ids = Some(HashSet::new());
+            }
+        }
+        if self.spec.available_device_ids.is_none() {
+            self.spec.available_device_ids = Some(HashSet::new());
+        }
+        self.spec.available_device_ids.as_ref().unwrap()
+    }
+
+    fn remove_assigned_device_id<'a>(&'a mut self, device_id: String) -> &'a HashSet<String> {
+        match self.spec.assigned_device_ids.as_mut() {
+            Some(hs) => {
+                hs.remove(&device_id);
+            }
+            None => {
+                self.spec.assigned_device_ids = Some(HashSet::new());
+            }
+        }
+        self.spec.assigned_device_ids.as_ref().unwrap()
+    }
+}
