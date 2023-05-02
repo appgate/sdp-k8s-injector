@@ -355,7 +355,7 @@ impl DeviceIdProvider<ServiceIdentity> {
                                 error!("[{}] Unable to release DeviceID {} for service {}: {}", service_id, uuid, service_id, err);
                             };
                             if let Err(err) = assigned_device_id_api.delete(&uuid.to_string(), &DeleteParams::default()).await {
-                                error!("[{}] Unable to delete AssignedDEviceId {} for service {}: {}", service_id, uuid, service_id, err);
+                                error!("[{}] Unable to delete AssignedDeviceId {} for service {}: {}", service_id, uuid, service_id, err);
                             }
                         },
                         Some(_) => {}
