@@ -362,12 +362,12 @@ impl System {
     // DELETE /on-boarded-devices-distinguished-name/
     pub async fn unregister_device_id(
         &mut self,
-        device_id: Uuid,
-        username: String,
+        device_id: &String,
+        username: &String,
     ) -> Result<(), SDPClientError> {
         info!("Deregistering device id {}", device_id);
         let mut url = Url::from(self.hosts[0].clone());
-        let distinguished_id = format!("CN={},CN={},OU=service", device_id.to_string(), username);
+        let distinguished_id = format!("CN={},CN={},OU=service", device_id, username);
         url.set_path(&format!(
             "/admin/on-boarded-devices-distinguished-name/{}",
             distinguished_id

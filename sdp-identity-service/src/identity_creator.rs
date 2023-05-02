@@ -6,6 +6,7 @@ use k8s_openapi::api::core::v1::{ConfigMap, Secret};
 use kube::api::{Patch as KubePatch, PatchParams};
 use kube::{Api, Client};
 use sdp_common::constants::{IDENTITY_MANAGER_SECRET_NAME, SDP_CLUSTER_ID_ENV, SDP_IDP_NAME};
+use sdp_common::crd::AssignedDeviceId;
 use sdp_common::kubernetes::SDP_K8S_NAMESPACE;
 use sdp_common::sdp::auth::SDPUser;
 use sdp_common::sdp::system::{ClientProfile, ClientProfileUrl, System};
@@ -34,6 +35,7 @@ pub enum IdentityCreatorProtocol {
     DeleteServiceUser(ServiceUser, String, String),
     // sdp user name
     DeleteSDPUser(String),
+    ReleaseAssignedDeviceId(AssignedDeviceId),
 }
 
 pub struct IdentityCreator {
@@ -524,6 +526,22 @@ impl IdentityCreator {
                         error!(
                             "Error deleting SDPUser {}: {}",
                             sdp_user_name,
+                            e.to_string()
+                        );
+                    }
+                }
+                IdentityCreatorProtocol::ReleaseAssignedDeviceId(assigned_device_id) => {
+                    if let Err(e) = system
+                        .unregister_device_id(
+                            &assigned_device_id.spec.device_id,
+                            &assigned_device_id.spec.distinguished_name,
+                        )
+                        .await
+                    {
+                        error!(
+                            "Error unregistering device id {} [{}] from collective: {}",
+                            assigned_device_id.spec.device_id,
+                            assigned_device_id.spec.distinguished_name,
                             e.to_string()
                         );
                     }

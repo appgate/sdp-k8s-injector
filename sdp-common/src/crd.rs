@@ -210,3 +210,20 @@ impl WithDeviceIds for ServiceIdentity {
         self.spec.assigned_device_ids.as_ref().unwrap()
     }
 }
+
+/// AssignedDeviceId CRD
+/// This is the CRD where we device ids already assigned to some PODs
+#[derive(Debug, CustomResource, Serialize, Deserialize, Clone, JsonSchema, PartialEq)]
+#[kube(
+    group = "injector.sdp.com",
+    version = "v1",
+    kind = "AssignedDeviceId",
+    namespaced
+)]
+
+/// Spec for AssginedDeviceId CRD
+/// This CRD defines an already assigned device id and the distinguished name used by it
+pub struct AssignedDeviceIdSpec {
+    pub device_id: String,
+    pub distinguished_name: String,
+}

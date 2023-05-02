@@ -15,6 +15,7 @@ use std::{panic, process::exit};
 use tokio::sync::broadcast::channel as broadcast_channel;
 use tokio::sync::mpsc::channel;
 
+pub mod assigned_device_id_watcher;
 pub mod errors;
 pub mod identity_creator;
 pub mod identity_manager;
