@@ -195,6 +195,10 @@ impl ServiceUser {
             })
     }
 
+    pub fn distinguished_name(&self, device_id: &String) -> String {
+        format!("CN={},CN={},OU=service", device_id, self.name)
+    }
+
     pub fn secrets_field_names(&self, namespaced: bool) -> (String, String, String) {
         if namespaced {
             (
