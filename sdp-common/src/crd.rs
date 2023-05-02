@@ -104,7 +104,7 @@ impl Candidate for AdmissionRequest<SDPService> {
 #[derive(Debug, CustomResource, Serialize, Deserialize, Clone, JsonSchema, PartialEq)]
 #[kube(
     group = "injector.sdp.com",
-    version = "v1",
+    version = "v2",
     kind = "ServiceIdentity",
     namespaced
 )]
