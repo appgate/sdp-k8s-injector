@@ -532,10 +532,7 @@ impl IdentityCreator {
                 }
                 IdentityCreatorProtocol::ReleaseAssignedDeviceId(assigned_device_id) => {
                     if let Err(e) = system
-                        .unregister_device_id(
-                            &assigned_device_id.spec.device_id,
-                            &assigned_device_id.spec.distinguished_name,
-                        )
+                        .unregister_device_id(&assigned_device_id.spec.distinguished_name)
                         .await
                     {
                         error!(
