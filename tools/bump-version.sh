@@ -1,6 +1,6 @@
 #!/usr/bin/env sh
 
-RS="sdp-common sdp-device-id-service sdp-identity-service sdp-injector sdp-macros sdp-proc-macros sdp-test-macros"
+RS="sdp-common sdp-identity-service sdp-injector sdp-macros sdp-proc-macros sdp-test-macros"
 HS="k8s/crd k8s/chart"
 
 bump_version() {
