@@ -35,6 +35,9 @@ jobs:
           username: ${{ github.repository_owner }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Get commit short hash
+        run: echo GIT_COMMIT=$(git rev-parse --short "$GITHUB_SHA") >> $GITHUB_ENV
+
       - name: Split version into major/minor/maintenance
         uses: jungwinter/split@v2
         id: split
@@ -53,6 +56,7 @@ jobs:
             MINOR_VERSION=${{ steps.split.outputs._1 }}
           tags: |
             ghcr.io/${{ github.repository }}/${{ matrix.bin }}:${{ matrix.client-version }}
+            ghcr.io/${{ github.repository }}/${{ matrix.bin }}:${{ matrix.client-version }}-${{ env.GIT_COMMIT }}
 
       - name: Tag latest image
         uses: docker/build-push-action@v4
