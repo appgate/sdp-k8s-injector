@@ -12,7 +12,7 @@ RUN curl "https://bin.appgate-sdp.com/latest/client.json" --output "/tmp/latest.
 ARG QUERY='.releases.'\"${CLIENT_VERSION}\"'[] | select(.os == "ubuntu" and .type == "headless") | .link'
 RUN curl $(jq "${QUERY}" /tmp/latest.json --raw-output) --output "/tmp/${CLIENT_DEB}"
 
-FROM ubuntu:18.04
+FROM ubuntu:20.04
 LABEL sdp=true
 LABEL project=sdp-client-headless
 ARG CLIENT_DEB
