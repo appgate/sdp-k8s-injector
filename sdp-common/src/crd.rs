@@ -104,7 +104,7 @@ impl Candidate for AdmissionRequest<SDPService> {
 #[derive(Debug, CustomResource, Serialize, Deserialize, Clone, JsonSchema, PartialEq)]
 #[kube(
     group = "injector.sdp.com",
-    version = "v2",
+    version = "v2beta1",
     kind = "ServiceIdentity",
     namespaced
 )]
@@ -216,7 +216,7 @@ impl WithDeviceIds for ServiceIdentity {
 #[derive(Debug, CustomResource, Serialize, Deserialize, Clone, JsonSchema, PartialEq)]
 #[kube(
     group = "injector.sdp.com",
-    version = "v1",
+    version = "v1beta",
     kind = "AssignedDeviceId",
     namespaced
 )]
