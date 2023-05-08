@@ -40,6 +40,9 @@ jobs:
           username: ${{ github.repository_owner }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Get commit short hash
+        run: echo GIT_COMMIT=$(git rev-parse --short "$GITHUB_SHA") >> $GITHUB_ENV
+
       - name: Build cached layer
         uses: docker/build-push-action@v5
         with:
@@ -58,6 +61,7 @@ jobs:
           push: ${{ inputs.push }}
           tags: |
             ghcr.io/${{ github.repository }}/sdp-device-id-service:${{ env.VERSION }}
+            ghcr.io/${{ github.repository }}/sdp-device-id-service:${{ env.VERSION }}-${{ env.GIT_COMMIT }}
             ghcr.io/${{ github.repository }}/sdp-device-id-service:latest
 
       - name: Build sdp-identity-service
@@ -69,6 +73,7 @@ jobs:
           push: ${{ inputs.push }}
           tags: |
             ghcr.io/${{ github.repository }}/sdp-identity-service:${{ env.VERSION }}
+            ghcr.io/${{ github.repository }}/sdp-identity-service:${{ env.VERSION }}-${{ env.GIT_COMMIT }}
             ghcr.io/${{ github.repository }}/sdp-identity-service:latest
 
       - name: Build sdp-injector
@@ -80,4 +85,5 @@ jobs:
           push: ${{ inputs.push }}
           tags: |
             ghcr.io/${{ github.repository }}/sdp-injector:${{ env.VERSION }}
+            ghcr.io/${{ github.repository }}/sdp-injector:${{ env.VERSION }}-${{ env.GIT_COMMIT }}
             ghcr.io/${{ github.repository }}/sdp-injector:latest
