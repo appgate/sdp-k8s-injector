@@ -379,7 +379,7 @@ impl IdentityManagerRunner<ServiceLookup, ServiceIdentity> {
         external_queue_tx: Option<&Sender<IdentityManagerProtocol<F, ServiceIdentity>>>,
     ) -> () {
         info!("Starting Identity Manager");
-        let mut deployment_watcher_ready: u8 = 0;
+        let mut deployment_watchers_ready: u8 = 0;
         let mut identity_creator_ready = false;
         let mut existing_service_candidates: HashSet<String> = HashSet::new();
         let mut missing_service_candidates: HashMap<String, F> = HashMap::new();
@@ -570,7 +570,7 @@ impl IdentityManagerRunner<ServiceLookup, ServiceIdentity> {
                 IdentityManagerProtocol::IdentityCreatorReady => {
                     info!("IdentityCreator is ready");
                     identity_creator_ready = true;
-                    if deployment_watcher_ready == N_WATCHERS {
+                    if deployment_watchers_ready == N_WATCHERS {
                         info!("IdentityManager is ready");
                         if let Err(e) = identity_manager_tx
                             .send(IdentityManagerProtocol::IdentityManagerReady)
@@ -587,8 +587,8 @@ impl IdentityManagerRunner<ServiceLookup, ServiceIdentity> {
                 }
                 IdentityManagerProtocol::DeploymentWatcherReady => {
                     info!("DeploymentWatcher is ready");
-                    deployment_watcher_ready += 1;
-                    if deployment_watcher_ready == N_WATCHERS && identity_creator_ready {
+                    deployment_watchers_ready += 1;
+                    if deployment_watchers_ready == N_WATCHERS && identity_creator_ready {
                         if let Err(e) = identity_manager_tx
                             .send(IdentityManagerProtocol::IdentityManagerReady)
                             .await
