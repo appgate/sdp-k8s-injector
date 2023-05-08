@@ -1812,6 +1812,7 @@ mod tests {
                 tx.send(IdentityManagerProtocol::IdentityCreatorReady).await.expect("Unable to send message!");
                 // Notify the DeploymentWatcher is ready
                 tx.send(IdentityManagerProtocol::DeploymentWatcherReady).await.expect("Unable to send message!");
+                tx.send(IdentityManagerProtocol::DeploymentWatcherReady).await.expect("Unable to send message!");
                 let mut extra_credentials_expected: HashSet<String> = HashSet::from_iter((1 .. 12).map(|i| format!("service_user_id{}", i)).collect::<Vec<_>>());
                 for _ in 1 .. 12 {
                     assert_message!(m :: IdentityCreatorProtocol::DeleteSDPUser(_) in identity_creator_rx);
@@ -1843,6 +1844,7 @@ mod tests {
                 assert_message!(m :: IdentityManagerProtocol::IdentityManagerStarted in watcher_rx);
                 let tx = identity_manager_tx.clone();
                 tx.send(IdentityManagerProtocol::IdentityCreatorReady).await.expect("Unable to send message!");
+                tx.send(IdentityManagerProtocol::DeploymentWatcherReady).await.expect("Unable to send message!");
                 tx.send(IdentityManagerProtocol::DeploymentWatcherReady).await.expect("Unable to send message!");
                 // Syncing UserCredentials log message
                 assert_message!(m :: IdentityManagerProtocol::IdentityManagerDebug(_) in watcher_rx);
