@@ -1,4 +1,4 @@
-#!/usr/bin/env sh
+#!/bin/bash
 
 # Backwards compatibility for alpha version
 if [ -n "$CLIENT_LOGLEVEL" ]; then
@@ -64,3 +64,5 @@ while
       break;
     fi
 do :; done
+
+wait -n
