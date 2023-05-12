@@ -65,6 +65,19 @@ data:
               "name": "pod-info"
             }
           ],
+          "startupProbe": {
+            "exec": {
+              "command": [
+                 "sh",
+                 "-c",
+                 "test",
+                 "-f",
+                 "/sdp-service/ready"
+               ]
+            },
+            "failureThreshold": 10,
+            "periodSeconds": 10
+          },
           "readinessProbe": {
             "exec": {
               "command": [

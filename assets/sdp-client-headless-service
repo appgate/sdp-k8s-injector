@@ -65,4 +65,7 @@ while
     fi
 do :; done
 
+# startupProbe checks for the existence of this file
+touch /sdp-service/ready
+
 wait -n
