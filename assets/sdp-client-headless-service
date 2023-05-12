@@ -43,4 +43,24 @@ if [ "$MAJOR" -ge 6 ] && [ "$MINOR" -ge 1 ]; then
     CMD="$CMD -l /var/log/appgate/driver.log"
 fi
 
-eval "${CMD}"
+eval "${CMD}" &
+
+COUNT=0
+MAX_COUNT=10
+SLEEP=10
+while
+    :
+    COUNT="$((COUNT+1))"
+    if [ "$COUNT" -gt "$MAX_COUNT" ]; then
+        echo "Unable to connect the service after $((MAX_COUNT*SLEEP)) seconds. Exiting."
+        exit 1
+    fi
+
+    sleep $SLEEP
+
+    STATUS="$(appgate_service_configurator status | jq -r .status)"
+    echo "Status: $STATUS ($COUNT/$MAX_COUNT)"
+    if [ "$STATUS" = "Connected" ]; then
+      break;
+    fi
+do :; done
