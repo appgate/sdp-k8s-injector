@@ -25,9 +25,8 @@ RUN apt-get update && apt-get install -y \
     addgroup dnsmasq --gid 101 && \
     usermod _apt -u 104 && \
     usermod dnsmasq -u 100 -g 101 && \
-    usermod appgate -a -G dnsmasq
-
-RUN apt-get update && apt-get install -y \
+    usermod appgate -a -G dnsmasq && \
+    apt-get update && apt-get install -y \
         iproute2 \
         socat \
         libcap2-bin \
