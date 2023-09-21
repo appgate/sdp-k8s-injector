@@ -692,7 +692,7 @@ dependencies = [
  "http",
  "hyper",
  "log",
- "rustls 0.20.7",
+ "rustls",
  "rustls-native-certs",
  "tokio",
  "tokio-rustls",
@@ -937,7 +937,7 @@ dependencies = [
  "kube-core",
  "pem",
  "pin-project",
- "rustls 0.20.7",
+ "rustls",
  "rustls-pemfile",
  "secrecy",
  "serde",
@@ -1466,18 +1466,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "rustls"
-version = "0.21.7"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cd8d6c9f025a446bc4d18ad9632e69aec8f287aa84499ee335599fabd20c3fd8"
-dependencies = [
- "log",
- "ring",
- "rustls-webpki",
- "sct",
-]
-
-[[package]]
 name = "rustls-native-certs"
 version = "0.6.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1496,16 +1484,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2d3987094b1d07b653b7dfdc3f70ce9a1da9c51ac18c1b06b662e4f9a0e9f4b2"
 dependencies = [
  "base64 0.21.0",
-]
-
-[[package]]
-name = "rustls-webpki"
-version = "0.101.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3c7d5dece342910d9ba34d259310cae3e0154b873b35408b787b59bce53d34fe"
-dependencies = [
- "ring",
- "untrusted",
 ]
 
 [[package]]
@@ -1655,7 +1633,7 @@ dependencies = [
  "log",
  "log4rs",
  "notify",
- "rustls 0.21.7",
+ "rustls",
  "rustls-pemfile",
  "sdp-common",
  "sdp-macros",
@@ -2001,7 +1979,7 @@ version = "0.23.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c43ee83903113e03984cb9e5cebe6c04a5116269e900e3ddba8f068a62adda59"
 dependencies = [
- "rustls 0.20.7",
+ "rustls",
  "tokio",
  "webpki",
 ]
