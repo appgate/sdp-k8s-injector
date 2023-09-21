@@ -14,7 +14,7 @@ jobs:
     env:
       HELM_EXPERIMENTAL_OCI: 1
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - uses: mikefarah/yq@master
         id: chartVersion
@@ -45,7 +45,7 @@ jobs:
     env:
       HELM_EXPERIMENTAL_OCI: 1
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - uses: mikefarah/yq@master
         id: chartVersion

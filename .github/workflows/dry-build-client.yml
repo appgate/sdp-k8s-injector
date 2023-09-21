@@ -24,7 +24,7 @@ jobs:
           - "6.1"
           - "6.2"
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: Split version into major/minor/maintenance
         uses: jungwinter/split@v2
         id: split
