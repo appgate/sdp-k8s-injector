@@ -17,12 +17,12 @@ sdp-test-macros = { path = "../sdp-test-macros" }
 tokio = { version = "~1.28.1", features = ["rt", "macros", "rt-multi-thread"] }
 hyper = { version = "0.14", features = ["server"]}
 tls-listener = { version = "^0.5.0",  features = [ "rustls", "hyper-h1", "hyper-h2", "tokio-net", "rt" ] }
-tokio-rustls = { version = "^0.24.1", features = [] }
+tokio-rustls = { version = "^0.23.0", features = [] }
 serde_json = "1.0"
 serde = { version= "1.0", features = ["derive"] }
 kube = { version = "0.74.0", default-features = false, features = ["admission", "rustls-tls", "derive", "client", "runtime"] }
 k8s-openapi = { version = "0.15.0", default-features = false, features = ["v1_24"] }
-rustls = "0.21.7"
+rustls = "0.20.6"
 rustls-pemfile = "1.0.3"
 futures-util = "0.3"
 http = "0.2"
