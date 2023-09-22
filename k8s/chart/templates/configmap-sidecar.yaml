@@ -68,9 +68,7 @@ data:
           "readinessProbe": {
             "exec": {
               "command": [
-                "sh",
-                "-c",
-                "appgate_service_configurator status | grep '\"status\": \"Connected\"'"
+                "/opt/appgate/sdp-service-probe"
               ]
             },
             "initialDelaySeconds": 10
