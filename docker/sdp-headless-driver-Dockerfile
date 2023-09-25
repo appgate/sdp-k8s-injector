@@ -12,7 +12,7 @@ RUN curl "https://bin.appgate-sdp.com/latest/client.json" --output "/tmp/latest.
 ARG QUERY='.releases.'\"${CLIENT_VERSION}\"'[] | select(.os == "ubuntu" and .type == "headless") | .link'
 RUN curl $(jq "${QUERY}" /tmp/latest.json --raw-output) --output "/tmp/${CLIENT_DEB}"
 
-FROM ubuntu:18.04
+FROM ubuntu:22.04
 LABEL sdp=true
 LABEL project=sdp-client-headless
 ARG CLIENT_DEB
@@ -35,6 +35,7 @@ RUN apt-get update && apt-get install -y \
 
 COPY assets/sdp-driver-set-dns /opt/appgate/linux/set_dns
 COPY assets/sdp-client-headless-driver /opt/appgate/sdp-client-headless-driver
+COPY assets/noop.sh /opt/appgate/linux/{set_fw,reset_fw}
 RUN mkdir /var/run/sdp-driver && \
     chown -R 103:102 /var/run/sdp-driver && \
     chmod +x /opt/appgate/linux/set_dns && \
@@ -51,7 +52,7 @@ RUN mkdir /var/run/sdp-driver && \
         /etc/machine-id \
         /tmp/$CLIENT_DEB && \
     setcap CAP_NET_ADMIN+ep /bin/ip && \
-    setcap CAP_NET_ADMIN,CAP_NET_RAW+ep /sbin/xtables-multi && \
+    setcap CAP_NET_ADMIN,CAP_NET_RAW+ep /sbin/xtables-legacy-multi && \
     setcap CAP_NET_ADMIN=ep /opt/appgate/appgate-driver && \
     setcap CAP_MKNOD=ep /bin/mknod
 WORKDIR /opt/appgate
