@@ -17,7 +17,7 @@ jobs:
     runs-on: ubuntu-latest
     uses: ./.github/workflows/build-push-injector.yml
     with:
-      push: false
+      push: true
 
   release-chart:
     runs-on: ubuntu-latest
