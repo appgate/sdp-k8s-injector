@@ -2,10 +2,13 @@ name: Release Chart
 
 on:
   workflow_call:
+    inputs:
+      push:
+        type: boolean
+        required: true
 
 jobs:
   release:
-    if: ${{ github.ref == 'refs/heads/main' }}
     permissions:
       contents: write
     runs-on: ubuntu-latest
@@ -23,6 +26,7 @@ jobs:
         uses: azure/setup-helm@v3
 
       - name: Run chart-releaser
+        if: ${{ inputs.push }}
         uses: helm/chart-releaser-action@v1.5.0
         with:
           charts_dir: "k8s"

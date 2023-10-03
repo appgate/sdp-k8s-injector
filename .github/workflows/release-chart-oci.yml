@@ -2,10 +2,13 @@ name: Release Chart OCI
 
 on:
   workflow_call:
+    inputs:
+      push:
+        type: boolean
+        required: true
 
 jobs:
   helm-crd:
-    if: ${{ github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-latest
     env:
       HELM_EXPERIMENTAL_OCI: 1
@@ -22,6 +25,7 @@ jobs:
           version: 3.7.2
 
       - name: Login to GitHub Container Registry
+        if: ${{ inputs.push }}
         run: helm registry login ghcr.io/${{ github.repository }} --username ${{ github.repository_owner }} --password ${{ secrets.GITHUB_TOKEN }}
 
       - name: Lint chart
@@ -31,7 +35,7 @@ jobs:
         run: helm package k8s/crd --dependency-update
 
       - name: Push chart
-        if: ${{ github.ref == 'refs/heads/main' }}
+        if: ${{ inputs.push }}
         run: helm push sdp-k8s-injector-crd-${{ steps.chartVersion.outputs.result }}.tgz oci://ghcr.io/appgate/charts
 
   helm-k8s-injector:
@@ -50,11 +54,12 @@ jobs:
         with:
           version: 3.7.2
       - name: Login to GitHub Container Registry
+        if: ${{ inputs.push }}
         run: helm registry login ghcr.io/${{ github.repository }} --username ${{ github.repository_owner }} --password ${{ secrets.GITHUB_TOKEN }}
       - name: Lint chart
         run: helm lint k8s/chart
       - name: Package chart
         run: helm package k8s/chart --dependency-update
       - name: Push chart
-        if: ${{ github.ref == 'refs/heads/main' }}
+        if: ${{ inputs.push }}
         run: helm push sdp-k8s-injector-${{ steps.chartVersion.outputs.result }}.tgz oci://ghcr.io/appgate/charts

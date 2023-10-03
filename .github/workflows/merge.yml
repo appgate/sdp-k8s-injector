@@ -19,10 +19,14 @@ jobs:
 
   release-chart:
     uses: ./.github/workflows/release-chart.yml
+    needs: [ build-push-client, build-push-injector ]
     with:
+      push: true
       secrets: inherit
 
   release-chart-oci:
     uses: ./.github/workflows/release-chart-oci.yml
+    needs: [ build-push-client, build-push-injector ]
     with:
+      push: true
       secrets: inherit
