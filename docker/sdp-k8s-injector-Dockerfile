@@ -14,7 +14,7 @@ LABEL project=sdp-k8s-injector
 LABEL image=sdp-planner
 WORKDIR /sdp-build
 COPY . .
-RUN cargo chef prepare  --recipe-path recipe.json
+RUN cargo chef prepare --recipe-path recipe.json
 
 ### builder next
 FROM sdp-planner as sdp-cacher
