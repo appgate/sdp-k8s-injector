@@ -21,12 +21,12 @@ jobs:
 
   release-chart:
     runs-on: ubuntu-latest
-    uses: .github/workflows/release-chart.yml
+    uses: ./.github/workflows/release-chart.yml
     with:
       secrets: inherit
 
   release-chart-oci:
     runs-on: ubuntu-latest
-    uses: .github/workflows/release-chart-oci.yml
+    uses: ./.github/workflows/release-chart-oci.yml
     with:
       secrets: inherit
