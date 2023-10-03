@@ -38,9 +38,4 @@ EOF
 
 CMD="/opt/appgate/service/appgateservice --config /sdp-service/appgate.conf --tun /var/run/sdp-driver/.driver.sock --service"
 
-# If v6.1+ client, add -l flag
-if [ "$MAJOR" -ge 6 ] && [ "$MINOR" -ge 1 ]; then
-    CMD="$CMD -l /var/log/appgate/driver.log"
-fi
-
 eval "${CMD}"
