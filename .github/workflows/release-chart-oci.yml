@@ -1,15 +1,13 @@
 name: Release Chart OCI
 
 on:
-  workflow_run:
-    workflows: [ "Build and Push Injector Images" ]
-    branches: [ "main" ]
-    types:
-      - completed
+  workflow_call:
+    GITHUB_TOKEN:
+      required: true
 
 jobs:
   helm-crd:
-    if: ${{ github.event.workflow_run.conclusion == 'success' && github.ref == 'refs/heads/main' }}
+    if: ${{ github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-latest
     env:
       HELM_EXPERIMENTAL_OCI: 1
@@ -46,25 +44,19 @@ jobs:
       HELM_EXPERIMENTAL_OCI: 1
     steps:
       - uses: actions/checkout@v3
-
       - uses: mikefarah/yq@master
         id: chartVersion
         with:
           cmd: yq eval .version k8s/chart/Chart.yaml
-
       - uses: azure/setup-helm@v3
         with:
           version: 3.7.2
-
       - name: Login to GitHub Container Registry
         run: helm registry login ghcr.io/${{ github.repository }} --username ${{ github.repository_owner }} --password ${{ secrets.GITHUB_TOKEN }}
-
       - name: Lint chart
         run: helm lint k8s/chart
-
       - name: Package chart
         run: helm package k8s/chart --dependency-update
-
       - name: Push chart
         if: ${{ github.ref == 'refs/heads/main' }}
         run: helm push sdp-k8s-injector-${{ steps.chartVersion.outputs.result }}.tgz oci://ghcr.io/appgate/charts

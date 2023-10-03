@@ -1,0 +1,24 @@
+name: pull-request
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - assets/*
+      - docker/sdp-k8s-injector-Dockerfile
+      - k8s/*
+      - sdp-common/*
+      - sdp-device-id-service/*
+      - sdp-identity-service/*
+      - sdp-injector/*
+      - sdp-macros/*
+      - sdp-proc-macros/*
+      - sdp-test-macros/*
+
+jobs:
+  build-injector:
+    runs-on: ubuntu-latest
+    uses: ./.github/workflows/build-push-injector.yml
+    with:
+      push: false

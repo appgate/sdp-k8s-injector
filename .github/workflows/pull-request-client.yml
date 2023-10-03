@@ -1,0 +1,19 @@
+name: pull-request-client
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - assets/*
+      - docker/sdp-dnsmasq-Dockerfile
+      - docker/sdp-headless-driver-Dockerfile
+      - docker/sdp-headless-service-Dockerfile
+
+jobs:
+  build-client:
+    runs-on: ubuntu-latest
+    uses: ./.github/workflows/build-push-client.yml
+    with:
+      latest-version: "6.1"
+      push: false

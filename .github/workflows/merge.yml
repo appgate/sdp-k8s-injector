@@ -1,0 +1,32 @@
+name: merge
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build-push-client:
+    runs-on: ubuntu-latest
+    uses: ./.github/workflows/build-push-client.yml
+    with:
+      latest-version: "6.1"
+      push: true
+
+  build-push-injector:
+    runs-on: ubuntu-latest
+    uses: ./.github/workflows/build-push-injector.yml
+    with:
+      push: false
+
+  release-chart:
+    runs-on: ubuntu-latest
+    uses: .github/workflows/release-chart.yml
+    with:
+      secrets: inherit
+
+  release-chart-oci:
+    runs-on: ubuntu-latest
+    uses: .github/workflows/release-chart-oci.yml
+    with:
+      secrets: inherit
