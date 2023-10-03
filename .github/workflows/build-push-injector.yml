@@ -11,7 +11,7 @@ jobs:
   docker-build-injector:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - uses: actions-rs/toolchain@v1
         with:
@@ -41,7 +41,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build cached layer
-        uses: docker/build-push-action@v4
+        uses: docker/build-push-action@v5
         with:
           build-args: PROFILE=${{ env.PROFILE }}
           context: .
@@ -50,7 +50,7 @@ jobs:
           tags: sdp-k8s-injector-build:latest
 
       - name: Build sdp-device-id-service
-        uses: docker/build-push-action@v4
+        uses: docker/build-push-action@v5
         with:
           build-args: PROFILE=${{ env.PROFILE }}
           context: .
@@ -61,7 +61,7 @@ jobs:
             ghcr.io/${{ github.repository }}/sdp-device-id-service:latest
 
       - name: Build sdp-identity-service
-        uses: docker/build-push-action@v4
+        uses: docker/build-push-action@v5
         with:
           build-args: PROFILE=${{ env.PROFILE }}
           context: .
@@ -72,7 +72,7 @@ jobs:
             ghcr.io/${{ github.repository }}/sdp-identity-service:latest
 
       - name: Build sdp-injector
-        uses: docker/build-push-action@v4
+        uses: docker/build-push-action@v5
         with:
           build-args: PROFILE=${{ env.PROFILE }}
           context: .
