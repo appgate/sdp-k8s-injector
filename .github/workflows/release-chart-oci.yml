@@ -2,8 +2,6 @@ name: Release Chart OCI
 
 on:
   workflow_call:
-    GITHUB_TOKEN:
-      required: true
 
 jobs:
   helm-crd:
