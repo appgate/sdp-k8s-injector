@@ -12,7 +12,6 @@ on:
 
 jobs:
   build-client:
-    runs-on: ubuntu-latest
     uses: ./.github/workflows/build-push-client.yml
     with:
       latest-version: "6.1"

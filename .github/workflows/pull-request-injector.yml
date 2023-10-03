@@ -18,7 +18,6 @@ on:
 
 jobs:
   build-injector:
-    runs-on: ubuntu-latest
     uses: ./.github/workflows/build-push-injector.yml
     with:
       push: false
