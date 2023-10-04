@@ -31,4 +31,4 @@ json-patch = "*"
 uuid = { version = "1.4.1", features = ["v4", "fast-rng"] }
 futures = "0.3.28"
 log4rs = "1.2.0"
-notify = { version = "5.2.0", default-features = false, features=["macos_kqueue"] }
+notify = { version = "6.1.1", default-features = false, features=["macos_kqueue"] }
