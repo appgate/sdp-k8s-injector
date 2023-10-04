@@ -1,6 +1,6 @@
-ARG RUST_VERSION=1.69
+ARG RUST_VERSION=1.72
 
-FROM rust:${RUST_VERSION} as chef
+FROM rust:${RUST_VERSION}-slim-bullseye as chef
 LABEL sdp=true
 LABEL project=sdp-k8s-injector
 LABEL image=chef
@@ -14,7 +14,7 @@ LABEL project=sdp-k8s-injector
 LABEL image=sdp-planner
 WORKDIR /sdp-build
 COPY . .
-RUN cargo chef prepare  --recipe-path recipe.json
+RUN cargo chef prepare --recipe-path recipe.json
 
 ### builder next
 FROM sdp-planner as sdp-cacher
@@ -32,18 +32,17 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry,id=k8s-injector-registry
     cargo chef cook $([ "$PROFILE" = "release" ] && echo --release) --recipe-path recipe.json && \
     ls -la /sdp-build/target > /sdp-build/out
 
-FROM rust:${RUST_VERSION}
+FROM rust:${RUST_VERSION}-slim-bullseye
 LABEL sdp=true
 LABEL project=sdp-k8s-injector
 LABEL image=sdp-k8s-injector-build
 ARG PROFILE
-ENV PROFILE=${PROFILE:-debug}
+ENV PROFILE=${PROFILE:-debug}   
+RUN apt-get update && \
+    apt-get install -y libssl-dev pkg-config && \
+    rm -rf /var/lib/apt/lists/*
 WORKDIR /sdp-build
 COPY . .
-# Copy built dependencies over cache
-COPY --from=sdp-cacher /sdp-build/target target
-# Copy cargo folder from cache. This includes the package registry and downloaded sources
-COPY --from=sdp-cacher $CARGO_HOME $CARGO_HOME
 # Build the binary
 RUN --mount=type=cache,target=/usr/local/cargo/registry,id=k8s-injector-registry \
     --mount=type=cache,target=/sdp-build/target,id=k8s-injector-deps \
