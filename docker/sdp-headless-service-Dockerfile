@@ -56,7 +56,7 @@ RUN chmod +x /opt/appgate/sdp-client-headless-service && \
     chown 103:102 /var/run/appgate && \
     mkdir -p /var/log/appgate && \
     chown -R 103:102 /var/log/appgate && \
-    chmod +x /opt/appgate/pod_info
+    chmod +x /opt/appgate/pod_info && \
     chmod +x /opt/appgate/sdp-service-probe
 WORKDIR /sdp-service
 USER appgate
