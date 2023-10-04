@@ -1562,7 +1562,7 @@ dependencies = [
 
 [[package]]
 name = "sdp-common"
-version = "1.0.7"
+version = "1.0.8"
 dependencies = [
  "chrono",
  "const_format",
@@ -1585,7 +1585,7 @@ dependencies = [
 
 [[package]]
 name = "sdp-device-id-service"
-version = "1.0.7"
+version = "1.0.8"
 dependencies = [
  "clap",
  "futures",
@@ -1604,7 +1604,7 @@ dependencies = [
 
 [[package]]
 name = "sdp-identity-service"
-version = "1.0.7"
+version = "1.0.8"
 dependencies = [
  "clap",
  "futures",
@@ -1624,7 +1624,7 @@ dependencies = [
 
 [[package]]
 name = "sdp-injector"
-version = "1.0.7"
+version = "1.0.8"
 dependencies = [
  "futures",
  "futures-util",
@@ -1651,11 +1651,11 @@ dependencies = [
 
 [[package]]
 name = "sdp-macros"
-version = "1.0.7"
+version = "1.0.8"
 
 [[package]]
 name = "sdp-proc-macros"
-version = "1.0.7"
+version = "1.0.8"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1664,7 +1664,7 @@ dependencies = [
 
 [[package]]
 name = "sdp-test-macros"
-version = "1.0.7"
+version = "1.0.8"
 
 [[package]]
 name = "secrecy"
