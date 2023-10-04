@@ -2,6 +2,16 @@ apiVersion: v1
 entries:
   sdp-k8s-injector:
   - apiVersion: v2
+    appVersion: 1.0.9
+    created: "2023-10-04T14:15:26.972673756Z"
+    description: 'Helm chart for Appgate SDP Kubernetes Injector '
+    digest: d2fdb971c6d83bf1301ce34c628eb7afec21c723d9ed427be2b72eae9d6846e7
+    name: sdp-k8s-injector
+    type: application
+    urls:
+    - https://github.com/appgate/sdp-k8s-injector/releases/download/v1.0.13-sdp-k8s-injector/sdp-k8s-injector-1.0.13.tgz
+    version: 1.0.13
+  - apiVersion: v2
     appVersion: 1.0.8
     created: "2023-10-04T13:11:30.35400094Z"
     description: 'Helm chart for Appgate SDP Kubernetes Injector '
@@ -93,6 +103,16 @@ entries:
     version: 1.0.3
   sdp-k8s-injector-crd:
   - apiVersion: v2
+    appVersion: 1.0.9
+    created: "2023-10-04T14:15:27.242888212Z"
+    description: Helm chart for SDP Kubernetes Injector CRD
+    digest: b8dd0c4573dea9216c389acc5419c4809ddf8ea06d5e69e1c3c4b7d98771d20c
+    name: sdp-k8s-injector-crd
+    type: application
+    urls:
+    - https://github.com/appgate/sdp-k8s-injector/releases/download/v1.0.13-sdp-k8s-injector-crd/sdp-k8s-injector-crd-1.0.13.tgz
+    version: 1.0.13
+  - apiVersion: v2
     appVersion: 1.0.8
     created: "2023-10-04T13:11:30.844280743Z"
     description: Helm chart for SDP Kubernetes Injector CRD
@@ -182,4 +202,4 @@ entries:
     urls:
     - https://github.com/appgate/sdp-k8s-injector/releases/download/v1.0.3-sdp-k8s-injector-crd/sdp-k8s-injector-crd-1.0.3.tgz
     version: 1.0.3
-generated: "2023-10-04T13:11:30.844354044Z"
+generated: "2023-10-04T14:15:27.243206813Z"
