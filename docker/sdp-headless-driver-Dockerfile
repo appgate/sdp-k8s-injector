@@ -51,9 +51,10 @@ RUN mkdir /var/run/sdp-driver && \
         /etc/machine-id \
         /tmp/$CLIENT_DEB && \
     setcap CAP_NET_ADMIN+ep /bin/ip && \
-    setcap CAP_NET_ADMIN,CAP_NET_RAW+ep /sbin/xtables-multi && \
+    setcap CAP_NET_ADMIN,CAP_NET_RAW+ep /usr/sbin/xtables-nft-multi && \
     setcap CAP_NET_ADMIN=ep /opt/appgate/appgate-driver && \
     setcap CAP_MKNOD=ep /bin/mknod
 WORKDIR /opt/appgate
 USER appgate
 CMD ["/opt/appgate/sdp-client-headless-driver"]
+
