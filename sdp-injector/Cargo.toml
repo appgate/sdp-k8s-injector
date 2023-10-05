@@ -26,7 +26,7 @@ rustls = "0.20.6"
 rustls-pemfile = "1.0.3"
 futures-util = "0.3"
 http = "0.2"
-log = "0.4.17"
+log = "0.4.20"
 json-patch = "*"
 uuid = { version = "1.4.1", features = ["v4", "fast-rng"] }
 futures = "0.3.28"
