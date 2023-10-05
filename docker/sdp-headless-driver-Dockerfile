@@ -27,11 +27,12 @@ RUN apt-get update && apt-get install -y \
     usermod dnsmasq -u 100 -g 101 && \
     usermod appgate -a -G dnsmasq
 
-RUN apt-get update && apt-get install -y \
-        iproute2 \
-        socat \
-        libcap2-bin \
-        && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && \
+    apt-get install -y \
+      iproute2 \
+      socat \
+      libcap2-bin && \
+  rm -rf /var/lib/apt/lists/*
 
 COPY assets/sdp-driver-set-dns /opt/appgate/linux/set_dns
 COPY assets/sdp-client-headless-driver /opt/appgate/sdp-client-headless-driver
