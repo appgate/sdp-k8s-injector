@@ -31,9 +31,7 @@ RUN apt-get update && apt-get install -y \
     addgroup dnsmasq --gid 101 && \
     usermod _apt -u 104 && \
     usermod dnsmasq -u 100 -g 101 && \
-    usermod  appgate -a -G dnsmasq && \
-    # workaround for `busctl not found`
-    ln -s false /bin/busctl
+    usermod  appgate -a -G dnsmasq
 
 RUN rm -rf \
         /usr/share/doc \
