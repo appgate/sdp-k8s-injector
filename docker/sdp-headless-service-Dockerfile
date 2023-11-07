@@ -24,13 +24,12 @@ ENV MINOR=${MINOR_VERSION}
 
 COPY --from=sdp-headless-client "/tmp/${CLIENT_DEB}" "/tmp/${CLIENT_DEB}"
 
-RUN apt-get update && apt-get install -y \
+RUN addgroup dnsmasq --gid 101 && \
+    addgroup messagebus --gid 103 && \
+    apt-get update && apt-get --no-install-recommends install -y \
         "/tmp/$CLIENT_DEB" && \
     rm -rf /var/lib/apt/lists/* && \
-    groupmod -g 103 messagebus && \
-    addgroup dnsmasq --gid 101 && \
     usermod _apt -u 104 && \
-    usermod dnsmasq -u 100 -g 101 && \
     usermod  appgate -a -G dnsmasq
 
 RUN rm -rf \
