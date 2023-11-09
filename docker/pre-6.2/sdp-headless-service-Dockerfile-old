@@ -45,6 +45,7 @@ RUN rm -rf \
 # /opt/appgate/sdp-client-headless-service is required for client version < 6.0
 COPY assets/sdp-client-headless-service /opt/appgate/sdp-client-headless-service
 
+COPY assets/sdp-service-probe /opt/appgate/sdp-service-probe
 COPY assets/sdp-driver-pod-info /opt/appgate/pod_info
 RUN chmod +x /opt/appgate/sdp-client-headless-service && \
     touch /etc/machine-id && \
