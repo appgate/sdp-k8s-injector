@@ -336,9 +336,17 @@ async fn dns_service_discover(services_api: &Api<KubeService>) -> Option<KubeSer
             let mut iter = xs.items.into_iter();
             iter.find(|s| {
                 s.metadata
-                    .name
+                    .labels
                     .as_ref()
-                    .map(|ns| names.contains(ns.as_str()))
+                    .and_then(|l| {
+                        let maybe_dns_service = l.get("k8s-app");
+                        debug!(
+                            "Kubernetes DNS Service: {}",
+                            maybe_dns_service.unwrap_or("None")
+                        );
+                        maybe_dns_service
+                    })
+                    .map(|l| names.contains(l.as_str()))
                     .unwrap_or(false)
             })
         })
