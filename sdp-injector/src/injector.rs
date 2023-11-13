@@ -56,7 +56,7 @@ use sdp_macros::{logger, sdp_debug, sdp_error, sdp_info, sdp_log, sdp_warn, with
 
 logger!("SDPInjector");
 
-const SDP_DNS_SERVICE_NAMES: [&str; 2] = ["kube-dns", "coredns"];
+const SDP_DNS_SERVICE_NAMES: [&str; 3] = ["kube-dns", "coredns", "rke2-coredns"];
 const SDP_SIDECARS_FILE: &str = "/opt/sdp-injector/k8s/sdp-sidecars.json";
 const SDP_SIDECARS_FILE_ENV: &str = "SDP_SIDECARS_FILE";
 const SDP_CERT_FILE_ENV: &str = "SDP_CERT_FILE";
