@@ -341,10 +341,9 @@ async fn dns_service_discover(services_api: &Api<KubeService>) -> Option<KubeSer
                     .and_then(|l| {
                         // k8s-app label is by design: https://github.com/coredns/deployment/issues/116
                         let maybe_dns_service = l.get("k8s-app");
-                        debug!(
-                            "Kubernetes DNS Service: {}",
-                            maybe_dns_service.unwrap_or(&"None".to_string())
-                        );
+                        if let Some(dns) = maybe_dns_service {
+                            info!("Kubernetes DNS Service: {}", dns);
+                        }
                         maybe_dns_service
                     })
                     .map(|l| names.contains(l.as_str()))
