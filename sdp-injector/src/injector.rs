@@ -342,7 +342,7 @@ async fn dns_service_discover(services_api: &Api<KubeService>) -> Option<KubeSer
                         let maybe_dns_service = l.get("k8s-app");
                         debug!(
                             "Kubernetes DNS Service: {}",
-                            maybe_dns_service.unwrap_or("None")
+                            maybe_dns_service.unwrap_or(&"None".to_string())
                         );
                         maybe_dns_service
                     })
