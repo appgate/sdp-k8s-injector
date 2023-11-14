@@ -56,7 +56,7 @@ use sdp_macros::{logger, sdp_debug, sdp_error, sdp_info, sdp_log, sdp_warn, with
 
 logger!("SDPInjector");
 
-const SDP_DNS_SERVICE_NAMES: [&str; 2] = ["kube-dns", "coredns"];
+const SDP_DNS_SERVICE_NAMES: [&str; 3] = ["kube-dns", "coredns", "rke2-coredns"];
 const SDP_SIDECARS_FILE: &str = "/opt/sdp-injector/k8s/sdp-sidecars.json";
 const SDP_SIDECARS_FILE_ENV: &str = "SDP_SIDECARS_FILE";
 const SDP_CERT_FILE_ENV: &str = "SDP_CERT_FILE";
@@ -336,9 +336,17 @@ async fn dns_service_discover(services_api: &Api<KubeService>) -> Option<KubeSer
             let mut iter = xs.items.into_iter();
             iter.find(|s| {
                 s.metadata
-                    .name
+                    .labels
                     .as_ref()
-                    .map(|ns| names.contains(ns.as_str()))
+                    .and_then(|l| {
+                        // k8s-app label is by design: https://github.com/coredns/deployment/issues/116
+                        let maybe_dns_service = l.get("k8s-app");
+                        if let Some(dns) = maybe_dns_service {
+                            info!("Kubernetes DNS Service: {}", dns);
+                        }
+                        maybe_dns_service
+                    })
+                    .map(|l| names.contains(l.as_str()))
                     .unwrap_or(false)
             })
         })
