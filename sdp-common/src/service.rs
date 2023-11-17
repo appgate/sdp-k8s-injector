@@ -534,20 +534,24 @@ pub fn needs_injection<A: Annotated>(entity: &A) -> bool {
     }
 }
 
+pub fn get_random_suffix(n: usize) -> String {
+    rand::thread_rng()
+        .sample_iter(&Alphanumeric)
+        .take(n)
+        .map(char::from)
+        .collect::<String>()
+        .to_lowercase()
+}
+
 pub fn get_service_username(cluster_name: &str, service_ns: &str, service_name: &str) -> String {
-    format!("{}_{}_{}", cluster_name, service_ns, service_name)
+    format!("{}_{}_{}_{}", cluster_name, service_ns, service_name, get_random_suffix(5))
 }
 
 pub fn get_profile_client_url_name(cluster_name: &str) -> (String, String) {
     // SDP only allows max 20 characters
     let mut short_name: String = String::from(cluster_name);
     short_name.truncate(14);
-    let random: String = rand::thread_rng()
-        .sample_iter(&Alphanumeric)
-        .take(5)
-        .map(char::from)
-        .collect();
-    (format!("{}-{}", short_name, random), short_name)
+    (format!("{}-{}", short_name, get_random_suffix(5)), short_name)
 }
 
 pub fn containers(pod: &Pod) -> Option<&Vec<Container>> {
@@ -585,7 +589,7 @@ mod tests {
 
     use crate::service::{
         needs_injection, SDPInjectionStrategy, SDP_INJECTOR_ANNOTATION_ENABLED,
-        SDP_INJECTOR_ANNOTATION_STRATEGY,
+        SDP_INJECTOR_ANNOTATION_STRATEGY, get_service_username,
     };
 
     use super::injection_strategy;
@@ -675,5 +679,18 @@ mod tests {
             (SDP_INJECTOR_ANNOTATION_STRATEGY, "disabledByDefault"),
             (SDP_INJECTOR_ANNOTATION_ENABLED, "false")
         ])));
+    }
+
+    #[test]
+    fn test_get_service_username() {
+        let prefix = "my-cluster_my-ns_my-service_";
+        let n = prefix.len();
+        let service_username = get_service_username("my-cluster", "my-ns", "my-service");
+        assert_eq!(
+            service_username[..n],
+            prefix[..],
+        );
+        assert_eq!(service_username.len(), prefix.len() + 5);
+        assert_eq!(service_username[n..].chars().into_iter().filter(|c| c.is_uppercase()).count(), 0);
     }
 }
