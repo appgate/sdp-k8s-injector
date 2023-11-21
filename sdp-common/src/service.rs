@@ -544,13 +544,9 @@ pub fn get_random_suffix(n: usize) -> String {
 }
 
 pub fn get_service_username(cluster_name: &str, service_ns: &str, service_name: &str) -> String {
-    format!(
-        "{}_{}_{}_{}",
-        cluster_name,
-        service_ns,
-        service_name,
-        get_random_suffix(5)
-    )
+    let mut prefix = format!("{}_{}_{}", cluster_name, service_ns, service_name);
+    prefix.truncate(122);
+    format!("{}_{}", prefix, get_random_suffix(5))
 }
 
 pub fn get_profile_client_url_name(cluster_name: &str) -> (String, String) {
@@ -691,7 +687,7 @@ mod tests {
     }
 
     #[test]
-    fn test_get_service_username() {
+    fn test_get_service_username_0() {
         let prefix = "my-cluster_my-ns_my-service_";
         let n = prefix.len();
         let service_username = get_service_username("my-cluster", "my-ns", "my-service");
@@ -699,6 +695,31 @@ mod tests {
         assert_eq!(service_username.len(), prefix.len() + 5);
         assert_eq!(
             service_username[n..]
+                .chars()
+                .into_iter()
+                .filter(|c| c.is_uppercase())
+                .count(),
+            0
+        );
+    }
+
+    #[test]
+    fn test_get_service_username_1() {
+        let prefix = format!(
+            "my-cluster_my-ns_my-service-{}",
+            (0..128).map(|_| "X").collect::<String>()
+        );
+        assert!(prefix.len() > 128);
+        let service_username = get_service_username(
+            "my-cluster",
+            "my-ns",
+            &format!("my-service-{}", (0..128).map(|_| "X").collect::<String>()),
+        );
+        assert_eq!(service_username.len(), 128);
+        assert_eq!(service_username[..122], prefix[..122],);
+        assert_eq!(&service_username[122..123], "_");
+        assert_eq!(
+            service_username[123..]
                 .chars()
                 .into_iter()
                 .filter(|c| c.is_uppercase())
