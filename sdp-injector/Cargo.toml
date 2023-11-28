@@ -25,7 +25,7 @@ k8s-openapi = { version = "0.15.0", default-features = false, features = ["v1_24
 rustls = "0.20.6"
 rustls-pemfile = "1.0.3"
 futures-util = "0.3"
-http = "0.2"
+http = "1.0"
 log = "0.4.20"
 json-patch = "*"
 uuid = { version = "1.5.0", features = ["v4", "fast-rng"] }
