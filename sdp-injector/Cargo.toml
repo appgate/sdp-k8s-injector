@@ -28,7 +28,7 @@ futures-util = "0.3"
 http = "0.2"
 log = "0.4.20"
 json-patch = "*"
-uuid = { version = "1.5.0", features = ["v4", "fast-rng"] }
+uuid = { version = "1.6.1", features = ["v4", "fast-rng"] }
 futures = "0.3.29"
 log4rs = "1.2.0"
 notify = { version = "6.1.1", default-features = false, features=["macos_kqueue"] }
