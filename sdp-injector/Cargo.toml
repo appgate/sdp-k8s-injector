@@ -20,7 +20,7 @@ tls-listener = { version = "^0.5.0",  features = [ "rustls", "hyper-h1", "hyper-
 tokio-rustls = { version = "^0.23.0", features = [] }
 serde_json = "1.0"
 serde = { version= "1.0", features = ["derive"] }
-kube = { version = "0.74.0", default-features = false, features = ["admission", "rustls-tls", "derive", "client", "runtime"] }
+kube = { version = "0.87.1", default-features = false, features = ["admission", "rustls-tls", "derive", "client", "runtime"] }
 k8s-openapi = { version = "0.15.0", default-features = false, features = ["v1_24"] }
 rustls = "0.20.6"
 rustls-pemfile = "1.0.3"
