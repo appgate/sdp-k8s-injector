@@ -4,7 +4,7 @@ use std::{collections::HashSet, fmt::Debug};
 
 use kube::{
     api::ListParams,
-    runtime::watcher::{self, Event},
+    runtime::watcher::{self, Config, Event},
     Api, Resource, ResourceExt,
 };
 use sdp_macros::{logger, sdp_debug, sdp_error, sdp_info, sdp_log, with_dollar_sign};
@@ -131,7 +131,7 @@ where
     }
 
     // Run the watcher
-    let xs = watcher::watcher(watcher.api, ListParams::default());
+    let xs = watcher::watcher(watcher.api, Config::default());
     let mut xs = xs.boxed();
     info!("Starting watcher loop for {}", module);
     loop {

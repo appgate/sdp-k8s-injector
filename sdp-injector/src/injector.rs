@@ -11,9 +11,9 @@ use k8s_openapi::api::core::v1::{
     ConfigMapKeySelector, Container, EnvVar, EnvVarSource, Namespace, ObjectFieldSelector, Pod,
     PodDNSConfig, PodSecurityContext, SecretKeySelector, Service as KubeService, Sysctl, Volume,
 };
-use k8s_openapi::apimachinery::pkg::apis::meta::v1::Status;
 use kube::api::{DynamicObject, ListParams};
 use kube::core::admission::{AdmissionRequest, AdmissionResponse, AdmissionReview};
+use kube::core::Status;
 use kube::Api;
 use rustls::{Certificate, PrivateKey, ServerConfig};
 use rustls_pemfile::{certs, rsa_private_keys};
@@ -134,7 +134,7 @@ macro_rules! admission_response {
 macro_rules! allow_admission_response {
     (response => $response:ident) => {{
         let mut status: Status = Default::default();
-        status.code = Some(200);
+        status.code = 200;
         $response.allowed = true;
         $response.result = status;
         admission_response!(body, $response => {
@@ -1114,8 +1114,8 @@ async fn validate(body: Bytes, sdp_sidecars: Arc<SDPSidecars>) -> Result<Body, B
     let mut admission_response = AdmissionResponse::from(&admission_request);
     if let Err(error) = sdp_pod.validate(admission_request) {
         let mut status: Status = Default::default();
-        status.code = Some(40);
-        status.message = Some(error);
+        status.code = 40;
+        status.message = error;
         admission_response.allowed = false;
         admission_response.result = status;
     }
