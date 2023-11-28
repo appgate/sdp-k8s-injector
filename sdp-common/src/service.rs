@@ -292,7 +292,7 @@ impl ServiceUser {
                         "[{}] Deleting secret {}: {}",
                         format!("{}_{}", service_ns, service_name),
                         secret_name,
-                        s.status
+                        s.message
                     );
                 });
             Ok(())
@@ -331,7 +331,7 @@ impl ServiceUser {
                         format!("{}_{}", service_ns, service_name),
                         config_map_name,
                         service_ns,
-                        s.status
+                        s.message
                     );
                 });
             Ok(())
