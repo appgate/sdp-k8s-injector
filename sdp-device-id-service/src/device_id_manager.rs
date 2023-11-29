@@ -78,15 +78,9 @@ impl DeviceIdProvider for DeviceIdManagerPool {
 
 #[async_trait]
 trait DeviceIdAPI {
-    async fn create<'a>(
-        &'a self,
-        device_id: &'a DeviceId,
-    ) -> Result<DeviceId, String>;
+    async fn create<'a>(&'a self, device_id: &'a DeviceId) -> Result<DeviceId, String>;
 
-    async fn delete<'a>(
-        &'a self,
-        device_id_name: &'a str,
-    ) -> Result<(), String>;
+    async fn delete<'a>(&'a self, device_id_name: &'a str) -> Result<(), String>;
 
     async fn list(&self) -> Result<Vec<DeviceId>, String>;
 }
@@ -100,12 +94,8 @@ pub struct KubeDeviceIdManager {
 
 #[async_trait]
 impl DeviceIdAPI for KubeDeviceIdManager {
-    async fn create<'a>(
-        &'a self,
-        device_id: &'a DeviceId,
-    ) -> Result<DeviceId, String> {
-        let device_id_api: Api<DeviceId> =
-            Api::namespaced(self.client.clone(), SDP_K8S_NAMESPACE);
+    async fn create<'a>(&'a self, device_id: &'a DeviceId) -> Result<DeviceId, String> {
+        let device_id_api: Api<DeviceId> = Api::namespaced(self.client.clone(), SDP_K8S_NAMESPACE);
         let service_id = device_id.service_id();
         let service_name = device_id.service_name();
         match device_id_api
@@ -226,12 +216,8 @@ impl DeviceIdAPI for KubeDeviceIdManager {
         .unwrap_or(Err("Unable to get namespace for DeviceID".to_string()))
     }
 
-    async fn delete<'a>(
-        &'a self,
-        device_id_name: &'a str,
-    ) -> Result<(), String> {
-        let device_id_api: Api<DeviceId> =
-            Api::namespaced(self.client.clone(), SDP_K8S_NAMESPACE);
+    async fn delete<'a>(&'a self, device_id_name: &'a str) -> Result<(), String> {
+        let device_id_api: Api<DeviceId> = Api::namespaced(self.client.clone(), SDP_K8S_NAMESPACE);
         device_id_api
             .delete(device_id_name, &DeleteParams::default())
             .await
@@ -240,8 +226,7 @@ impl DeviceIdAPI for KubeDeviceIdManager {
     }
 
     async fn list(&self) -> Result<Vec<DeviceId>, String> {
-        let device_id_api: Api<DeviceId> =
-            Api::namespaced(self.client.clone(), SDP_K8S_NAMESPACE);
+        let device_id_api: Api<DeviceId> = Api::namespaced(self.client.clone(), SDP_K8S_NAMESPACE);
         device_id_api
             .list(&ListParams::default())
             .await
@@ -412,18 +397,12 @@ mod tests {
 
     #[async_trait]
     impl DeviceIdAPI for TestDeviceIdManager {
-        async fn create<'a>(
-            &'a self,
-            device_id: &'a DeviceId,
-        ) -> Result<DeviceId, String> {
+        async fn create<'a>(&'a self, device_id: &'a DeviceId) -> Result<DeviceId, String> {
             self.api_counters.lock().unwrap().create_calls += 1;
             Ok(device_id.clone())
         }
 
-        async fn delete<'a>(
-            &'a self,
-            _: &'a str,
-        ) -> Result<(), String> {
+        async fn delete<'a>(&'a self, _: &'a str) -> Result<(), String> {
             self.api_counters.lock().unwrap().delete_calls += 1;
             Ok(())
         }

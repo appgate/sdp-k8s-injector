@@ -23,7 +23,6 @@ use crate::service_candidate_watcher::ServiceCandidateWatcherProtocol;
 
 logger!("IdentityManager");
 
-
 const N_WATCHERS: u8 = 2;
 
 /// Trait that represents the pool of ServiceUser entities
@@ -99,13 +98,8 @@ trait ServiceIdentityAPI {
         &'a self,
         identity: &'a ServiceIdentity,
     ) -> Result<ServiceIdentity, IdentityServiceError>;
-    async fn delete<'a>(
-        &'a self,
-        identity_name: &'a str,
-    ) -> Result<(), IdentityServiceError>;
-    async fn list<'a>(
-        &'a self,
-    ) -> Result<Vec<ServiceIdentity>, IdentityServiceError>;
+    async fn delete<'a>(&'a self, identity_name: &'a str) -> Result<(), IdentityServiceError>;
+    async fn list<'a>(&'a self) -> Result<Vec<ServiceIdentity>, IdentityServiceError>;
 }
 
 /*
@@ -272,11 +266,15 @@ impl ServiceIdentityAPI for KubeIdentityManager {
     async fn update<'a>(
         &'a self,
         identity: &'a ServiceIdentity,
-    ) -> Result<ServiceIdentity, IdentityServiceError>
-    {
-        if let Some(mut obj) = self.service_identity_api.get_opt(&identity.service_name()).await? {
+    ) -> Result<ServiceIdentity, IdentityServiceError> {
+        if let Some(mut obj) = self
+            .service_identity_api
+            .get_opt(&identity.service_name())
+            .await?
+        {
             obj.spec = identity.spec.clone();
-            let new_obj = self.service_identity_api
+            let new_obj = self
+                .service_identity_api
                 .replace(&identity.service_name(), &PostParams::default(), &obj)
                 .await?;
             Ok(new_obj)
@@ -286,13 +284,9 @@ impl ServiceIdentityAPI for KubeIdentityManager {
                 identity.service_name()
             )))
         }
-        
     }
 
-    async fn delete<'a>(
-        &'a self,
-        identity_name: &'a str,
-    ) -> Result<(), IdentityServiceError> {
+    async fn delete<'a>(&'a self, identity_name: &'a str) -> Result<(), IdentityServiceError> {
         self.service_identity_api
             .delete(identity_name, &DeleteParams::default())
             .await
@@ -300,9 +294,7 @@ impl ServiceIdentityAPI for KubeIdentityManager {
             .map_err(IdentityServiceError::from)
     }
 
-    async fn list<'a>(
-        &'a self,
-    ) -> Result<Vec<ServiceIdentity>, IdentityServiceError> {
+    async fn list<'a>(&'a self) -> Result<Vec<ServiceIdentity>, IdentityServiceError> {
         self.service_identity_api
             .list(&ListParams::default())
             .await
@@ -926,23 +918,17 @@ mod tests {
         async fn create<'a>(
             &'a self,
             identity: &'a ServiceIdentity,
-        ) -> Result<ServiceIdentity, IdentityServiceError>
-        {
+        ) -> Result<ServiceIdentity, IdentityServiceError> {
             self.api_counters.lock().unwrap().create_calls += 1;
             Ok(identity.clone())
         }
 
-        async fn delete<'a>(
-            &'a self,
-            _: &'a str,
-        ) -> Result<(), IdentityServiceError> {
+        async fn delete<'a>(&'a self, _: &'a str) -> Result<(), IdentityServiceError> {
             self.api_counters.lock().unwrap().delete_calls += 1;
             Ok(())
         }
 
-        async fn list<'a>(
-            &'a self,
-        ) -> Result<Vec<ServiceIdentity>, IdentityServiceError> {
+        async fn list<'a>(&'a self) -> Result<Vec<ServiceIdentity>, IdentityServiceError> {
             self.api_counters.lock().unwrap().list_calls += 1;
             Ok(vec![])
         }
@@ -950,8 +936,7 @@ mod tests {
         async fn update<'a>(
             &'a self,
             identity: &'a ServiceIdentity,
-        ) -> Result<ServiceIdentity, IdentityServiceError>
-        {
+        ) -> Result<ServiceIdentity, IdentityServiceError> {
             self.api_counters.lock().unwrap().list_calls += 1;
             Ok(identity.clone())
         }

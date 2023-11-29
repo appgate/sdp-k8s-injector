@@ -43,10 +43,7 @@ pub trait IdentityStore<A: Service + HasCredentials>: Send + Sync {
         uuid: Uuid,
     ) -> Result<Option<Uuid>, SDPServiceError>;
 
-    async fn register_service(
-        &mut self,
-        service: A,
-    ) -> Result<Option<A>, SDPServiceError>;
+    async fn register_service(&mut self, service: A) -> Result<Option<A>, SDPServiceError>;
 
     async fn register_device_ids(
         &mut self,
@@ -88,8 +85,7 @@ impl IdentityStore<ServiceIdentity> for InMemoryIdentityStore {
     async fn register_service(
         &mut self,
         service: ServiceIdentity,
-    ) -> Result<Option<ServiceIdentity>, SDPServiceError>
-    {
+    ) -> Result<Option<ServiceIdentity>, SDPServiceError> {
         Ok(self.identities.insert(service.service_id(), service))
     }
 
