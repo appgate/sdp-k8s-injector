@@ -34,7 +34,7 @@ function vf(vo, m, s, vv) {
 /^version/ && C==2 && V==1 {vf($2, M, "version:", 2)}
 /^appVersion/ && C==2 && V==2 {vf($2, M, "appVersion:", 3)}
 !/^version/ && !/^appVersion/ && C==2 {print($0)}
-/^edition/ {print("edition ="  "\"" D "\"")}
+/^edition/ {print("edition = ""\"" D "\"")}
 ' $f
 }
 
