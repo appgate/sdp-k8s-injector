@@ -1637,11 +1637,7 @@ dependencies = [
 
 [[package]]
 name = "sdp-common"
-<<<<<<< HEAD
 version = "1.1.1"
-=======
-version = "1.0.8"
->>>>>>> de54da8 (Bump version)
 dependencies = [
  "chrono",
  "const_format",
@@ -1664,11 +1660,7 @@ dependencies = [
 
 [[package]]
 name = "sdp-device-id-service"
-<<<<<<< HEAD
 version = "1.1.1"
-=======
-version = "1.0.8"
->>>>>>> de54da8 (Bump version)
 dependencies = [
  "clap",
  "futures",
@@ -1687,11 +1679,7 @@ dependencies = [
 
 [[package]]
 name = "sdp-identity-service"
-<<<<<<< HEAD
 version = "1.1.1"
-=======
-version = "1.0.8"
->>>>>>> de54da8 (Bump version)
 dependencies = [
  "clap",
  "futures",
@@ -1711,11 +1699,7 @@ dependencies = [
 
 [[package]]
 name = "sdp-injector"
-<<<<<<< HEAD
 version = "1.1.1"
-=======
-version = "1.0.8"
->>>>>>> de54da8 (Bump version)
 dependencies = [
  "futures",
  "futures-util",
@@ -1742,19 +1726,11 @@ dependencies = [
 
 [[package]]
 name = "sdp-macros"
-<<<<<<< HEAD
 version = "1.1.1"
 
 [[package]]
 name = "sdp-proc-macros"
 version = "1.1.1"
-=======
-version = "1.0.8"
-
-[[package]]
-name = "sdp-proc-macros"
-version = "1.0.8"
->>>>>>> de54da8 (Bump version)
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1763,11 +1739,7 @@ dependencies = [
 
 [[package]]
 name = "sdp-test-macros"
-<<<<<<< HEAD
 version = "1.1.1"
-=======
-version = "1.0.8"
->>>>>>> de54da8 (Bump version)
 
 [[package]]
 name = "secrecy"
