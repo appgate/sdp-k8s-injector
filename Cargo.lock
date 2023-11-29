@@ -1682,6 +1682,7 @@ dependencies = [
 name = "sdp-identity-service"
 version = "1.1.1"
 dependencies = [
+ "async-trait",
  "clap",
  "futures",
  "json-patch",
