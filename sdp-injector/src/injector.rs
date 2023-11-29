@@ -292,7 +292,7 @@ impl IdentityStore<ServiceIdentity> for KubeIdentityStore {
     > {
         Box::pin(async move {
             Err(SDPServiceError::from(
-                "Registry does not support unregister if device ids",
+                "Registry does not support unregister of device ids",
             ))
         })
     }
