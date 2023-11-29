@@ -8,7 +8,7 @@ bump_version() {
     local m=$2
     local c=$3
     local s=$4
-    awk -F$5 -vM=$2 -vC=$c -vV=$4 '
+    awk -F$5 -vM=$2 -vC=$c -vV=$4 -vD=$(date +%Y) '
 function vf(vo, m, s, vv) {
   gsub(/[" ]/, "", vo)
   split(vo, vs, ".")
@@ -34,6 +34,7 @@ function vf(vo, m, s, vv) {
 /^version/ && C==2 && V==1 {vf($2, M, "version:", 2)}
 /^appVersion/ && C==2 && V==2 {vf($2, M, "appVersion:", 3)}
 !/^version/ && !/^appVersion/ && C==2 {print($0)}
+/^edition/ {print("edition = " "\"" D "\"")}
 ' $f
 }
 
