@@ -23,6 +23,10 @@ use crate::identity_creator::IdentityCreatorProtocol;
 use crate::service_candidate_watcher::ServiceCandidateWatcherProtocol;
 
 logger!("IdentityManager");
+
+
+const N_WATCHERS: u8 = 2;
+
 /// Trait that represents the pool of ServiceUser entities
 /// We can pop and push ServiceUser entities
 trait ServiceUsersPool {
@@ -375,7 +379,7 @@ impl IdentityManagerRunner<ServiceLookup, ServiceIdentity> {
         external_queue_tx: Option<&Sender<IdentityManagerProtocol<F, ServiceIdentity>>>,
     ) -> () {
         info!("Starting Identity Manager");
-        let mut deployment_watcher_ready = false;
+        let mut deployment_watchers_ready: u8 = 0;
         let mut identity_creator_ready = false;
         let mut existing_service_candidates: HashSet<String> = HashSet::new();
         let mut missing_service_candidates: HashMap<String, F> = HashMap::new();
@@ -566,7 +570,7 @@ impl IdentityManagerRunner<ServiceLookup, ServiceIdentity> {
                 IdentityManagerProtocol::IdentityCreatorReady => {
                     info!("IdentityCreator is ready");
                     identity_creator_ready = true;
-                    if deployment_watcher_ready {
+                    if deployment_watchers_ready == N_WATCHERS {
                         info!("IdentityManager is ready");
                         if let Err(e) = identity_manager_tx
                             .send(IdentityManagerProtocol::IdentityManagerReady)
@@ -583,8 +587,8 @@ impl IdentityManagerRunner<ServiceLookup, ServiceIdentity> {
                 }
                 IdentityManagerProtocol::DeploymentWatcherReady => {
                     info!("DeploymentWatcher is ready");
-                    deployment_watcher_ready = true;
-                    if identity_creator_ready {
+                    deployment_watchers_ready += 1;
+                    if deployment_watchers_ready == N_WATCHERS && identity_creator_ready {
                         if let Err(e) = identity_manager_tx
                             .send(IdentityManagerProtocol::IdentityManagerReady)
                             .await
@@ -1806,7 +1810,8 @@ mod tests {
                     .await.expect("Unable to send message!");
                 // Notify that IdentityCreator is ready
                 tx.send(IdentityManagerProtocol::IdentityCreatorReady).await.expect("Unable to send message!");
-                // Notify the DeploymentWatcher is ready
+                // We expect 2 DeploymentWatchers to report readiness
+                tx.send(IdentityManagerProtocol::DeploymentWatcherReady).await.expect("Unable to send message!");
                 tx.send(IdentityManagerProtocol::DeploymentWatcherReady).await.expect("Unable to send message!");
                 let mut extra_credentials_expected: HashSet<String> = HashSet::from_iter((1 .. 12).map(|i| format!("service_user_id{}", i)).collect::<Vec<_>>());
                 for _ in 1 .. 12 {
@@ -1839,6 +1844,8 @@ mod tests {
                 assert_message!(m :: IdentityManagerProtocol::IdentityManagerStarted in watcher_rx);
                 let tx = identity_manager_tx.clone();
                 tx.send(IdentityManagerProtocol::IdentityCreatorReady).await.expect("Unable to send message!");
+                // We expect 2 DeploymentWatchers to report readiness
+                tx.send(IdentityManagerProtocol::DeploymentWatcherReady).await.expect("Unable to send message!");
                 tx.send(IdentityManagerProtocol::DeploymentWatcherReady).await.expect("Unable to send message!");
                 // Syncing UserCredentials log message
                 assert_message!(m :: IdentityManagerProtocol::IdentityManagerDebug(_) in watcher_rx);
