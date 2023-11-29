@@ -1,6 +1,6 @@
 use crate::deviceid::{DeviceIdProviderResponseProtocol, IdentityStore, RegisteredDeviceId};
 use crate::errors::SDPPatchError;
-use futures_util::Future;
+use async_trait::async_trait;
 use http::{Method, StatusCode};
 use hyper::body::Bytes;
 use hyper::{Body, Request, Response};
@@ -38,7 +38,6 @@ use std::fs::File;
 use std::io::BufReader;
 use std::iter::FromIterator;
 use std::path::PathBuf;
-use std::pin::Pin;
 use std::str::from_utf8;
 use std::sync::Arc;
 use std::time::Duration;
@@ -219,112 +218,82 @@ pub struct KubeIdentityStore {
     pub device_id_q_tx: Sender<DeviceIdProviderRequestProtocol<ServiceIdentity>>,
 }
 
+#[async_trait]
 impl IdentityStore<ServiceIdentity> for KubeIdentityStore {
-    fn pop_device_id<'a>(
+    async fn pop_device_id<'a>(
         &'a mut self,
         service_id: &'a str,
-    ) -> Pin<Box<dyn Future<Output = Result<(ServiceIdentity, Uuid), SDPServiceError>> + Send + '_>>
-    {
-        let fut = async move {
-            let (q_tx, mut q_rx) = channel::<DeviceIdProviderResponseProtocol<ServiceIdentity>>(1);
-            self.device_id_q_tx
-                .send(DeviceIdProviderRequestProtocol::RequestDeviceId(
-                    q_tx,
-                    service_id.to_string(),
-                ))
-                .await
-                .map_err(|e| format!("Error sending message to request device id: {}", e))?;
-            match timeout(Duration::from_secs(5), q_rx.recv()).await {
-                Ok(Some(DeviceIdProviderResponseProtocol::AssignedDeviceId(
-                    service_identity,
-                    device_id,
-                ))) => Ok((service_identity, device_id)),
-                Ok(Some(DeviceIdProviderResponseProtocol::NotFound)) | Ok(None) => {
-                    Err(SDPServiceError::from_string(format!(
-                        "Device id not found for service {}",
-                        service_id
-                    )))
-                }
-                Err(e) => Err(SDPServiceError::from_string(format!(
-                    "Error getting device id for service {}: {}",
-                    service_id, e
-                ))),
+    ) -> Result<(ServiceIdentity, Uuid), SDPServiceError> {
+        let (q_tx, mut q_rx) = channel::<DeviceIdProviderResponseProtocol<ServiceIdentity>>(1);
+        self.device_id_q_tx
+            .send(DeviceIdProviderRequestProtocol::RequestDeviceId(
+                q_tx,
+                service_id.to_string(),
+            ))
+            .await
+            .map_err(|e| format!("Error sending message to request device id: {}", e))?;
+        match timeout(Duration::from_secs(5), q_rx.recv()).await {
+            Ok(Some(DeviceIdProviderResponseProtocol::AssignedDeviceId(
+                service_identity,
+                device_id,
+            ))) => Ok((service_identity, device_id)),
+            Ok(Some(DeviceIdProviderResponseProtocol::NotFound)) | Ok(None) => {
+                Err(SDPServiceError::from_string(format!(
+                    "Device id not found for service {}",
+                    service_id
+                )))
             }
-        };
-        Box::pin(fut)
+            Err(e) => Err(SDPServiceError::from_string(format!(
+                "Error getting device id for service {}: {}",
+                service_id, e
+            ))),
+        }
     }
 
-    fn register_service(
+    async fn register_service(
         &mut self,
         _service: ServiceIdentity,
-    ) -> Pin<Box<dyn Future<Output = Result<Option<ServiceIdentity>, SDPServiceError>> + Send + '_>>
-    {
-        Box::pin(async move {
-            Err(SDPServiceError::from(
-                "Registry does not support register of service identities",
-            ))
-        })
+    ) -> Result<Option<ServiceIdentity>, SDPServiceError> {
+        Err(SDPServiceError::from(
+            "Registry does not support register of service identities",
+        ))
     }
 
-    fn register_device_ids(
+    async fn register_device_ids(
         &mut self,
         _device_id: DeviceId,
-    ) -> Pin<
-        Box<dyn Future<Output = Result<Option<RegisteredDeviceId>, SDPServiceError>> + Send + '_>,
-    > {
-        Box::pin(async move {
-            Err(SDPServiceError::from(
-                "Registry does not support register of device ids",
-            ))
-        })
+    ) -> Result<Option<RegisteredDeviceId>, SDPServiceError> {
+        Err(SDPServiceError::from(
+            "Registry does not support register of device ids",
+        ))
     }
 
-    fn unregister_device_ids<'a>(
+    async fn unregister_device_ids<'a>(
         &'a mut self,
         _device_id: &'a str,
-    ) -> Pin<
-        Box<
-            dyn Future<
-                    Output = Result<Option<(ServiceIdentity, RegisteredDeviceId)>, SDPServiceError>,
-                > + Send
-                + '_,
-        >,
-    > {
-        Box::pin(async move {
-            Err(SDPServiceError::from(
-                "Registry does not support unregister if device ids",
-            ))
-        })
+    ) -> Result<Option<(ServiceIdentity, RegisteredDeviceId)>, SDPServiceError> {
+        Err(SDPServiceError::from(
+            "Registry does not support unregister of device ids",
+        ))
     }
 
-    fn unregister_service<'a>(
+    async fn unregister_service<'a>(
         &'a mut self,
         _service_id: &'a str,
-    ) -> Pin<
-        Box<
-            dyn Future<
-                    Output = Result<Option<(ServiceIdentity, RegisteredDeviceId)>, SDPServiceError>,
-                > + Send
-                + '_,
-        >,
-    > {
-        Box::pin(async move {
-            Err(SDPServiceError::from(
-                "Registry does not support deregistration of service identities",
-            ))
-        })
+    ) -> Result<Option<(ServiceIdentity, RegisteredDeviceId)>, SDPServiceError> {
+        Err(SDPServiceError::from(
+            "Registry does not support deregistration of service identities",
+        ))
     }
 
-    fn push_device_id<'a>(
+    async fn push_device_id<'a>(
         &'a mut self,
         _service_id: &'a str,
         _uuid: Uuid,
-    ) -> Pin<Box<dyn Future<Output = Result<Option<Uuid>, SDPServiceError>> + Send + '_>> {
-        Box::pin(async move {
-            Err(SDPServiceError::from(
-                "Registry does not support registration of device ids",
-            ))
-        })
+    ) -> Result<Option<Uuid>, SDPServiceError> {
+        Err(SDPServiceError::from(
+            "Registry does not support registration of device ids",
+        ))
     }
 }
 

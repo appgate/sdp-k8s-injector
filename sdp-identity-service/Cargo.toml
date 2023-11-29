@@ -1,6 +1,6 @@
 [package]
 name = "sdp-identity-service"
-version = "1.1.1"
+version = "1.1.2"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -25,3 +25,4 @@ uuid = { version = "1.6.1", features = ["v4", "fast-rng"] }
 json-patch = "*"
 clap = { version = "4.4.10", features = ["derive"] }
 log4rs = "1.2.0"
+async-trait = "0.1.74"

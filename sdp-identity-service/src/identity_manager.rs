@@ -1,4 +1,4 @@
-use futures::Future;
+use async_trait::async_trait;
 use kube::api::{DeleteParams, ListParams, PostParams};
 use kube::{Api, Client};
 use sdp_common::constants::SDP_CLUSTER_ID_ENV;
@@ -14,7 +14,6 @@ use sdp_macros::{
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fmt;
 use std::iter::FromIterator;
-use std::pin::Pin;
 use tokio::sync::broadcast::Sender as BroadcastSender;
 use tokio::sync::mpsc::{Receiver, Sender};
 
@@ -23,7 +22,6 @@ use crate::identity_creator::IdentityCreatorProtocol;
 use crate::service_candidate_watcher::ServiceCandidateWatcherProtocol;
 
 logger!("IdentityManager");
-
 
 const N_WATCHERS: u8 = 2;
 
@@ -90,22 +88,18 @@ trait ServiceIdentityProvider {
 
 /// This should not be needed once the GAT support is in stable
 /// https://blog.rust-lang.org/2021/08/03/GATs-stabilization-push.html
+#[async_trait]
 trait ServiceIdentityAPI {
-    fn create<'a>(
+    async fn create<'a>(
         &'a self,
         identity: &'a ServiceIdentity,
-    ) -> Pin<Box<dyn Future<Output = Result<ServiceIdentity, IdentityServiceError>> + Send + '_>>;
-    fn update<'a>(
+    ) -> Result<ServiceIdentity, IdentityServiceError>;
+    async fn update<'a>(
         &'a self,
         identity: &'a ServiceIdentity,
-    ) -> Pin<Box<dyn Future<Output = Result<ServiceIdentity, IdentityServiceError>> + Send + '_>>;
-    fn delete<'a>(
-        &'a self,
-        identity_name: &'a str,
-    ) -> Pin<Box<dyn Future<Output = Result<(), IdentityServiceError>> + Send + '_>>;
-    fn list<'a>(
-        &'a self,
-    ) -> Pin<Box<dyn Future<Output = Result<Vec<ServiceIdentity>, IdentityServiceError>> + Send + '_>>;
+    ) -> Result<ServiceIdentity, IdentityServiceError>;
+    async fn delete<'a>(&'a self, identity_name: &'a str) -> Result<(), IdentityServiceError>;
+    async fn list<'a>(&'a self) -> Result<Vec<ServiceIdentity>, IdentityServiceError>;
 }
 
 /*
@@ -224,107 +218,88 @@ pub struct KubeIdentityManager {
     service_identity_api: Api<ServiceIdentity>,
 }
 
-async fn update_impl<'a>(
-    api: &Api<ServiceIdentity>,
-    identity: &'a ServiceIdentity,
-) -> Result<ServiceIdentity, IdentityServiceError> {
-    if let Some(mut obj) = api.get_opt(&identity.service_name()).await? {
-        obj.spec = identity.spec.clone();
-        let new_obj = api
-            .replace(&identity.service_name(), &PostParams::default(), &obj)
-            .await?;
-        Ok(new_obj)
-    } else {
-        Err(IdentityServiceError::from(format!(
-            "ServiceIdentity {} not found",
-            identity.service_name()
+#[async_trait]
+impl ServiceIdentityAPI for KubeIdentityManager {
+    async fn create<'a>(
+        &'a self,
+        identity: &'a ServiceIdentity,
+    ) -> Result<ServiceIdentity, IdentityServiceError> {
+        let service_id = identity.service_id();
+        match self
+            .service_identity_api
+            .get_opt(&service_id)
+            .await
+            .map_err(IdentityServiceError::from)
+        {
+            Ok(None) => {
+                info!(
+                    "[{}] ServiceIdentity {} does not exist, creating it.",
+                    service_id, service_id
+                );
+                Some(
+                    self.service_identity_api
+                        .create(&PostParams::default(), identity)
+                        .await
+                        .map_err(IdentityServiceError::from),
+                )
+            }
+            Ok(_) => {
+                info!(
+                    "[{}] ServiceIdentity {} already exists.",
+                    service_id, service_id
+                );
+                Some(Ok(identity.clone()))
+            }
+            Err(e) => {
+                error!(
+                    "[{}] Error checking if service identity {} exists.",
+                    service_id, service_id
+                );
+                Some(Err(e))
+            }
+        }
+        .unwrap_or(Err(IdentityServiceError::from(
+            "ServiceIdentity is not a service".to_string(),
         )))
     }
-}
 
-impl ServiceIdentityAPI for KubeIdentityManager {
-    fn create<'a>(
+    async fn update<'a>(
         &'a self,
         identity: &'a ServiceIdentity,
-    ) -> Pin<Box<dyn Future<Output = Result<ServiceIdentity, IdentityServiceError>> + Send + '_>>
-    {
-        let fut = async move {
-            let service_id = identity.service_id();
-            match self
+    ) -> Result<ServiceIdentity, IdentityServiceError> {
+        if let Some(mut obj) = self
+            .service_identity_api
+            .get_opt(&identity.service_name())
+            .await?
+        {
+            obj.spec = identity.spec.clone();
+            let new_obj = self
                 .service_identity_api
-                .get_opt(&service_id)
-                .await
-                .map_err(IdentityServiceError::from)
-            {
-                Ok(None) => {
-                    info!(
-                        "[{}] ServiceIdentity {} does not exist, creating it.",
-                        service_id, service_id
-                    );
-                    Some(
-                        self.service_identity_api
-                            .create(&PostParams::default(), identity)
-                            .await
-                            .map_err(IdentityServiceError::from),
-                    )
-                }
-                Ok(_) => {
-                    info!(
-                        "[{}] ServiceIdentity {} already exists.",
-                        service_id, service_id
-                    );
-                    Some(Ok(identity.clone()))
-                }
-                Err(e) => {
-                    error!(
-                        "[{}] Error checking if service identity {} exists.",
-                        service_id, service_id
-                    );
-                    Some(Err(e))
-                }
-            }
-            .unwrap_or(Err(IdentityServiceError::from(
-                "ServiceIdentity is not a service".to_string(),
+                .replace(&identity.service_name(), &PostParams::default(), &obj)
+                .await?;
+            Ok(new_obj)
+        } else {
+            Err(IdentityServiceError::from(format!(
+                "ServiceIdentity {} not found",
+                identity.service_name()
             )))
-        };
-        Box::pin(fut)
+        }
     }
 
-    fn update<'a>(
-        &'a self,
-        identity: &'a ServiceIdentity,
-    ) -> Pin<Box<dyn Future<Output = Result<ServiceIdentity, IdentityServiceError>> + Send + '_>>
-    {
-        let fut = async move { update_impl(&self.service_identity_api, identity).await };
-        Box::pin(fut)
+    async fn delete<'a>(&'a self, identity_name: &'a str) -> Result<(), IdentityServiceError> {
+        self.service_identity_api
+            .delete(identity_name, &DeleteParams::default())
+            .await
+            .map(|_| ())
+            .map_err(IdentityServiceError::from)
     }
 
-    fn delete<'a>(
-        &'a self,
-        identity_name: &'a str,
-    ) -> Pin<Box<dyn Future<Output = Result<(), IdentityServiceError>> + Send + '_>> {
-        let fut = async move {
-            self.service_identity_api
-                .delete(identity_name, &DeleteParams::default())
-                .await
-                .map(|_| ())
-                .map_err(IdentityServiceError::from)
-        };
-        Box::pin(fut)
-    }
-
-    fn list<'a>(
-        &'a self,
-    ) -> Pin<Box<dyn Future<Output = Result<Vec<ServiceIdentity>, IdentityServiceError>> + Send + '_>>
-    {
-        let fut = async move {
-            self.service_identity_api
-                .list(&ListParams::default())
-                .await
-                .map(|xs| xs.items)
-                .map_err(IdentityServiceError::from)
-        };
-        Box::pin(fut)
+    async fn list<'a>(&'a self) -> Result<Vec<ServiceIdentity>, IdentityServiceError> {
+        self.service_identity_api
+            .list(&ListParams::default())
+            .await
+            .map(|xs| xs.items)
+            .map_err(IdentityServiceError::from)
     }
 }
 
@@ -814,11 +789,10 @@ impl IdentityManagerRunner<ServiceLookup, ServiceIdentity> {
 mod tests {
     use std::{
         collections::{HashMap, HashSet},
-        future,
-        pin::Pin,
         sync::{Arc, Mutex},
     };
 
+    use async_trait::async_trait;
     use futures::Future;
     use k8s_openapi::api::apps::v1::Deployment;
     use kube::{core::object::HasSpec, ResourceExt};
@@ -939,42 +913,32 @@ mod tests {
         }
     }
 
+    #[async_trait]
     impl ServiceIdentityAPI for TestIdentityManager {
-        fn create<'a>(
+        async fn create<'a>(
             &'a self,
             identity: &'a ServiceIdentity,
-        ) -> Pin<Box<dyn Future<Output = Result<ServiceIdentity, IdentityServiceError>> + Send + '_>>
-        {
+        ) -> Result<ServiceIdentity, IdentityServiceError> {
             self.api_counters.lock().unwrap().create_calls += 1;
-            Box::pin(future::ready(Ok(identity.clone())))
+            Ok(identity.clone())
         }
 
-        fn delete<'a>(
-            &'a self,
-            _: &'a str,
-        ) -> Pin<Box<dyn Future<Output = Result<(), IdentityServiceError>> + Send + '_>> {
+        async fn delete<'a>(&'a self, _: &'a str) -> Result<(), IdentityServiceError> {
             self.api_counters.lock().unwrap().delete_calls += 1;
-            Box::pin(future::ready(Ok(())))
+            Ok(())
         }
 
-        fn list<'a>(
-            &'a self,
-        ) -> Pin<
-            Box<
-                dyn Future<Output = Result<Vec<ServiceIdentity>, IdentityServiceError>> + Send + '_,
-            >,
-        > {
+        async fn list<'a>(&'a self) -> Result<Vec<ServiceIdentity>, IdentityServiceError> {
             self.api_counters.lock().unwrap().list_calls += 1;
-            Box::pin(future::ready(Ok(vec![])))
+            Ok(vec![])
         }
 
-        fn update<'a>(
+        async fn update<'a>(
             &'a self,
             identity: &'a ServiceIdentity,
-        ) -> Pin<Box<dyn Future<Output = Result<ServiceIdentity, IdentityServiceError>> + Send + '_>>
-        {
+        ) -> Result<ServiceIdentity, IdentityServiceError> {
             self.api_counters.lock().unwrap().list_calls += 1;
-            Box::pin(future::ready(Ok(identity.clone())))
+            Ok(identity.clone())
         }
     }
 
