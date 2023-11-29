@@ -1,12 +1,84 @@
 use proc_macro::TokenStream;
 use quote::quote;
-use syn::Meta::NameValue;
-use syn::NestedMeta::Meta;
-use syn::{parse::Parser, parse_macro_input, Data, DeriveInput, Field, Fields, Ident, NestedMeta};
+use syn::punctuated::Punctuated;
+use syn::{parse::Parser, parse_macro_input, Data, DeriveInput, Field, Fields, Ident};
+use syn::{Attribute, Expr, ExprAssign, ExprLit, ExprPath, Lit, Path, Token};
 
-struct IdentityProviderParams {
-    from: Ident,
-    to: Ident,
+fn ensure_has_pool_field(data: Data, provider: &str, pool_type: &str) -> () {
+    if let Data::Struct(data) = data {
+        if let Fields::Named(fields) = data.fields {
+            if let None = fields
+                .named
+                .iter()
+                .find(|f| f.ident.is_some() && f.ident.as_ref().unwrap().to_string() == "pool")
+            {
+                panic!(
+                    "#[derive({})] struct needs to implement a pool field of type {}",
+                    provider, pool_type
+                );
+            }
+        }
+    } else {
+        panic!("#[derive({})] is only defined for structs!", provider);
+    }
+}
+
+fn provider_params(attrs: Vec<Attribute>, default_to: &str, default_from: &str) -> (Ident, Ident) {
+    let mut to: Option<Ident> = None;
+    let mut from: Option<Ident> = None;
+    for attr in attrs {
+        if let syn::Meta::List(syn::MetaList { tokens, .. }) = attr.meta {
+            let parser = Punctuated::<Expr, Token![,]>::parse_terminated;
+            for expr in parser.parse(tokens.into()).unwrap() {
+                match expr {
+                    Expr::Assign(ExprAssign { left, right, .. }) => match (*left, *right) {
+                        (
+                            Expr::Path(ExprPath {
+                                path:
+                                    Path {
+                                        segments: left_segments,
+                                        ..
+                                    },
+                                ..
+                            }),
+                            Expr::Lit(ExprLit {
+                                lit: Lit::Str(right),
+                                ..
+                            }),
+                        ) if left_segments.len() == 1 => {
+                            match &left_segments.first().unwrap().ident {
+                                i if i.to_string() == "To" => {
+                                    to = Some(Ident::new(
+                                        &right.value(),
+                                        proc_macro2::Span::call_site(),
+                                    ));
+                                }
+                                i if i.to_string() == "From" => {
+                                    from = Some(Ident::new(
+                                        &right.value(),
+                                        proc_macro2::Span::call_site(),
+                                    ));
+                                }
+                                _ => {
+                                    panic!("Wrong macro 3");
+                                }
+                            }
+                        }
+                        (_a, _b) => {
+                            panic!("Wrong macro 1");
+                        }
+                    },
+                    _ => {
+                        panic!("Wrong macro 2");
+                    }
+                }
+            }
+        }
+    }
+    (
+        to.unwrap_or(Ident::new(default_to, proc_macro2::Span::call_site())),
+        from.unwrap_or(Ident::new(default_from, proc_macro2::Span::call_site())),
+    )
 }
 
 /// Macro to implement an IdentityProvider on an struct.
@@ -15,7 +87,7 @@ struct IdentityProviderParams {
 /// It accepts attributes From and To to specify the types for the ServiceIdentityProvider.
 /// The attribute is IdentityProvider.
 ///
-/// Note that right the struct needs to have a pool field of type IdentityManagerPool.
+/// Note that right now the struct needs to have a pool field of type IdentityManagerPool.
 /// This can be added with the macro `identity_provider`.
 ///
 /// # Examples:
@@ -34,78 +106,14 @@ struct IdentityProviderParams {
 /// Panics if .
 #[proc_macro_derive(IdentityProvider, attributes(IdentityProvider))]
 pub fn derive_identity_provider(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
-    // Parse the input tokens into a syntax tree.
-    let input = parse_macro_input!(input as DeriveInput);
-    let name = &input.ident;
-    let _attrs = &input.attrs;
-    let mut _has_pool_field = false;
-    if let Data::Struct(data) = input.data {
-        if let Fields::Named(fields) = data.fields {
-            if let Some(_field) = fields
-                .named
-                .iter()
-                .find(|f| f.ident.is_some() && f.ident.as_ref().unwrap().to_string() == "pool")
-            {
-                _has_pool_field = true;
-            }
-        }
-    } else {
-        panic!("#[derive(IdentityProvider)] is only defined for structs!");
-    }
-
-    let ms: Vec<NestedMeta> = input
-        .attrs
-        .iter()
-        .flat_map(|a| match a.parse_meta() {
-            Ok(syn::Meta::List(meta)) => meta.nested.into_iter().collect(),
-            _ => {
-                vec![]
-            }
-        })
-        .collect();
-
-    let mut identity_provider_params = IdentityProviderParams {
-        from: Ident::new("ServiceLookup", proc_macro2::Span::call_site()),
-        to: Ident::new("ServiceIdentity", proc_macro2::Span::call_site()),
-    };
-    for m in ms {
-        match m {
-            Meta(NameValue(nv)) => {
-                let left = if let Some(s) = nv.path.segments.into_iter().last() {
-                    s.ident
-                } else {
-                    panic!("Use IdentityProviderParams(...)");
-                };
-                let right = if let syn::Lit::Str(lit) = nv.lit {
-                    Ident::new(lit.value().as_str(), proc_macro2::Span::call_site())
-                } else {
-                    panic!("Use IdentityProviderParams(...)");
-                };
-                match left.to_string().as_str() {
-                    "TO" => {
-                        identity_provider_params.to = right;
-                    }
-                    "FROM" => {
-                        identity_provider_params.from = right;
-                    }
-                    _ => (),
-                }
-            }
-            _ => {
-                panic!("Use IdentityProviderParams(...)");
-            }
-        };
-    }
-
-    // We need a pool field!
-    if !_has_pool_field {
-        panic!("#[derive(IdentityProvider)] struct needs to implement a pool field of type IdentityManagerPool");
-    }
-
-    // Get the IdentityProvider parameters
-    let to = identity_provider_params.to;
-    let from = identity_provider_params.from;
-
+    let DeriveInput {
+        ident: name,
+        attrs,
+        data,
+        ..
+    } = parse_macro_input!(input);
+    ensure_has_pool_field(data, "IdentityProvider", "IdentityManagerPool");
+    let (to, from) = provider_params(attrs, "ServiceIdentity", "ServiceLookup");
     // Code to expand
     let expanded = quote! {
         impl ServiceIdentityProvider for #name {
@@ -189,77 +197,15 @@ pub fn identity_provider(_args: TokenStream, input: TokenStream) -> TokenStream 
 #[proc_macro_derive(DeviceIdProvider, attributes(DeviceIdProvider))]
 pub fn derive_device_id_provider(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     // Parse the input tokens into a syntax tree.
-    let input = parse_macro_input!(input as DeriveInput);
-    let name = &input.ident;
-    let _attrs = &input.attrs;
-    let mut _has_pool_field = false;
-    if let Data::Struct(data) = input.data {
-        if let Fields::Named(fields) = data.fields {
-            if let Some(_field) = fields
-                .named
-                .iter()
-                .find(|f| f.ident.is_some() && f.ident.as_ref().unwrap().to_string() == "pool")
-            {
-                _has_pool_field = true;
-            }
-        }
-    } else {
-        panic!("#[derive(DeviceIdProvider)] is only defined for structs!");
-    }
-
-    let ms: Vec<NestedMeta> = input
-        .attrs
-        .iter()
-        .flat_map(|a| match a.parse_meta() {
-            Ok(syn::Meta::List(meta)) => meta.nested.into_iter().collect(),
-            _ => {
-                vec![]
-            }
-        })
-        .collect();
-
-    let mut device_id_params = IdentityProviderParams {
-        from: Ident::new("ServiceIdentity", proc_macro2::Span::call_site()),
-        to: Ident::new("DeviceId", proc_macro2::Span::call_site()),
-    };
-    for m in ms {
-        match m {
-            Meta(NameValue(nv)) => {
-                let left = if let Some(s) = nv.path.segments.into_iter().last() {
-                    s.ident
-                } else {
-                    panic!("Use DeviceIdProviderParams(...)");
-                };
-                let right = if let syn::Lit::Str(lit) = nv.lit {
-                    Ident::new(lit.value().as_str(), proc_macro2::Span::call_site())
-                } else {
-                    panic!("Use DeviceIdProviderParams(...)");
-                };
-                match left.to_string().as_str() {
-                    "TO" => {
-                        device_id_params.to = right;
-                    }
-                    "FROM" => {
-                        device_id_params.from = right;
-                    }
-                    _ => (),
-                }
-            }
-            _ => {
-                panic!("Use DeviceIdProviderParams(...)");
-            }
-        };
-    }
-
-    // Requires pool field
-    if !_has_pool_field {
-        panic!("#[derive(DeviceIdProvider)] struct needs to implement a 'pool' field of type DeviceIdManagerPool");
-    }
-
-    // Get the parameters
-    let to = device_id_params.to;
-    let from = device_id_params.from;
-
+    let mut _has_pool_field: bool = false;
+    let DeriveInput {
+        ident: name,
+        attrs,
+        data,
+        ..
+    } = parse_macro_input!(input);
+    ensure_has_pool_field(data, "DeviceIdProvider", "DeviceIdManagerPool");
+    let (to, from) = provider_params(attrs, "ServiceIdentity", "DeviceId");
     // Expand this code
     let expanded = quote! {
         impl DeviceIdProvider for #name {
