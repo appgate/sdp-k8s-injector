@@ -23,7 +23,6 @@ use crate::identity_creator::IdentityCreatorProtocol;
 use crate::service_candidate_watcher::ServiceCandidateWatcherProtocol;
 
 logger!("IdentityManager");
-
 /// Trait that represents the pool of ServiceUser entities
 /// We can pop and push ServiceUser entities
 trait ServiceUsersPool {
@@ -216,7 +215,7 @@ impl ServiceIdentityProvider for IdentityManagerPool {
 
 #[sdp_proc_macros::identity_provider()]
 #[derive(sdp_proc_macros::IdentityProvider)]
-#[IdentityProvider(From = "Deployment", To = "ServiceIdentity")]
+#[IdentityProvider(From = "ServiceLookup", To = "ServiceIdentity")]
 pub struct KubeIdentityManager {
     service_identity_api: Api<ServiceIdentity>,
 }
