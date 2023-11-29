@@ -1,7 +1,6 @@
 use crate::deviceid::{DeviceIdProviderResponseProtocol, IdentityStore, RegisteredDeviceId};
 use crate::errors::SDPPatchError;
 use async_trait::async_trait;
-use futures_util::Future;
 use http::{Method, StatusCode};
 use hyper::body::Bytes;
 use hyper::{Body, Request, Response};
