@@ -1,4 +1,5 @@
 use crate::service_identity_watcher::ServiceIdentityWatcherProtocol;
+use async_trait::async_trait;
 use k8s_openapi::api::apps::v1::ReplicaSet;
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::OwnerReference;
 use kube::api::{DeleteParams, ListParams, PostParams};
@@ -9,8 +10,6 @@ use sdp_common::traits::{HasCredentials, Named, Namespaced, Service};
 use sdp_macros::{logger, queue_info, sdp_error, sdp_info, sdp_log, sdp_warn, with_dollar_sign};
 use std::collections::HashMap;
 use std::fmt::Debug;
-use std::future::Future;
-use std::pin::Pin;
 use tokio::sync::broadcast::Sender as BroadcastSender;
 use tokio::sync::mpsc::{Receiver, Sender};
 use uuid::Uuid;
@@ -36,7 +35,9 @@ struct DeviceIdManagerPool {
 trait DeviceIdProvider {
     type From: Service + HasCredentials + Send;
     type To: Service + Send;
+    // Register a new To into the provider
     fn register(&mut self, to: Self::To) -> ();
+    // Unregister an existing To from the provider
     fn unregister(&mut self, to: &Self::To) -> Option<Self::To>;
     fn device_id(&self, from: &Self::From) -> Option<&Self::To>;
     fn device_ids(&self) -> Vec<&Self::To>;
@@ -75,18 +76,19 @@ impl DeviceIdProvider for DeviceIdManagerPool {
     }
 }
 
+#[async_trait]
 trait DeviceIdAPI {
-    fn create<'a>(
+    async fn create<'a>(
         &'a self,
         device_id: &'a DeviceId,
-    ) -> Pin<Box<dyn Future<Output = Result<DeviceId, String>> + Send + '_>>;
+    ) -> Result<DeviceId, String>;
 
-    fn delete<'a>(
+    async fn delete<'a>(
         &'a self,
         device_id_name: &'a str,
-    ) -> Pin<Box<dyn Future<Output = Result<(), String>> + Send + '_>>;
+    ) -> Result<(), String>;
 
-    fn list(&self) -> Pin<Box<dyn Future<Output = Result<Vec<DeviceId>, String>> + Send + '_>>;
+    async fn list(&self) -> Result<Vec<DeviceId>, String>;
 }
 
 #[sdp_proc_macros::device_id_provider()]
@@ -96,163 +98,155 @@ pub struct KubeDeviceIdManager {
     client: Client,
 }
 
+#[async_trait]
 impl DeviceIdAPI for KubeDeviceIdManager {
-    fn create<'a>(
+    async fn create<'a>(
         &'a self,
         device_id: &'a DeviceId,
-    ) -> Pin<Box<dyn Future<Output = Result<DeviceId, String>> + Send + '_>> {
-        let fut = async move {
-            let device_id_api: Api<DeviceId> =
-                Api::namespaced(self.client.clone(), SDP_K8S_NAMESPACE);
-            let service_id = device_id.service_id();
-            let service_name = device_id.service_name();
-            match device_id_api
-                .get_opt(&service_name)
-                .await
-                .map_err(|e| e.to_string())
-            {
-                Ok(None) => {
-                    info!("[{}] Creating DeviceID {}", service_id, service_name);
-                    let owner_name = &device_id.spec.service_name;
-                    let owner_namespace = &device_id.spec.service_namespace;
+    ) -> Result<DeviceId, String> {
+        let device_id_api: Api<DeviceId> =
+            Api::namespaced(self.client.clone(), SDP_K8S_NAMESPACE);
+        let service_id = device_id.service_id();
+        let service_name = device_id.service_name();
+        match device_id_api
+            .get_opt(&service_name)
+            .await
+            .map_err(|e| e.to_string())
+        {
+            Ok(None) => {
+                info!("[{}] Creating DeviceID {}", service_id, service_name);
+                let owner_name = &device_id.spec.service_name;
+                let owner_namespace = &device_id.spec.service_namespace;
 
-                    // Try to get early the ServiceIdentity associated to this DeviceIds
-                    let service_identity_api: Api<ServiceIdentity> =
-                        Api::namespaced(self.client.clone(), SDP_K8S_NAMESPACE);
-                    let service_identity = service_identity_api
-                        .get(&service_name)
-                        .await
-                        .map_err(|e| format!("Unable to get ServiceIdentity: {}", e.to_string()))?;
+                // Try to get early the ServiceIdentity associated to this DeviceIds
+                let service_identity_api: Api<ServiceIdentity> =
+                    Api::namespaced(self.client.clone(), SDP_K8S_NAMESPACE);
+                let service_identity = service_identity_api
+                    .get(&service_name)
+                    .await
+                    .map_err(|e| format!("Unable to get ServiceIdentity: {}", e.to_string()))?;
 
-                    // Associate teh ServiceIdentity with this DeviceId as owner
-                    let mut owner_ref = OwnerReference::default();
-                    owner_ref.controller = Default::default();
-                    owner_ref.block_owner_deletion = Some(true);
-                    owner_ref.name = service_identity.metadata.name.unwrap();
-                    owner_ref.api_version = "injector.sdp.com/v1".to_string();
-                    owner_ref.kind = "ServiceIdentity".to_string();
-                    owner_ref.uid = service_identity.metadata.uid.clone().unwrap_or_default();
+                // Associate the ServiceIdentity with this DeviceId as owner
+                let mut owner_ref = OwnerReference::default();
+                owner_ref.controller = Default::default();
+                owner_ref.block_owner_deletion = Some(true);
+                owner_ref.name = service_identity.metadata.name.unwrap();
+                owner_ref.api_version = "injector.sdp.com/v1".to_string();
+                owner_ref.kind = "ServiceIdentity".to_string();
+                owner_ref.uid = service_identity.metadata.uid.clone().unwrap_or_default();
 
-                    // Try to discover replicasets associated to this service
-                    let replicaset_api: Api<ReplicaSet> =
-                        Api::namespaced(self.client.clone(), owner_namespace);
-                    let replicasets = replicaset_api
-                        .list(&ListParams::default())
-                        .await
-                        .map_err(|e| format!("Unable to get ReplicaSets: {}", e.to_string()))?;
-                    let owned_rs = replicasets
-                        .iter()
-                        .filter(|rs| {
-                            rs.meta()
-                                .owner_references
-                                .as_ref()
-                                .map(|owners| owners[0].name == *owner_name)
-                                .unwrap_or(false)
-                        })
-                        .next();
-                    let num_replicas = owned_rs
-                        .and_then(|rs| rs.spec.as_ref())
-                        .and_then(|spec| spec.replicas);
+                // Try to discover replicasets associated to this service
+                let replicaset_api: Api<ReplicaSet> =
+                    Api::namespaced(self.client.clone(), owner_namespace);
+                let replicasets = replicaset_api
+                    .list(&ListParams::default())
+                    .await
+                    .map_err(|e| format!("Unable to get ReplicaSets: {}", e.to_string()))?;
+                let owned_rs = replicasets
+                    .iter()
+                    .filter(|rs| {
+                        rs.meta()
+                            .owner_references
+                            .as_ref()
+                            .map(|owners| owners[0].name == *owner_name)
+                            .unwrap_or(false)
+                    })
+                    .next();
+                let num_replicas = owned_rs
+                    .and_then(|rs| rs.spec.as_ref())
+                    .and_then(|spec| spec.replicas);
 
-                    // Assign some device ids
-                    let uuids_range = if let Some(num_replicas) = num_replicas {
-                        0..(2 * num_replicas)
-                    } else {
-                        warn!(
-                            "[{}] Unable to find replica sets for DeviceID. Adding {} device ids",
-                            service_id, DEFAULT_N_DEVICE_IDS
+                // Assign some device ids
+                let uuids_range = if let Some(num_replicas) = num_replicas {
+                    0..(2 * num_replicas)
+                } else {
+                    warn!(
+                        "[{}] Unable to find replica sets for DeviceID. Adding {} device ids",
+                        service_id, DEFAULT_N_DEVICE_IDS
+                    );
+                    0..(2 * DEFAULT_N_DEVICE_IDS)
+                };
+                let uuids = uuids_range
+                    .map(|_| Uuid::new_v4().to_string())
+                    .map(|uuid| {
+                        info!(
+                            "[{}] Assigning uuid {} to DeviceID {}",
+                            service_id, uuid, service_id
                         );
-                        0..(2 * DEFAULT_N_DEVICE_IDS)
-                    };
-                    let uuids = uuids_range
-                        .map(|_| Uuid::new_v4().to_string())
-                        .map(|uuid| {
-                            info!(
-                                "[{}] Assigning uuid {} to DeviceID {}",
-                                service_id, uuid, service_id
-                            );
-                            uuid
-                        })
-                        .collect();
+                        uuid
+                    })
+                    .collect();
 
-                    // Create now the DeviceId
-                    let mut device_id = DeviceId::new(
-                        &service_name,
-                        DeviceIdSpec {
-                            uuids,
-                            service_name: owner_name.to_string(),
-                            service_namespace: owner_namespace.to_string(),
-                        },
-                    );
-                    device_id.metadata.owner_references = Some(vec![owner_ref]);
-                    let device_id_api: Api<DeviceId> =
-                        Api::namespaced(self.client.clone(), SDP_K8S_NAMESPACE);
-                    Some(
-                        device_id_api
-                            .create(&PostParams::default(), &device_id)
-                            .await
-                            .map_err(|e| {
-                                format!(
-                                    "[{}] Error creating DeviceIDs for service {}: {}",
-                                    service_id,
-                                    service_id,
-                                    e.to_string()
-                                )
-                            }),
-                    )
-                }
-                Ok(_) => {
-                    info!(
-                        "[{}] DeviceID for service {} already exists.",
-                        service_id, service_id
-                    );
-                    Some(Ok(device_id.clone()))
-                }
-                Err(e) => {
-                    error!(
-                        "[{}] Error checking if DeviceID for service {} exists.",
-                        service_id, service_id
-                    );
-                    Some(Err(format!(
-                        "[{}] Error checking if DeviceID for service {} exists: {}",
-                        service_id,
-                        service_id,
-                        e.to_string()
-                    )))
-                }
+                // Create now the DeviceId
+                let mut device_id = DeviceId::new(
+                    &service_name,
+                    DeviceIdSpec {
+                        uuids,
+                        service_name: owner_name.to_string(),
+                        service_namespace: owner_namespace.to_string(),
+                    },
+                );
+                device_id.metadata.owner_references = Some(vec![owner_ref]);
+                let device_id_api: Api<DeviceId> =
+                    Api::namespaced(self.client.clone(), SDP_K8S_NAMESPACE);
+                Some(
+                    device_id_api
+                        .create(&PostParams::default(), &device_id)
+                        .await
+                        .map_err(|e| {
+                            format!(
+                                "[{}] Error creating DeviceIDs for service {}: {}",
+                                service_id,
+                                service_id,
+                                e.to_string()
+                            )
+                        }),
+                )
             }
-            .unwrap_or(Err("Unable to get namespace for DeviceID".to_string()))
-        };
-        Box::pin(fut)
+            Ok(_) => {
+                info!(
+                    "[{}] DeviceID for service {} already exists.",
+                    service_id, service_id
+                );
+                Some(Ok(device_id.clone()))
+            }
+            Err(e) => {
+                error!(
+                    "[{}] Error checking if DeviceID for service {} exists.",
+                    service_id, service_id
+                );
+                Some(Err(format!(
+                    "[{}] Error checking if DeviceID for service {} exists: {}",
+                    service_id,
+                    service_id,
+                    e.to_string()
+                )))
+            }
+        }
+        .unwrap_or(Err("Unable to get namespace for DeviceID".to_string()))
     }
 
-    fn delete<'a>(
+    async fn delete<'a>(
         &'a self,
         device_id_name: &'a str,
-    ) -> Pin<Box<dyn Future<Output = Result<(), String>> + Send + '_>> {
-        let fut = async move {
-            let device_id_api: Api<DeviceId> =
-                Api::namespaced(self.client.clone(), SDP_K8S_NAMESPACE);
-            device_id_api
-                .delete(device_id_name, &DeleteParams::default())
-                .await
-                .map(|_| ())
-                .map_err(|e| e.to_string())
-        };
-        Box::pin(fut)
+    ) -> Result<(), String> {
+        let device_id_api: Api<DeviceId> =
+            Api::namespaced(self.client.clone(), SDP_K8S_NAMESPACE);
+        device_id_api
+            .delete(device_id_name, &DeleteParams::default())
+            .await
+            .map(|_| ())
+            .map_err(|e| e.to_string())
     }
 
-    fn list(&self) -> Pin<Box<dyn Future<Output = Result<Vec<DeviceId>, String>> + Send + '_>> {
-        let fut = async move {
-            let device_id_api: Api<DeviceId> =
-                Api::namespaced(self.client.clone(), SDP_K8S_NAMESPACE);
-            device_id_api
-                .list(&ListParams::default())
-                .await
-                .map(|d| d.items)
-                .map_err(|e| e.to_string())
-        };
-        Box::pin(fut)
+    async fn list(&self) -> Result<Vec<DeviceId>, String> {
+        let device_id_api: Api<DeviceId> =
+            Api::namespaced(self.client.clone(), SDP_K8S_NAMESPACE);
+        device_id_api
+            .list(&ListParams::default())
+            .await
+            .map(|d| d.items)
+            .map_err(|e| e.to_string())
     }
 }
 
@@ -389,14 +383,12 @@ mod tests {
     };
     use crate::DeviceIdManagerRunner;
     use crate::ServiceIdentityWatcherProtocol;
-    use futures::future;
+    use async_trait::async_trait;
     use sdp_common::crd::{DeviceId, DeviceIdSpec, ServiceIdentity, ServiceIdentitySpec};
     use sdp_common::service::ServiceUser;
     use sdp_macros::{device_id, service_identity, service_user};
     use sdp_test_macros::assert_message;
     use std::collections::HashMap;
-    use std::future::Future;
-    use std::pin::Pin;
     use std::sync::{Arc, Mutex};
     use tokio::sync::broadcast::channel as broadcast_channel;
     use tokio::sync::mpsc::channel;
@@ -418,26 +410,27 @@ mod tests {
 
     impl TestDeviceIdManager {}
 
+    #[async_trait]
     impl DeviceIdAPI for TestDeviceIdManager {
-        fn create<'a>(
+        async fn create<'a>(
             &'a self,
             device_id: &'a DeviceId,
-        ) -> Pin<Box<dyn Future<Output = Result<DeviceId, String>> + Send + '_>> {
+        ) -> Result<DeviceId, String> {
             self.api_counters.lock().unwrap().create_calls += 1;
-            Box::pin(future::ready(Ok(device_id.clone())))
+            Ok(device_id.clone())
         }
 
-        fn delete<'a>(
+        async fn delete<'a>(
             &'a self,
             _: &'a str,
-        ) -> Pin<Box<dyn Future<Output = Result<(), String>> + Send + '_>> {
+        ) -> Result<(), String> {
             self.api_counters.lock().unwrap().delete_calls += 1;
-            Box::pin(future::ready(Ok(())))
+            Ok(())
         }
 
-        fn list(&self) -> Pin<Box<dyn Future<Output = Result<Vec<DeviceId>, String>> + Send + '_>> {
+        async fn list(&self) -> Result<Vec<DeviceId>, String> {
             self.api_counters.lock().unwrap().list_calls += 1;
-            Box::pin(future::ready(Ok(vec![])))
+            Ok(vec![])
         }
     }
 
