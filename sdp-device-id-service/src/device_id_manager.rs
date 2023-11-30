@@ -7,7 +7,7 @@ use kube::{Api, Client, Resource};
 use sdp_common::crd::{DeviceId, DeviceIdSpec, ServiceIdentity};
 use sdp_common::kubernetes::SDP_K8S_NAMESPACE;
 use sdp_common::traits::{HasCredentials, Named, Namespaced, Service};
-use sdp_macros::{logger, queue_info, sdp_error, sdp_info, sdp_log, sdp_warn, with_dollar_sign};
+use sdp_macros::{logger, queue_info, sdp_error, sdp_info, sdp_log, with_dollar_sign};
 use std::collections::HashMap;
 use std::fmt::Debug;
 use tokio::sync::broadcast::Sender as BroadcastSender;
@@ -16,7 +16,8 @@ use uuid::Uuid;
 
 logger!("DeviceIDManager");
 
-const DEFAULT_N_DEVICE_IDS: i32 = 4;
+const DEFAULT_N_DEVICE_IDS: u32 = 4;
+const REPLICAS_MULTIPLIER: u32 = 3;
 
 #[derive(Debug)]
 pub enum DeviceIdManagerProtocol<From: Service + HasCredentials> {
@@ -85,6 +86,46 @@ trait DeviceIdAPI {
     async fn list(&self) -> Result<Vec<DeviceId>, String>;
 }
 
+// Get a vector of uuids from the REPLICASETS from SERVICE
+fn get_uuids_from_replicasets<S>(service: S, replicasets: Vec<ReplicaSet>) -> Vec<String>
+where
+    S: Service,
+{
+    let service_id = service.service_id();
+    let owned_rs = replicasets
+        .iter()
+        .filter(|rs| {
+            rs.meta()
+                .owner_references
+                .as_ref()
+                .map(|owners| {
+                    if owners.len() > 0 {
+                        owners[0].name == service.name()
+                    } else {
+                        false
+                    }
+                })
+                .unwrap_or(false)
+        })
+        .next();
+
+    let num_replicas = owned_rs
+        .and_then(|rs| rs.spec.as_ref())
+        .and_then(|spec| spec.replicas)
+        .map(|r| r as u32);
+
+    (0..(REPLICAS_MULTIPLIER * (num_replicas.unwrap_or(DEFAULT_N_DEVICE_IDS))))
+        .map(|_| {
+            let uuid = Uuid::new_v4().to_string();
+            info!(
+                "[{}] Assigning uuid {} to DeviceID {}",
+                service_id, uuid, service_id
+            );
+            uuid
+        })
+        .collect()
+}
+
 #[sdp_proc_macros::device_id_provider()]
 #[derive(sdp_proc_macros::DeviceIdProvider)]
 #[DeviceIdProvider(From = "ServiceIdentity", To = "DeviceId")]
@@ -111,7 +152,7 @@ impl DeviceIdAPI for KubeDeviceIdManager {
                 // Try to get early the ServiceIdentity associated to this DeviceIds
                 let service_identity_api: Api<ServiceIdentity> =
                     Api::namespaced(self.client.clone(), SDP_K8S_NAMESPACE);
-                let service_identity = service_identity_api
+                let service_identity: ServiceIdentity = service_identity_api
                     .get(&service_name)
                     .await
                     .map_err(|e| format!("Unable to get ServiceIdentity: {}", e.to_string()))?;
@@ -120,7 +161,7 @@ impl DeviceIdAPI for KubeDeviceIdManager {
                 let mut owner_ref = OwnerReference::default();
                 owner_ref.controller = Default::default();
                 owner_ref.block_owner_deletion = Some(true);
-                owner_ref.name = service_identity.metadata.name.unwrap();
+                owner_ref.name = service_identity.name();
                 owner_ref.api_version = "injector.sdp.com/v1".to_string();
                 owner_ref.kind = "ServiceIdentity".to_string();
                 owner_ref.uid = service_identity.metadata.uid.clone().unwrap_or_default();
@@ -132,41 +173,7 @@ impl DeviceIdAPI for KubeDeviceIdManager {
                     .list(&ListParams::default())
                     .await
                     .map_err(|e| format!("Unable to get ReplicaSets: {}", e.to_string()))?;
-                let owned_rs = replicasets
-                    .iter()
-                    .filter(|rs| {
-                        rs.meta()
-                            .owner_references
-                            .as_ref()
-                            .map(|owners| owners[0].name == *owner_name)
-                            .unwrap_or(false)
-                    })
-                    .next();
-                let num_replicas = owned_rs
-                    .and_then(|rs| rs.spec.as_ref())
-                    .and_then(|spec| spec.replicas);
-
-                // Assign some device ids
-                let uuids_range = if let Some(num_replicas) = num_replicas {
-                    0..(2 * num_replicas)
-                } else {
-                    warn!(
-                        "[{}] Unable to find replica sets for DeviceID. Adding {} device ids",
-                        service_id, DEFAULT_N_DEVICE_IDS
-                    );
-                    0..(2 * DEFAULT_N_DEVICE_IDS)
-                };
-                let uuids = uuids_range
-                    .map(|_| Uuid::new_v4().to_string())
-                    .map(|uuid| {
-                        info!(
-                            "[{}] Assigning uuid {} to DeviceID {}",
-                            service_id, uuid, service_id
-                        );
-                        uuid
-                    })
-                    .collect();
-
+                let uuids = get_uuids_from_replicasets(service_identity, replicasets.items);
                 // Create now the DeviceId
                 let mut device_id = DeviceId::new(
                     &service_name,
@@ -362,6 +369,7 @@ impl DeviceIdManagerRunner<ServiceIdentity, DeviceId> {
 
 #[cfg(test)]
 mod tests {
+    use super::get_uuids_from_replicasets;
     use super::{
         DeviceIdAPI, DeviceIdManager, DeviceIdManagerPool, DeviceIdManagerProtocol,
         DeviceIdProvider,
@@ -369,10 +377,13 @@ mod tests {
     use crate::DeviceIdManagerRunner;
     use crate::ServiceIdentityWatcherProtocol;
     use async_trait::async_trait;
+    use k8s_openapi::api::apps::v1::{ReplicaSet, ReplicaSetSpec};
+    use k8s_openapi::apimachinery::pkg::apis::meta::v1::OwnerReference;
     use sdp_common::crd::{DeviceId, DeviceIdSpec, ServiceIdentity, ServiceIdentitySpec};
     use sdp_common::service::ServiceUser;
+    use sdp_common::traits::Named;
     use sdp_macros::{device_id, service_identity, service_user};
-    use sdp_test_macros::assert_message;
+    use sdp_test_macros::{assert_message, owner_reference, replicaset};
     use std::collections::HashMap;
     use std::sync::{Arc, Mutex};
     use tokio::sync::broadcast::channel as broadcast_channel;
@@ -637,5 +648,71 @@ mod tests {
             pool.unregister(&d);
         }
         assert_eq!(pool.device_ids().len(), 0);
+    }
+
+    #[test]
+    fn test_get_uuids_from_replicasets_0() {
+        let uuids = get_uuids_from_replicasets(service_identity!(1), vec![]);
+        assert_eq!(uuids.len(), 12);
+    }
+
+    #[test]
+    fn test_get_uuids_from_replicasets_1() {
+        let uuids =
+            get_uuids_from_replicasets(service_identity!(1), vec![replicaset!(0, Some(0), None)]);
+        assert_eq!(uuids.len(), 12);
+    }
+
+    #[test]
+    fn test_get_uuids_from_replicasets_2() {
+        let uuids =
+            get_uuids_from_replicasets(service_identity!(1), vec![replicaset!(0, Some(0), None)]);
+        assert_eq!(uuids.len(), 12);
+    }
+
+    #[test]
+    fn test_get_uuids_from_replicasets_3() {
+        let uuids = get_uuids_from_replicasets(
+            service_identity!(1),
+            vec![
+                replicaset!(0, Some(10), Some(vec![])),
+                replicaset!(1, Some(0), None),
+            ],
+        );
+        assert_eq!(uuids.len(), 12);
+    }
+
+    #[test]
+    fn test_get_uuids_from_replicasets_4() {
+        let uuids = get_uuids_from_replicasets(
+            service_identity!(1),
+            vec![
+                replicaset!(
+                    0,
+                    Some(10),
+                    Some(vec![owner_reference!("owner1"), owner_reference!("owner2")])
+                ),
+                replicaset!(1, Some(0), None),
+            ],
+        );
+        assert_eq!(uuids.len(), 12);
+    }
+
+    #[test]
+    fn test_get_uuids_from_replicasets_5() {
+        let s = service_identity!(1);
+        let name = s.name();
+        let uuids = get_uuids_from_replicasets(
+            s,
+            vec![
+                replicaset!(
+                    0,
+                    Some(10),
+                    Some(vec![owner_reference!(name), owner_reference!("owner2")])
+                ),
+                replicaset!(1, Some(0), None),
+            ],
+        );
+        assert_eq!(uuids.len(), 30);
     }
 }
