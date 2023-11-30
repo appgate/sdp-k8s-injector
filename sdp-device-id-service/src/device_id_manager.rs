@@ -511,4 +511,131 @@ mod tests {
             }
         }
     }
+
+    #[test]
+    fn test_device_id_manager_pool_new_device_id() {
+        let pool = DeviceIdManagerPool::default();
+        let s = service_identity!(1);
+        let device_id = pool.next_device_id(&s);
+        assert_eq!(
+            device_id.as_ref().unwrap().metadata.name,
+            Some(format!(
+                "{}-{}",
+                s.spec.service_namespace, s.spec.service_name
+            ))
+        );
+        assert_eq!(
+            device_id.unwrap().spec,
+            DeviceIdSpec {
+                uuids: vec![],
+                service_name: s.spec.service_name.to_string(),
+                service_namespace: s.spec.service_namespace.to_string(),
+            }
+        );
+    }
+
+    #[test]
+    fn test_device_id_manager_pool_register_0() {
+        let mut pool = DeviceIdManagerPool::default();
+        let s = service_identity!(1);
+        let device_id = pool.next_device_id(&s);
+        assert!(pool.device_id(&s).is_none());
+        pool.register(device_id.as_ref().unwrap().clone());
+        let device_id_from_pool = pool.device_id(&s);
+        assert!(device_id_from_pool.is_some());
+        assert_eq!(
+            device_id_from_pool.unwrap().metadata.name,
+            device_id.as_ref().unwrap().metadata.name
+        );
+        assert_eq!(
+            device_id_from_pool.unwrap().spec,
+            device_id.as_ref().unwrap().spec
+        );
+    }
+
+    #[test]
+    fn test_device_id_manager_pool_register_1() {
+        let mut pool = DeviceIdManagerPool::default();
+        let xs = &vec![
+            service_identity!(1),
+            service_identity!(2),
+            service_identity!(3),
+        ];
+        assert_eq!(pool.device_ids().len(), 0);
+        for s in xs {
+            pool.register(pool.next_device_id(&s).unwrap());
+        }
+        let curent_device_ids = pool.device_ids();
+        assert_eq!(curent_device_ids.len(), 3);
+        assert_eq!(
+            curent_device_ids
+                .iter()
+                .map(|s| s.spec.clone())
+                .collect::<Vec<DeviceIdSpec>>(),
+            vec![
+                DeviceIdSpec {
+                    uuids: vec![],
+                    service_name: xs[0].spec.service_name.to_string(),
+                    service_namespace: xs[0].spec.service_namespace.to_string(),
+                },
+                DeviceIdSpec {
+                    uuids: vec![],
+                    service_name: xs[1].spec.service_name.to_string(),
+                    service_namespace: xs[1].spec.service_namespace.to_string(),
+                },
+                DeviceIdSpec {
+                    uuids: vec![],
+                    service_name: xs[2].spec.service_name.to_string(),
+                    service_namespace: xs[2].spec.service_namespace.to_string(),
+                }
+            ]
+        );
+    }
+
+    #[test]
+    fn test_device_id_manager_pool_register_2() {
+        let mut pool = DeviceIdManagerPool::default();
+        let xs = &vec![
+            service_identity!(1),
+            service_identity!(1),
+            service_identity!(1),
+        ];
+        assert_eq!(pool.device_ids().len(), 0);
+        for s in xs {
+            pool.register(pool.next_device_id(&s).unwrap());
+        }
+        let curent_device_ids = pool.device_ids();
+        assert_eq!(curent_device_ids.len(), 1);
+        assert_eq!(
+            curent_device_ids
+                .iter()
+                .map(|s| s.spec.clone())
+                .collect::<Vec<DeviceIdSpec>>(),
+            vec![DeviceIdSpec {
+                uuids: vec![],
+                service_name: xs[0].spec.service_name.to_string(),
+                service_namespace: xs[0].spec.service_namespace.to_string(),
+            }]
+        )
+    }
+
+    #[test]
+    fn test_device_id_manager_pool_unregister() {
+        let mut pool = DeviceIdManagerPool::default();
+        let xs = &vec![
+            service_identity!(1),
+            service_identity!(2),
+            service_identity!(3),
+        ];
+        let mut current_device_ids = vec![];
+        for s in xs {
+            let d = pool.next_device_id(&s).unwrap();
+            current_device_ids.push(d.clone());
+            pool.register(d);
+        }
+        for d in current_device_ids {
+            pool.unregister(&d);
+        }
+        assert_eq!(pool.device_ids().len(), 0);
+    }
 }
