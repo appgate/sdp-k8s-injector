@@ -578,11 +578,13 @@ mod tests {
         }
         let curent_device_ids = pool.device_ids();
         assert_eq!(curent_device_ids.len(), 3);
-        assert_eq!(
-            curent_device_ids
+        let mut current_device_specs = curent_device_ids
                 .iter()
                 .map(|s| s.spec.clone())
-                .collect::<Vec<DeviceIdSpec>>(),
+                .collect::<Vec<DeviceIdSpec>>();
+        current_device_specs.sort_by_key(|a| a.service_name.clone());
+        assert_eq!(
+            current_device_specs,
             vec![
                 DeviceIdSpec {
                     uuids: vec![],

@@ -793,7 +793,6 @@ mod tests {
     };
 
     use async_trait::async_trait;
-    use futures::Future;
     use k8s_openapi::api::apps::v1::Deployment;
     use kube::{core::object::HasSpec, ResourceExt};
     pub use sdp_common::crd::{SDPService, SDPServiceSpec};
