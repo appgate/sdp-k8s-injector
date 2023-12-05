@@ -93,7 +93,7 @@ pub struct InMemoryIdentityStore {
 }
 
 impl<'a> InMemoryIdentityStore {
-    fn new() -> Self {
+    pub fn new() -> Self {
         InMemoryIdentityStore {
             identities: HashMap::new(),
             device_ids: HashMap::new(),

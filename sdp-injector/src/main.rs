@@ -1,10 +1,10 @@
-use crate::deviceid::{DeviceIdProvider, DeviceIdProviderRequestProtocol};
+use crate::deviceid::{DeviceIdProvider, DeviceIdProviderRequestProtocol, InMemoryIdentityStore};
 use crate::files_watcher::{
     watch_files, FilesWatcher, SDP_FILE_WATCHER_POLL_INTERVAL, SDP_FILE_WATCHER_POLL_INTERVAL_ENV,
 };
 use crate::injector::{
     get_cert_path, get_key_path, injector_handler, load_sidecar_containers, load_ssl,
-    KubeIdentityStore, SDPInjectorContext, SDPSidecars,
+    SDPInjectorContext, SDPSidecars,
 };
 use futures::executor::block_on;
 use futures::stream;
@@ -76,11 +76,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
         Api::namespaced(k8s_client.clone(), SDP_K8S_NAMESPACE);
     let pods_api: Api<Pod> = Api::all(k8s_client.clone());
     let device_ids_api: Api<DeviceId> = Api::namespaced(k8s_client.clone(), SDP_K8S_NAMESPACE);
-    let (device_id_tx, device_id_rx) =
-        channel::<DeviceIdProviderRequestProtocol<ServiceIdentity>>(50);
-    let store = KubeIdentityStore {
-        device_id_q_tx: device_id_tx.clone(),
-    };
+    let (_, device_id_rx) = channel::<DeviceIdProviderRequestProtocol<ServiceIdentity>>(50);
+    let store = InMemoryIdentityStore::new();
     let sdp_sidecars: SDPSidecars =
         load_sidecar_containers().expect("Unable to load the sidecar context");
     let version = k8s_client

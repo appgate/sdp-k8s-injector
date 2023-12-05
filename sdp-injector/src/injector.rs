@@ -1,6 +1,5 @@
-use crate::deviceid::{DeviceIdProviderResponseProtocol, IdentityStore, RegisteredDeviceId};
+use crate::deviceid::IdentityStore;
 use crate::errors::SDPPatchError;
-use async_trait::async_trait;
 use http::{Method, StatusCode};
 use hyper::body::Bytes;
 use hyper::{Body, Request, Response};
@@ -24,7 +23,6 @@ use sdp_common::annotations::{
     SDP_INJECTOR_ANNOTATION_STRATEGY,
 };
 use sdp_common::constants::{MAX_PATCH_ATTEMPTS, SDP_DEFAULT_CLIENT_VERSION_ENV};
-use sdp_common::crd::DeviceId;
 use sdp_common::errors::SDPServiceError;
 use sdp_common::patch_annotation;
 use sdp_common::traits::{
@@ -40,13 +38,7 @@ use std::iter::FromIterator;
 use std::path::PathBuf;
 use std::str::from_utf8;
 use std::sync::Arc;
-use std::time::Duration;
-use tokio::sync::mpsc::{channel, Sender};
 use tokio::sync::{Mutex, MutexGuard};
-use tokio::time::timeout;
-use uuid::Uuid;
-
-use crate::deviceid::DeviceIdProviderRequestProtocol;
 use sdp_common::service::{
     containers, init_containers, injection_strategy, security_context, volume_names, volumes,
     SDPInjectionStrategy, ServiceIdentity,
@@ -212,89 +204,6 @@ pub enum SDPPatchResponse {
     RetryWithError(Box<AdmissionResponse>, SDPServiceError, u8),
     MaxRetryExceeded(Box<AdmissionResponse>, SDPServiceError),
     Allow(Box<AdmissionResponse>),
-}
-
-pub struct KubeIdentityStore {
-    pub device_id_q_tx: Sender<DeviceIdProviderRequestProtocol<ServiceIdentity>>,
-}
-
-#[async_trait]
-impl IdentityStore<ServiceIdentity> for KubeIdentityStore {
-    async fn pop_device_id<'a>(
-        &mut self,
-        service_id: &'a str,
-    ) -> Result<(ServiceIdentity, Uuid), SDPServiceError> {
-        let (q_tx, mut q_rx) = channel::<DeviceIdProviderResponseProtocol<ServiceIdentity>>(1);
-        self.device_id_q_tx
-            .send(DeviceIdProviderRequestProtocol::RequestDeviceId(
-                q_tx,
-                service_id.to_string(),
-            ))
-            .await
-            .map_err(|e| format!("Error sending message to request device id: {}", e))?;
-        match timeout(Duration::from_secs(5), q_rx.recv()).await {
-            Ok(Some(DeviceIdProviderResponseProtocol::AssignedDeviceId(
-                service_identity,
-                device_id,
-            ))) => Ok((service_identity, device_id)),
-            Ok(Some(DeviceIdProviderResponseProtocol::NotFound)) | Ok(None) => {
-                Err(SDPServiceError::from_string(format!(
-                    "Device id not found for service {}",
-                    service_id
-                )))
-            }
-            Err(e) => Err(SDPServiceError::from_string(format!(
-                "Error getting device id for service {}: {}",
-                service_id, e
-            ))),
-        }
-    }
-
-    async fn register_service(
-        &mut self,
-        _service: ServiceIdentity,
-    ) -> Result<ServiceIdentity, SDPServiceError> {
-        Err(SDPServiceError::from(
-            "Registry does not support register of service identities",
-        ))
-    }
-
-    async fn register_device_ids(
-        &mut self,
-        _device_id: DeviceId,
-    ) -> Result<RegisteredDeviceId, SDPServiceError> {
-        Err(SDPServiceError::from(
-            "Registry does not support register of device ids",
-        ))
-    }
-
-    async fn unregister_device_ids<'a>(
-        &mut self,
-        _device_id: &'a str,
-    ) -> Result<Option<(ServiceIdentity, RegisteredDeviceId)>, SDPServiceError> {
-        Err(SDPServiceError::from(
-            "Registry does not support unregister of device ids",
-        ))
-    }
-
-    async fn unregister_service<'a>(
-        &mut self,
-        _service_id: &'a str,
-    ) -> Result<Option<(ServiceIdentity, RegisteredDeviceId)>, SDPServiceError> {
-        Err(SDPServiceError::from(
-            "Registry does not support deregistration of service identities",
-        ))
-    }
-
-    async fn push_device_id<'a>(
-        &mut self,
-        _service_id: &'a str,
-        _uuid: Uuid,
-    ) -> Result<Option<Uuid>, SDPServiceError> {
-        Err(SDPServiceError::from(
-            "Registry does not support registration of device ids",
-        ))
-    }
 }
 
 async fn dns_service_discover(services_api: &Api<KubeService>) -> Option<KubeService> {
