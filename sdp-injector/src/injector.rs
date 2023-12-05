@@ -221,7 +221,7 @@ pub struct KubeIdentityStore {
 #[async_trait]
 impl IdentityStore<ServiceIdentity> for KubeIdentityStore {
     async fn pop_device_id<'a>(
-        &'a mut self,
+        &mut self,
         service_id: &'a str,
     ) -> Result<(ServiceIdentity, Uuid), SDPServiceError> {
         let (q_tx, mut q_rx) = channel::<DeviceIdProviderResponseProtocol<ServiceIdentity>>(1);
@@ -253,7 +253,7 @@ impl IdentityStore<ServiceIdentity> for KubeIdentityStore {
     async fn register_service(
         &mut self,
         _service: ServiceIdentity,
-    ) -> Result<Option<ServiceIdentity>, SDPServiceError> {
+    ) -> Result<ServiceIdentity, SDPServiceError> {
         Err(SDPServiceError::from(
             "Registry does not support register of service identities",
         ))
@@ -262,14 +262,14 @@ impl IdentityStore<ServiceIdentity> for KubeIdentityStore {
     async fn register_device_ids(
         &mut self,
         _device_id: DeviceId,
-    ) -> Result<Option<RegisteredDeviceId>, SDPServiceError> {
+    ) -> Result<RegisteredDeviceId, SDPServiceError> {
         Err(SDPServiceError::from(
             "Registry does not support register of device ids",
         ))
     }
 
     async fn unregister_device_ids<'a>(
-        &'a mut self,
+        &mut self,
         _device_id: &'a str,
     ) -> Result<Option<(ServiceIdentity, RegisteredDeviceId)>, SDPServiceError> {
         Err(SDPServiceError::from(
@@ -278,7 +278,7 @@ impl IdentityStore<ServiceIdentity> for KubeIdentityStore {
     }
 
     async fn unregister_service<'a>(
-        &'a mut self,
+        &mut self,
         _service_id: &'a str,
     ) -> Result<Option<(ServiceIdentity, RegisteredDeviceId)>, SDPServiceError> {
         Err(SDPServiceError::from(
@@ -287,7 +287,7 @@ impl IdentityStore<ServiceIdentity> for KubeIdentityStore {
     }
 
     async fn push_device_id<'a>(
-        &'a mut self,
+        &mut self,
         _service_id: &'a str,
         _uuid: Uuid,
     ) -> Result<Option<Uuid>, SDPServiceError> {
