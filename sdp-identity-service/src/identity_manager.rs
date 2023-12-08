@@ -338,7 +338,7 @@ impl IdentityManagerRunner<ServiceLookup, ServiceIdentity> {
                     pool: VecDeque::with_capacity(30),
                     services: HashMap::new(),
                 },
-                service_identity_api: service_identity_api,
+                service_identity_api,
             }),
             cluster_id: cluster_id.unwrap(),
         }
@@ -499,7 +499,7 @@ impl IdentityManagerRunner<ServiceLookup, ServiceIdentity> {
                             }
                     });
                 }
-                // Identity Creator notifies about fresh, unactivated User Credentials
+                // IdentityCreator notifies about fresh, unactivated User Credentials
                 IdentityManagerProtocol::FoundServiceUser(service_user, activated)
                     if !activated =>
                 {
@@ -507,7 +507,7 @@ impl IdentityManagerRunner<ServiceLookup, ServiceIdentity> {
                     existing_deactivated_credentials.insert(service_user.id.clone());
                     im.push(service_user);
                 }
-                // Identity Creator notifies about already activated User Credentials
+                // IdentityCreator notifies about already activated UserCredentials
                 IdentityManagerProtocol::FoundServiceUser(service_user, activated) if activated => {
                     existing_activated_credentials.insert(service_user.id.clone());
                     info!(IdentityManagerProtocol::<F, ServiceIdentity>::IdentityManagerDebug |(
@@ -542,6 +542,7 @@ impl IdentityManagerRunner<ServiceLookup, ServiceIdentity> {
                         im.register_identity(new_service_identity);
                     }
                 }
+                // IdentityCreator is ready after this event
                 IdentityManagerProtocol::IdentityCreatorReady => {
                     info!("IdentityCreator is ready");
                     identity_creator_ready = true;
@@ -560,6 +561,7 @@ impl IdentityManagerRunner<ServiceLookup, ServiceIdentity> {
                         }
                     }
                 }
+                // DeploymentWatcher is Rready after this
                 IdentityManagerProtocol::DeploymentWatcherReady => {
                     info!("DeploymentWatcher is ready");
                     deployment_watchers_ready += 1;
@@ -677,6 +679,7 @@ impl IdentityManagerRunner<ServiceLookup, ServiceIdentity> {
                             .expect("Error requesting new ServiceIdentity");
                     }
 
+                    // Notify the ServiceCandidate watchers that we are ready to process process for new service candidates..
                     service_candidate_watcher_proto_tx
                         .send(ServiceCandidateWatcherProtocol::IdentityManagerReady)
                         .expect("Unable to notify DeploymentWatcher!");
