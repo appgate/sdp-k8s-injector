@@ -160,7 +160,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         }
     });
 
-    // Spawn the main Store
+    // Spawn the DeviceIdProvider
     tokio::spawn(async move {
         let mut device_id_provider = DeviceIdProvider::new(None);
         device_id_provider.run(device_id_rx, watcher_rx).await;

@@ -131,7 +131,7 @@ async fn get_client_profile_url(
 }
 
 impl IdentityCreator {
-    pub fn new(system: System, client: Client, credentials_pool_size: usize) -> IdentityCreator {
+    pub fn new(system: System, client: Client, service_users_pool_size: usize) -> IdentityCreator {
         let cluster_id = std::env::var(SDP_CLUSTER_ID_ENV);
         if cluster_id.is_err() {
             panic!(
@@ -140,8 +140,8 @@ impl IdentityCreator {
         }
         IdentityCreator {
             system,
-            client: client,
-            service_users_pool_size: credentials_pool_size,
+            client,
+            service_users_pool_size,
             cluster_id: cluster_id.unwrap(),
         }
     }
@@ -200,6 +200,7 @@ impl IdentityCreator {
                 .map_err(|e| IdentityServiceError::from(e.to_string()))?;
         }
         info!("Deleting SDPUser {} (id: {})", sdp_user.name, sdp_user.id);
+        self.system.unregister_device_id_for_user(&sdp_user).await?;
         self.system
             .delete_user(sdp_user_id)
             .await

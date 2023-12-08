@@ -9,3 +9,4 @@ target/*
 k8s/chart/.idea/*
 k8s/chart/Chart.lock
 k8s/chart/charts
+local/

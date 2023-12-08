@@ -12,7 +12,6 @@ logger!("ServiceIdentityWatcher");
  * ServiceIdentity implement SimpleWatchingProtocol for DeviceIdProviderRequestProtocol
  * This watching protocol is used to register new ServiceIdentity created so they can later
  * be associated with new pods
- * TODO: This is so close to the implementation for DeviceId, a macro to redue code would be nice
  */
 impl SimpleWatchingProtocol<DeviceIdProviderRequestProtocol<ServiceIdentity>> for ServiceIdentity {
     fn initialized(

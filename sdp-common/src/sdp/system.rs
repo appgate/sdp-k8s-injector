@@ -293,6 +293,23 @@ impl System {
         Ok(created_sdp_user)
     }
 
+    pub async fn get_registered_device_ids_for_user(
+        &mut self,
+        _sdp_user: &SDPUser,
+    ) -> Result<Vec<Uuid>, SDPClientError> {
+        todo!();
+    }
+
+    pub async fn unregister_device_id_for_user(
+        &mut self,
+        sdp_user: &SDPUser,
+    ) -> Result<(), SDPClientError> {
+        for _uuid in self.get_registered_device_ids_for_user(sdp_user).await? {
+            todo!();
+        }
+        Ok(())
+    }
+
     /// POST /service-users/id
     pub async fn modify_user(&mut self, service_user: &SDPUser) -> Result<SDPUser, SDPClientError> {
         let mut url = Url::from(self.hosts[0].clone());
