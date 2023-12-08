@@ -153,12 +153,14 @@ impl ServiceConfigFields {
     }
 }
 
+// TODO: Implement Serialize for Uuid
 #[derive(Clone, JsonSchema, Debug, Serialize, Deserialize, PartialEq)]
 pub struct ServiceUser {
     pub id: String,
     pub name: String,
     pub password: String,
     pub profile_url: String,
+    pub device_ids: Vec<String>,
 }
 
 fn bytes_to_string(bs: &ByteString) -> Option<String> {
@@ -184,6 +186,7 @@ impl ServiceUser {
         sdp_user: &SDPUser,
         client_profile_url: &ClientProfileUrl,
         password: Option<&str>,
+        device_ids: Vec<String>,
     ) -> Option<Self> {
         password
             .or_else(|| sdp_user.password.as_ref().map(|s| s.as_str()))
@@ -192,6 +195,7 @@ impl ServiceUser {
                 name: sdp_user.name.clone(),
                 password: pwd.to_string(),
                 profile_url: client_profile_url.url.clone(),
+                device_ids,
             })
     }
 
@@ -267,6 +271,7 @@ impl ServiceUser {
             name: self.name.clone(),
             password: pwd.clone(),
             profile_url: self.profile_url.clone(),
+            device_ids: self.device_ids.clone(),
         })
     }
 

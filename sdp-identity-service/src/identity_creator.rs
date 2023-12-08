@@ -14,6 +14,7 @@ use sdp_common::service::{
 };
 use sdp_macros::{logger, sdp_debug, sdp_error, sdp_info, sdp_log, sdp_warn, with_dollar_sign};
 use tokio::sync::mpsc::{Receiver, Sender};
+use uuid::Uuid;
 
 use crate::errors::IdentityServiceError;
 use crate::identity_manager::{IdentityManagerProtocol, ServiceIdentity};
@@ -167,7 +168,7 @@ impl IdentityCreator {
             .system
             .create_user(&service_user)
             .await
-            .map(|u| ServiceUser::from_sdp_user(&u, &profile_url, None))?
+            .map(|u| ServiceUser::from_sdp_user(&u, &profile_url, None, vec![]))?
         {
             service_user
                 .update_secrets_fields(
@@ -189,7 +190,7 @@ impl IdentityCreator {
         let sdp_user = SDPUser::from_name(sdp_user_id.to_string());
         // Derive a ServiceUser that we can use to delete the secret fields
         if let Some(service_user) =
-            ServiceUser::from_sdp_user(&sdp_user, &ClientProfileUrl::default(), None)
+            ServiceUser::from_sdp_user(&sdp_user, &ClientProfileUrl::default(), None, vec![])
         {
             service_user
                 .delete_secrets_fields(
@@ -211,6 +212,7 @@ impl IdentityCreator {
         &mut self,
         sdp_user: &SDPUser,
         client_profile_url: &ClientProfileUrl,
+        device_ids: Vec<Uuid>,
     ) -> Option<ServiceUser> {
         let api = self.secrets_api(SDP_K8S_NAMESPACE);
         // Create first the ServiceUser with a random password
@@ -218,6 +220,7 @@ impl IdentityCreator {
             sdp_user,
             client_profile_url,
             Some(&uuid::Uuid::new_v4().to_string()),
+            device_ids.iter().map(|uuid| uuid.to_string()).collect(),
         )
         .unwrap();
         service_user
@@ -309,10 +312,15 @@ impl IdentityCreator {
             // We got a SDPUser. We dont have any way to recover passwords
             // from there (SDPUsers dont contain the password when fetched from a controller)
             // IM always saves those creds for ServiceUsers that are deactivated.
-            // If we dont have a password for this user, don't recover it and ask IC to delete as soon as possible.
+            // If we dont have a password for this user, don't recover it and ask IC to delete it as soon as possible.
 
+            // Get the current registered device ids for use
+            // TODO: We don't want to crash here
+            let device_ids = system.get_registered_device_ids_for_user(&sdp_user).await?;
             // Derive now our ServiceUser from SDPUser, recovering passwords if needed.
-            if let Some(service_user) = self.recover_sdp_user(&sdp_user, &client_profile_url).await
+            if let Some(service_user) = self
+                .recover_sdp_user(&sdp_user, &client_profile_url, device_ids)
+                .await
             {
                 let activated = !sdp_user.disabled;
                 if !activated && n_missing_users > 0 {
@@ -321,7 +329,8 @@ impl IdentityCreator {
                 }
                 let (_, pw_field, _) = service_user.secrets_field_names(false);
                 known_service_users.insert(pw_field);
-                let msg = IdentityManagerProtocol::FoundServiceUser(service_user, activated);
+                let msg: IdentityManagerProtocol<ServiceCandidate, ServiceIdentity> =
+                    IdentityManagerProtocol::FoundServiceUser(service_user, activated);
                 identity_manager_proto_tx.send(msg).await?;
             } else {
                 error!(

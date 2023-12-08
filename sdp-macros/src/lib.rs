@@ -318,6 +318,7 @@ macro_rules! service_user {
             name: format!("{}{}", stringify!(service_user), $n),
             password: format!("{}{}", stringify!(password), $n),
             profile_url: format!("{}{}", stringify!(profile_url), $n),
+            device_ids: vec![],
         }
     };
 }
