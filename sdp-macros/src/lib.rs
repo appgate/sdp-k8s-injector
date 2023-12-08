@@ -343,41 +343,6 @@ macro_rules! service_identity {
 }
 
 #[macro_export]
-macro_rules! service_device_ids {
-    ($n:tt) => {
-        DeviceId::new(
-            format!("{}{}", stringify!(id), $n).as_str(),
-            DeviceIdSpec {
-                service_name: format!("{}{}", stringify!(srv), $n),
-                service_namespace: format!("{}{}", stringify!(ns), $n),
-                uuids: vec![format!(
-                    "00000000-0000-0000-0000-0000000000{:0width$}",
-                    $n,
-                    width = 2
-                )],
-            },
-        )
-    };
-}
-
-#[macro_export]
-macro_rules! device_id {
-    ($n: tt) => {
-        device_id!($n, vec![])
-    };
-    ($n: tt, $uuids:expr) => {
-        DeviceId::new(
-            concat!(stringify!(id), $n),
-            DeviceIdSpec {
-                uuids: $uuids,
-                service_name: concat!(stringify!(srv), $n).to_string(),
-                service_namespace: concat!(stringify!(ns), $n).to_string(),
-            },
-        )
-    };
-}
-
-#[macro_export]
 macro_rules! service_candidate_protocol {
     ($t:ident) => {
         impl ServiceCandidateProtocol<$t> for $t {

@@ -1,5 +1,8 @@
-use crate::deviceid::IdentityStore;
+use crate::deviceid::{
+    DeviceIdProviderRequestProtocol, DeviceIdProviderResponseProtocol, DeviceIdRequester,
+};
 use crate::errors::SDPPatchError;
+use async_trait::async_trait;
 use http::{Method, StatusCode};
 use hyper::body::Bytes;
 use hyper::{Body, Request, Response};
@@ -25,9 +28,14 @@ use sdp_common::annotations::{
 use sdp_common::constants::{MAX_PATCH_ATTEMPTS, SDP_DEFAULT_CLIENT_VERSION_ENV};
 use sdp_common::errors::SDPServiceError;
 use sdp_common::patch_annotation;
+use sdp_common::service::{
+    containers, init_containers, injection_strategy, security_context, volume_names, volumes,
+    SDPInjectionStrategy, ServiceIdentity,
+};
 use sdp_common::traits::{
     Annotated, Candidate, HasCredentials, MaybeNamespaced, MaybeService, ObjectRequest, Validated,
 };
+use sdp_macros::{logger, sdp_debug, sdp_error, sdp_info, sdp_log, sdp_warn, with_dollar_sign};
 use serde::Deserialize;
 use std::collections::hash_map::RandomState;
 use std::collections::{HashMap, HashSet};
@@ -38,12 +46,11 @@ use std::iter::FromIterator;
 use std::path::PathBuf;
 use std::str::from_utf8;
 use std::sync::Arc;
-use tokio::sync::{Mutex, MutexGuard};
-use sdp_common::service::{
-    containers, init_containers, injection_strategy, security_context, volume_names, volumes,
-    SDPInjectionStrategy, ServiceIdentity,
-};
-use sdp_macros::{logger, sdp_debug, sdp_error, sdp_info, sdp_log, sdp_warn, with_dollar_sign};
+use std::time::Duration;
+use tokio::sync::mpsc::{channel, Sender};
+use tokio::sync::Mutex;
+use tokio::time::timeout;
+use uuid::Uuid;
 
 logger!("SDPInjector");
 
@@ -200,6 +207,44 @@ macro_rules! env_var {
     }};
 }
 
+// This is a DevideIdRequester used by the injector
+pub struct InjectorDeviceIdRequester {
+    pub device_id_q_tx: Sender<DeviceIdProviderRequestProtocol<ServiceIdentity>>,
+}
+
+/*
+ The current implementation of the InjectorDeviceIdRequester
+*/
+#[async_trait]
+impl DeviceIdRequester for InjectorDeviceIdRequester {
+    async fn request(&self, service_id: &str) -> Result<(ServiceIdentity, Uuid), SDPServiceError> {
+        let (q_tx, mut q_rx) = channel::<DeviceIdProviderResponseProtocol<ServiceIdentity>>(1);
+        self.device_id_q_tx
+            .send(DeviceIdProviderRequestProtocol::RequestDeviceId(
+                q_tx,
+                service_id.to_string(),
+            ))
+            .await
+            .map_err(|e| format!("Error sending message to request device id: {}", e))?;
+        match timeout(Duration::from_secs(5), q_rx.recv()).await {
+            Ok(Some(DeviceIdProviderResponseProtocol::AssignedDeviceId(
+                service_identity,
+                device_id,
+            ))) => Ok((service_identity, device_id)),
+            Ok(Some(DeviceIdProviderResponseProtocol::NotFound)) | Ok(None) => {
+                Err(SDPServiceError::from_string(format!(
+                    "Device id not found for service {}",
+                    service_id
+                )))
+            }
+            Err(e) => Err(SDPServiceError::from_string(format!(
+                "Error getting device id for service {}: {}",
+                service_id, e
+            ))),
+        }
+    }
+}
+
 pub enum SDPPatchResponse {
     RetryWithError(Box<AdmissionResponse>, SDPServiceError, u8),
     MaxRetryExceeded(Box<AdmissionResponse>, SDPServiceError),
@@ -269,49 +314,52 @@ struct ServiceEnvironment {
 impl ServiceEnvironment {
     async fn create<'a, E, R>(
         request: &R,
-        store: MutexGuard<'a, E>,
+        device_id_requester: Arc<E>,
     ) -> Result<Self, SDPServiceError>
     where
-        E: IdentityStore<ServiceIdentity>,
+        E: DeviceIdRequester,
         R: ObjectRequest<Pod> + MaybeService + Annotated,
     {
         if let Some(e) = ServiceEnvironment::from_pod(request)? {
             Ok(e)
         } else {
-            ServiceEnvironment::from_identity_store(request, store).await
+            ServiceEnvironment::from_identity_store(request, device_id_requester).await
         }
     }
 
     async fn from_identity_store<
         'a,
-        E: IdentityStore<ServiceIdentity>,
+        E: DeviceIdRequester,
         R: ObjectRequest<Pod> + MaybeService + Annotated,
     >(
         request: &R,
-        mut store: MutexGuard<'a, E>,
+        device_id_requester: Arc<E>,
     ) -> Result<Self, SDPServiceError> {
         let service_id = request.service_id()?;
-        store.pop_device_id(&service_id).await.map(|(s, d)| {
-            let (user_field, password_field, profile_field) =
-                s.spec.service_user.secrets_field_names(true);
-            let secrets_name = s
-                .credentials()
-                .secrets_name(&s.spec.service_namespace, &s.spec.service_name);
-            let config_name = s
-                .credentials()
-                .config_name(&s.spec.service_namespace, &s.spec.service_name);
-            ServiceEnvironment {
-                service_name: service_id,
-                client_config: config_name,
-                client_secret_name: secrets_name,
-                client_secret_controller_url_key: profile_field,
-                client_secret_pwd_key: password_field,
-                client_secret_user_key: user_field,
-                client_device_id: d.to_string(),
-                n_containers: "0".to_string(),
-                k8s_dns_service_ip: None,
-            }
-        })
+        device_id_requester
+            .request(&service_id)
+            .await
+            .map(|(s, d)| {
+                let (user_field, password_field, profile_field) =
+                    s.spec.service_user.secrets_field_names(true);
+                let secrets_name = s
+                    .credentials()
+                    .secrets_name(&s.spec.service_namespace, &s.spec.service_name);
+                let config_name = s
+                    .credentials()
+                    .config_name(&s.spec.service_namespace, &s.spec.service_name);
+                ServiceEnvironment {
+                    service_name: service_id,
+                    client_config: config_name,
+                    client_secret_name: secrets_name,
+                    client_secret_controller_url_key: profile_field,
+                    client_secret_pwd_key: password_field,
+                    client_secret_user_key: user_field,
+                    client_device_id: d.to_string(),
+                    n_containers: "0".to_string(),
+                    k8s_dns_service_ip: None,
+                }
+            })
     }
 
     // TODO: should we check that the service_id is registered?
@@ -664,19 +712,19 @@ pub struct SDPSidecars {
     dns_config: Box<DNSConfig>,
 }
 
-pub struct SDPInjectorContext<E: IdentityStore<ServiceIdentity>> {
+pub struct SDPInjectorContext<E: DeviceIdRequester> {
     pub(crate) sdp_sidecars: Arc<SDPSidecars>,
     pub(crate) ns_api: Api<Namespace>,
     pub(crate) services_api: Api<KubeService>,
-    pub(crate) identity_store: Mutex<E>,
+    pub(crate) device_id_requester: Arc<E>,
     pub(crate) attempts_store: Mutex<HashMap<String, u8>>,
     pub(crate) server_version: u32,
 }
 
 #[derive(Debug)]
-struct SDPPatchContext<'a, E: IdentityStore<ServiceIdentity>> {
+struct SDPPatchContext<E: DeviceIdRequester> {
     sdp_sidecars: Arc<SDPSidecars>,
-    identity_store: MutexGuard<'a, E>,
+    device_id_requester: Arc<E>,
     k8s_dns_service: Option<KubeService>,
     k8s_server_version: u32,
 }
@@ -882,9 +930,9 @@ async fn patch_deployment(
     Ok(SDPPatchResponse::Allow(Box::new(admission_response)))
 }
 
-async fn patch_pod<'a, E: IdentityStore<ServiceIdentity>>(
+async fn patch_pod<'a, E: DeviceIdRequester>(
     admission_request: AdmissionRequest<Pod>,
-    sdp_patch_context: SDPPatchContext<'a, E>,
+    sdp_patch_context: SDPPatchContext<E>,
 ) -> Result<SDPPatchResponse, SDPPatchError> {
     let sdp_pod = SDPPod {
         sdp_sidecars: Arc::clone(&sdp_patch_context.sdp_sidecars),
@@ -899,7 +947,7 @@ async fn patch_pod<'a, E: IdentityStore<ServiceIdentity>>(
         )))?;
     // Try to get the service environment and use it to patch the POD
     let mut environment =
-        ServiceEnvironment::create(&admission_request, sdp_patch_context.identity_store)
+        ServiceEnvironment::create(&admission_request, sdp_patch_context.device_id_requester)
             .await
             .map_err(SDPPatchError::from_admission_response(Box::clone(
                 &admission_response,
@@ -916,7 +964,7 @@ async fn patch_pod<'a, E: IdentityStore<ServiceIdentity>>(
     Ok(SDPPatchResponse::Allow(Box::new(admission_response)))
 }
 
-async fn mutate<'a, E: IdentityStore<ServiceIdentity>>(
+async fn mutate<'a, E: DeviceIdRequester>(
     body: Bytes,
     sdp_injector_context: Arc<SDPInjectorContext<E>>,
 ) -> Result<SDPPatchResponse, SDPPatchError> {
@@ -924,7 +972,7 @@ async fn mutate<'a, E: IdentityStore<ServiceIdentity>>(
     let sdp_patch_context = SDPPatchContext {
         k8s_dns_service: k8s_dns_service,
         sdp_sidecars: Arc::clone(&sdp_injector_context.sdp_sidecars),
-        identity_store: sdp_injector_context.identity_store.lock().await,
+        device_id_requester: Arc::clone(&sdp_injector_context.device_id_requester),
         k8s_server_version: sdp_injector_context.server_version,
     };
     let body = from_utf8(&body)
@@ -1010,7 +1058,7 @@ async fn get_dns_service(k8s_client: &Api<KubeService>) -> Result<Option<Body>, 
 
 #[cfg(test)]
 mod tests {
-    use crate::deviceid::{IdentityStore, InMemoryIdentityStore};
+    use crate::deviceid::DeviceIdRequester;
     use crate::injector::{
         patch_pod, DNSConfig, Patched, SDPPatchContext, SDPPatchResponse, SDPPod,
         ServiceEnvironment, SDP_ANNOTATION_CLIENT_CONFIG, SDP_ANNOTATION_CLIENT_DEVICE_ID,
@@ -1018,6 +1066,7 @@ mod tests {
         SDP_SIDECARS_FILE_ENV,
     };
     use crate::{load_sidecar_containers, SDPSidecars};
+    use async_trait::async_trait;
     use json_patch::Patch;
     use k8s_openapi::api::core::v1::{
         Container, LocalObjectReference, Pod, PodSecurityContext, Service as KubeService,
@@ -1027,22 +1076,22 @@ mod tests {
     use kube::core::ObjectMeta;
     use sdp_common::annotations::SDP_INJECTOR_ANNOTATION_ENABLED;
     use sdp_common::constants::SDP_DEFAULT_CLIENT_VERSION_ENV;
-    use sdp_common::crd::{DeviceId, DeviceIdSpec, ServiceIdentity, ServiceIdentitySpec};
+    use sdp_common::crd::{ServiceIdentity, ServiceIdentitySpec};
+    use sdp_common::errors::SDPServiceError;
     use sdp_common::service::{
         containers, init_containers, security_context, volume_names, ServiceUser,
     };
     use sdp_common::traits::{
         Annotated, Candidate, MaybeNamespaced, MaybeService, Named, Namespaced, ObjectRequest,
-        Validated,
+        Service, Validated,
     };
-    use sdp_macros::{service_device_ids, service_identity, service_user};
+    use sdp_macros::{service_identity, service_user};
     use sdp_test_macros::{pod, set_pod_field};
     use serde_json::json;
     use std::collections::{BTreeMap, HashMap, HashSet};
     use std::iter::FromIterator;
     use std::sync::Arc;
-    use tokio::sync::mpsc::channel;
-    use tokio::sync::Mutex;
+    use uuid::Uuid;
 
     macro_rules! dns_service {
         ($ip:expr) => {
@@ -1088,6 +1137,26 @@ mod tests {
             panic!("Inject test failed:\n{}", errors.join("\n"));
         }
         assert_eq!(true, true);
+    }
+
+    // DeviceIdRequester used for tests, it returns the values directly from the vector
+    struct DummyDeviceIdRequester(Vec<(ServiceIdentity, Uuid)>);
+
+    #[async_trait]
+    impl DeviceIdRequester for DummyDeviceIdRequester {
+        async fn request(
+            &self,
+            service_id: &str,
+        ) -> Result<(ServiceIdentity, Uuid), SDPServiceError> {
+            if let Some(lease) = self.0.iter().find(|s| s.0.service_id() == service_id) {
+                Ok(lease.clone())
+            } else {
+                Err(SDPServiceError {
+                    who: Some("DummyDeviceIdRequester".to_string()),
+                    error: format!("No leases for service {}", service_id),
+                })
+            }
+        }
     }
 
     #[derive(Debug)]
@@ -1165,7 +1234,7 @@ mod tests {
                     ),
                     (
                         "APPGATE_DEVICE_ID".to_string(),
-                        Some("00000000-0000-0000-0000-000000000001".to_string()),
+                        Some("0f74690e-b99b-46dc-828b-6162638d7a77".to_string()),
                     ),
                     ("SERVICE_NAME".to_string(), Some("ns1_srv1".to_string())),
                 ],
@@ -1201,7 +1270,7 @@ mod tests {
                     ("SERVICE_NAME".to_string(), Some("ns2_srv2".to_string())),
                     (
                         "APPGATE_DEVICE_ID".to_string(),
-                        Some("00000000-0000-0000-0000-000000000002".to_string()),
+                        Some("0f74690e-b99b-46dc-828b-6162638d7a77".to_string()),
                     ),
                 ],
                 needs_patching: true,
@@ -1286,7 +1355,7 @@ mod tests {
                     ("SERVICE_NAME".to_string(), Some("ns5_srv5".to_string())),
                     (
                         "APPGATE_DEVICE_ID".to_string(),
-                        Some("00000000-0000-0000-0000-000000000005".to_string()),
+                        Some("0f74690e-b99b-46dc-828b-6162638d7a77".to_string()),
                     ),
                 ],
                 service: dns_service!("10.0.0.10"),
@@ -1395,7 +1464,7 @@ mod tests {
                     ),
                     (
                         "APPGATE_DEVICE_ID".to_string(),
-                        Some("00000000-0000-0000-0000-000000000010".to_string()),
+                        Some("0f74690e-b99b-46dc-828b-6162638d7a77".to_string()),
                     ),
                     ("SERVICE_NAME".to_string(), Some("ns10_srv10".to_string())),
                 ],
@@ -1423,7 +1492,7 @@ mod tests {
                     ("SERVICE_NAME".to_string(), Some("ns11_srv11".to_string())),
                     (
                         "APPGATE_DEVICE_ID".to_string(),
-                        Some("00000000-0000-0000-0000-000000000011".to_string()),
+                        Some("0f74690e-b99b-46dc-828b-6162638d7a77".to_string()),
                     ),
                 ],
                 needs_patching: true,
@@ -1452,7 +1521,7 @@ mod tests {
                     ("SERVICE_NAME".to_string(), Some("ns12_srv12".to_string())),
                     (
                         "APPGATE_DEVICE_ID".to_string(),
-                        Some("00000000-0000-0000-0000-000000000012".to_string()),
+                        Some("0f74690e-b99b-46dc-828b-6162638d7a77".to_string()),
                     ),
                 ],
                 needs_patching: true,
@@ -1865,10 +1934,13 @@ Pod is missing required volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-
             };
 
         let test_description = || "Test patch".to_string();
-        let identity_storage = Mutex::new(InMemoryIdentityStore::default());
-
         let mut results: Vec<TestResult> = vec![];
         for (n, test) in patch_tests(&sdp_sidecars).iter().enumerate() {
+            let device_id_requester: Arc<DummyDeviceIdRequester> =
+                Arc::new(DummyDeviceIdRequester(vec![(
+                    service_identity!(n),
+                    Uuid::parse_str("0f74690e-b99b-46dc-828b-6162638d7a77").unwrap(),
+                )]));
             let pod = test.pod.clone();
             let sdp_pod = SDPPod {
                 sdp_sidecars: Arc::clone(&sdp_sidecars),
@@ -1876,21 +1948,8 @@ Pod is missing required volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-
                 k8s_server_version: test.k8s_server_version,
             };
             let pod_name = pod.name();
-            identity_storage
-                .lock()
-                .await
-                .register_service(service_identity!(n))
-                .await
-                .expect("Unable to register service identity");
-            identity_storage
-                .lock()
-                .await
-                .register_device_ids(service_device_ids!(n))
-                .await
-                .expect("Unable to register device id");
-
             let request = TestObjectRequest::new(pod.clone());
-            let mut env = ServiceEnvironment::create(&request, identity_storage.lock().await)
+            let mut env = ServiceEnvironment::create(&request, Arc::clone(&device_id_requester))
                 .await
                 .expect(
                     format!("Unable to create ServiceEnvironment from POD {}", &pod_name).as_str(),
@@ -1929,23 +1988,11 @@ Pod is missing required volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-
     async fn test_mutate_responses() {
         let sdp_sidecars =
             Arc::new(load_sidecar_containers_env().expect("Unable to load sidecars context"));
-        let identity_storage = Mutex::new(InMemoryIdentityStore::default());
 
+        let mut device_id_leases: Vec<(ServiceIdentity, Uuid)> = vec![];
         for (n, _t) in patch_tests(&sdp_sidecars).iter().enumerate() {
-            identity_storage
-                .lock()
-                .await
-                .register_service(service_identity!(n))
-                .await
-                .expect("Unable to register service identity");
-            identity_storage
-                .lock()
-                .await
-                .register_device_ids(service_device_ids!(n))
-                .await
-                .expect("Unable to register device id");
+            device_id_leases.push((service_identity!(n), Uuid::new_v4()));
         }
-
         let mut results: Vec<TestResult> = vec![];
         for (n, test) in patch_tests(&sdp_sidecars).iter().enumerate() {
             let pod_value =
@@ -1985,10 +2032,12 @@ Pod is missing required volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-
             // test the patch_request function now
             // TODO: Test responses not allowing the patch!
             let sdp_sidecars = Arc::clone(&sdp_sidecars);
+            let device_id_requester: Arc<DummyDeviceIdRequester> =
+                Arc::new(DummyDeviceIdRequester(device_id_leases.clone()));
             let patch_response = {
                 let sdp_patch_context = SDPPatchContext {
                     sdp_sidecars: Arc::clone(&sdp_sidecars),
-                    identity_store: identity_storage.lock().await,
+                    device_id_requester: Arc::clone(&device_id_requester),
                     k8s_dns_service: Some(test.service.clone()),
                     k8s_server_version: 22,
                 };
@@ -2100,34 +2149,26 @@ Pod is missing required volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-
     }
 
     #[tokio::test]
-    async fn test_service_environment_from_identity_store() {
+    async fn test_service_environment_from_identity_store_0() {
         let pod = pod!(1);
-        let store = Mutex::new(InMemoryIdentityStore::default());
+        let device_id_requester = Arc::new(DummyDeviceIdRequester(vec![]));
         let request = TestObjectRequest::new(pod.clone());
-        let env = ServiceEnvironment::from_identity_store(&request, store.lock().await).await;
+        let env = ServiceEnvironment::from_identity_store(&request, device_id_requester).await;
         assert!(env.is_err());
         if let Err(e) = env {
-            assert_eq!(
-                e.error,
-                "ServiceIdentity and/or DeviceId is missing for service ns1_srv1"
-            );
+            assert_eq!(e.error, "No leases for service ns1_srv1");
         }
-        let id = service_identity!(1);
-        let ds = service_device_ids!(1);
-        store
-            .lock()
-            .await
-            .register_service(id)
-            .await
-            .expect("Unable to register service identity");
-        store
-            .lock()
-            .await
-            .register_device_ids(ds)
-            .await
-            .expect("Unable to register device ids");
+    }
 
-        let env = ServiceEnvironment::from_identity_store(&request, store.lock().await).await;
+    #[tokio::test]
+    async fn test_service_environment_from_identity_store_1() {
+        let pod = pod!(1);
+        let device_id_requester = Arc::new(DummyDeviceIdRequester(vec![(
+            service_identity![1],
+            Uuid::new_v4(),
+        )]));
+        let request = TestObjectRequest::new(pod.clone());
+        let env = ServiceEnvironment::from_identity_store(&request, device_id_requester).await;
         assert!(env.is_ok());
         if let Ok(env) = env {
             assert_eq!(
@@ -2290,74 +2331,6 @@ Pod is missing required volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-
         assert!(env.is_ok());
         assert!(env.as_ref().unwrap().is_none());
     }
-
-    #[tokio::test]
-    async fn test_identity_manager_identity_storage_async() {
-        let ch = channel::<bool>(1);
-        let store = Arc::new(Mutex::new(InMemoryIdentityStore::default()));
-        let store2 = Arc::clone(&store);
-        let store3 = Arc::clone(&store);
-        let mut ch_rx = ch.1;
-        let ch_tx = ch.0;
-        let t1 = tokio::spawn(async move {
-            let id = service_identity!(1);
-            let ds = service_device_ids!(1);
-            Arc::clone(&store)
-                .lock()
-                .await
-                .register_service(id)
-                .await
-                .expect("Unable to register service identity");
-            Arc::clone(&store)
-                .lock()
-                .await
-                .register_device_ids(ds)
-                .await
-                .expect("Unable to register device ids");
-            ch_tx
-                .send(true)
-                .await
-                .expect("Error notifying client thread in test");
-        });
-        let pod2 = pod!(2);
-
-        let t2 = tokio::spawn(async move {
-            let request = TestObjectRequest::new(pod2);
-            let env = ServiceEnvironment::from_identity_store(&request, store2.lock().await).await;
-            assert!(env.is_err());
-            if let Err(ref e) = env {
-                assert_eq!(
-                    e.error,
-                    "ServiceIdentity and/or DeviceId is missing for service ns2_srv2"
-                );
-            }
-            if ch_rx
-                .recv()
-                .await
-                .expect("Error receiving notification from server thread in test")
-            {
-                let pod1 = pod!(1);
-                let request = TestObjectRequest::new(pod1);
-                let env =
-                    ServiceEnvironment::from_identity_store(&request, store3.lock().await).await;
-                assert!(env.is_ok());
-                if let Ok(env) = env {
-                    assert_eq!(env.service_name, "ns1_srv1".to_string());
-                    assert_eq!(env.client_config, "ns1-srv1-service-config");
-                    assert_eq!(env.client_secret_name, "ns1-srv1-service-user");
-                    assert_eq!(env.client_secret_controller_url_key, "service-url");
-                    assert_eq!(env.client_secret_pwd_key, "service-password");
-                    assert_eq!(env.client_secret_user_key, "service-username");
-                    assert_eq!(env.n_containers, "0".to_string());
-                    assert_eq!(env.k8s_dns_service_ip, None);
-                };
-            } else {
-                assert!(false, "Server thread in test failed!");
-            }
-        });
-        t1.await.unwrap();
-        t2.await.unwrap();
-    }
 }
 
 pub fn get_cert_path() -> String {
@@ -2393,7 +2366,7 @@ pub fn load_ssl() -> Result<ServerConfig, SDPServiceError> {
         .map_err(|e| format!("Unable to create ServerConfig with TLS certificate: {}", e))?)
 }
 
-pub async fn injector_handler<E: IdentityStore<ServiceIdentity>>(
+pub async fn injector_handler<E: DeviceIdRequester>(
     req: Request<Body>,
     sdp_context: Arc<SDPInjectorContext<E>>,
 ) -> Result<Response<Body>, hyper::Error> {

@@ -1,10 +1,10 @@
-use crate::deviceid::{DeviceIdProvider, DeviceIdProviderRequestProtocol, InMemoryIdentityStore};
+use crate::deviceid::{DeviceIdProvider, DeviceIdProviderRequestProtocol};
 use crate::files_watcher::{
     watch_files, FilesWatcher, SDP_FILE_WATCHER_POLL_INTERVAL, SDP_FILE_WATCHER_POLL_INTERVAL_ENV,
 };
 use crate::injector::{
     get_cert_path, get_key_path, injector_handler, load_sidecar_containers, load_ssl,
-    SDPInjectorContext, SDPSidecars,
+    InjectorDeviceIdRequester, SDPInjectorContext, SDPSidecars,
 };
 use futures::executor::block_on;
 use futures::stream;
@@ -16,7 +16,7 @@ use hyper::service::{make_service_fn, service_fn};
 use hyper::Server;
 use k8s_openapi::api::core::v1::Pod;
 use kube::{Api, Client, Config};
-use sdp_common::crd::{DeviceId, ServiceIdentity};
+use sdp_common::crd::ServiceIdentity;
 use sdp_common::kubernetes::{KUBE_SYSTEM_NAMESPACE, SDP_K8S_NAMESPACE};
 use sdp_common::service::get_log_config_path;
 use sdp_common::watcher::{watch, Watcher};
@@ -36,7 +36,6 @@ const SDP_K8S_HOST_ENV: &str = "SDP_K8S_HOST";
 const SDP_K8S_HOST_DEFAULT: &str = "kubernetes.default.svc";
 const SDP_K8S_NO_VERIFY_ENV: &str = "SDP_K8S_NO_VERIFY";
 
-mod device_id_watcher;
 mod deviceid;
 mod errors;
 mod files_watcher;
@@ -75,9 +74,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let service_identity_api: Api<ServiceIdentity> =
         Api::namespaced(k8s_client.clone(), SDP_K8S_NAMESPACE);
     let pods_api: Api<Pod> = Api::all(k8s_client.clone());
-    let device_ids_api: Api<DeviceId> = Api::namespaced(k8s_client.clone(), SDP_K8S_NAMESPACE);
-    let (_, device_id_rx) = channel::<DeviceIdProviderRequestProtocol<ServiceIdentity>>(50);
-    let store = InMemoryIdentityStore::new();
+    let (device_id_tx, device_id_rx) =
+        channel::<DeviceIdProviderRequestProtocol<ServiceIdentity>>(50);
+    let injector_device_id_requester = InjectorDeviceIdRequester {
+        device_id_q_tx: device_id_tx,
+    };
     let sdp_sidecars: SDPSidecars =
         load_sidecar_containers().expect("Unable to load the sidecar context");
     let version = k8s_client
@@ -93,7 +94,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         sdp_sidecars: Arc::new(sdp_sidecars),
         ns_api: Api::all(k8s_client.clone()),
         services_api: Api::namespaced(k8s_client, KUBE_SYSTEM_NAMESPACE),
-        identity_store: AsyncMutex::new(store),
+        device_id_requester: Arc::new(injector_device_id_requester),
         attempts_store: AsyncMutex::new(HashMap::new()),
         server_version: version,
     });
@@ -120,7 +121,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
     // Thread to watch ServiceIdentity entities
     // We register new ServiceIdentity entities in the store when created and de unregister them when deleted.
     let (watcher_tx, watcher_rx) = channel::<DeviceIdProviderRequestProtocol<ServiceIdentity>>(50);
-    let watcher_tx2 = watcher_tx.clone();
     let watcher_tx3 = watcher_tx.clone();
     tokio::spawn(async move {
         let watcher: Watcher<ServiceIdentity, DeviceIdProviderRequestProtocol<ServiceIdentity>> =
@@ -137,25 +137,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
         >(watcher, None);
         if let Err(e) = w.await {
             panic!("Unable to start IdentityService Watcher: {}", e);
-        }
-    });
-
-    // Thread to watch DeviceId entities
-    // We register new DeviceId entities in the store when created and de unregister them when deleted.
-    tokio::spawn(async move {
-        let watcher = Watcher {
-            api_ns: None,
-            api: device_ids_api,
-            queue_tx: watcher_tx2,
-            notification_message: None,
-        };
-        let w = watch::<
-            DeviceId,
-            DeviceIdProviderRequestProtocol<ServiceIdentity>,
-            DeviceIdProviderRequestProtocol<ServiceIdentity>,
-        >(watcher, None);
-        if let Err(e) = w.await {
-            panic!("Unable to start DeviceID Watcher: {}", e);
         }
     });
 
