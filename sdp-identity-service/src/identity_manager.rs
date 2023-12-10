@@ -16,6 +16,7 @@ use std::fmt;
 use std::iter::FromIterator;
 use tokio::sync::broadcast::Sender as BroadcastSender;
 use tokio::sync::mpsc::{Receiver, Sender};
+use uuid::Uuid;
 
 use crate::errors::IdentityServiceError;
 use crate::identity_creator::IdentityCreatorProtocol;
@@ -127,6 +128,7 @@ pub enum IdentityManagerProtocol<From: MaybeService, To: Service + HasCredential
     IdentityManagerDebug(String),
     // service_user, service_ns, service_name
     ActivatedServiceUser(ServiceUser, String, String),
+    ReleaseDeviceId(String, Uuid),
 }
 
 pub enum IdentityMessageResponse {
@@ -710,6 +712,13 @@ impl IdentityManagerRunner<ServiceLookup, ServiceIdentity> {
                             }
                         }
                     });
+                }
+                IdentityManagerProtocol::ReleaseDeviceId(_device_id, _uuid) => {
+                    // We release the device id here
+                    // To release the device id:
+                    //    call controller API to release it
+                    //    update ServiceIdentity to add it to the list of device ids
+                    todo!()
                 }
                 _ => {}
             }

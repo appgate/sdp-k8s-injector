@@ -14,7 +14,6 @@ use hyper::server::accept;
 use hyper::server::conn::AddrIncoming;
 use hyper::service::{make_service_fn, service_fn};
 use hyper::Server;
-use k8s_openapi::api::core::v1::Pod;
 use kube::{Api, Client, Config};
 use sdp_common::crd::ServiceIdentity;
 use sdp_common::kubernetes::{KUBE_SYSTEM_NAMESPACE, SDP_K8S_NAMESPACE};
@@ -40,7 +39,6 @@ mod deviceid;
 mod errors;
 mod files_watcher;
 mod injector;
-mod pod_watcher;
 mod service_identity_watcher;
 
 pub type Acceptor = tokio_rustls::TlsAcceptor;
@@ -73,7 +71,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
         Client::try_from(k8s_config).expect("Unable to create kubernetes client");
     let service_identity_api: Api<ServiceIdentity> =
         Api::namespaced(k8s_client.clone(), SDP_K8S_NAMESPACE);
-    let pods_api: Api<Pod> = Api::all(k8s_client.clone());
     let (device_id_tx, device_id_rx) =
         channel::<DeviceIdProviderRequestProtocol<ServiceIdentity>>(50);
     let injector_device_id_requester = InjectorDeviceIdRequester {
@@ -121,7 +118,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
     // Thread to watch ServiceIdentity entities
     // We register new ServiceIdentity entities in the store when created and de unregister them when deleted.
     let (watcher_tx, watcher_rx) = channel::<DeviceIdProviderRequestProtocol<ServiceIdentity>>(50);
-    let watcher_tx3 = watcher_tx.clone();
     tokio::spawn(async move {
         let watcher: Watcher<ServiceIdentity, DeviceIdProviderRequestProtocol<ServiceIdentity>> =
             Watcher {
@@ -137,26 +133,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
         >(watcher, None);
         if let Err(e) = w.await {
             panic!("Unable to start IdentityService Watcher: {}", e);
-        }
-    });
-
-    // Thread to watch Pod entities
-    // When a Pod that is a candidate has been deleted, we just return back the device id
-    // it was using to the device ids provider.
-    tokio::spawn(async move {
-        let watcher = Watcher {
-            api_ns: None,
-            api: pods_api,
-            queue_tx: watcher_tx3,
-            notification_message: None,
-        };
-        let w = watch::<
-            Pod,
-            DeviceIdProviderRequestProtocol<ServiceIdentity>,
-            DeviceIdProviderRequestProtocol<ServiceIdentity>,
-        >(watcher, None);
-        if let Err(e) = w.await {
-            panic!("Unable to start Pod Watcher: {}", e);
         }
     });
 
