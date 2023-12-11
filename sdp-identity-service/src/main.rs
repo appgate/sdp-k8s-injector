@@ -1,9 +1,10 @@
 use crate::{
     identity_creator::{IdentityCreator, IdentityCreatorProtocol},
-    identity_manager::{IdentityManagerProtocol, IdentityManagerRunner},
+    identity_manager::{IdentityManager, IdentityManagerProtocol},
     service_candidate_watcher::ServiceCandidateWatcherProtocol,
 };
 use clap::{Parser, Subcommand};
+use identity_manager::IdentityManagerService;
 use k8s_openapi::api::{
     apps::v1::Deployment,
     core::v1::{Namespace, Pod},
@@ -69,8 +70,6 @@ async fn main() -> () {
             let sdp_service_watcher = client.clone();
             let pod_watcher = client.clone();
             let identity_creator_client = client;
-            let identity_manager_runner =
-                IdentityManagerRunner::kube_runner(identity_manager_client);
 
             // Create channel for IdentityManagerProtocol
             // It has several Senders (IdentityCreator, IdentityManager and ServiceCandidate watchers)
@@ -172,15 +171,15 @@ async fn main() -> () {
                     )
                     .await;
             });
-            identity_manager_runner
-                .run(
-                    identity_manager_proto_rx,
-                    identity_manager_proto_tx,
-                    identity_creator_proto_tx.clone(),
-                    service_candidate_watcher_proto_tx,
-                    None,
-                )
-                .await;
+            let mut identity_manager = IdentityManager::new(
+                identity_manager_client,
+                identity_manager_proto_rx,
+                identity_manager_proto_tx,
+                service_candidate_watcher_proto_tx,
+                identity_creator_proto_tx.clone(),
+                None,
+            );
+            identity_manager.run().await;
         }
     }
 }

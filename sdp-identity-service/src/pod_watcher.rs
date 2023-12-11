@@ -1,8 +1,10 @@
 use k8s_openapi::api::core::v1::{Namespace, Pod};
 use sdp_common::annotations::SDP_ANNOTATION_CLIENT_DEVICE_ID;
 use sdp_common::crd::ServiceIdentity;
-use sdp_common::service::ServiceCandidate;
-use sdp_common::traits::{Annotated, Candidate, HasCredentials, MaybeService, Service};
+use sdp_common::service::{ServiceCandidate, ServiceLookup};
+use sdp_common::traits::{
+    Annotated, Candidate, HasCredentials, MaybeNamespaced, MaybeService, Named, Service,
+};
 use sdp_common::watcher::SimpleWatchingProtocol;
 use sdp_macros::{logger, sdp_error, sdp_info, sdp_log, when_ok, with_dollar_sign};
 
@@ -10,8 +12,10 @@ use crate::identity_manager::IdentityManagerProtocol;
 
 logger!("PodWatcher");
 
-fn device_id_release_message<A, B>(
+fn device_id_release_message<A: Send + Sync, B: Send + Sync>(
     pod: &Pod,
+    namespace: &String,
+    name: &String,
     service_id: &String,
 ) -> Option<IdentityManagerProtocol<A, B>>
 where
@@ -40,7 +44,7 @@ where
                         &uuid.to_string()
                     );
                     Some(IdentityManagerProtocol::ReleaseDeviceId(
-                        service_id.clone(),
+                        ServiceLookup::new(&namespace, name, None),
                         uuid,
                     ))
                 }
@@ -76,7 +80,7 @@ impl SimpleWatchingProtocol<IdentityManagerProtocol<ServiceCandidate, ServiceIde
                 if let Some("Evicted") = status.reason.as_ref().map(String::as_str) {
                     info!("[{}] Evicted POD: {} ", service_id,
                         status.message.as_ref().map(String::as_str).unwrap_or("No message"));
-                    device_id_release_message(self, &service_id)
+                    device_id_release_message(self, &self.namespace().unwrap(), &self.name(), &service_id)
                 } else {
                     None
                 }
@@ -89,7 +93,7 @@ impl SimpleWatchingProtocol<IdentityManagerProtocol<ServiceCandidate, ServiceIde
         _ns: Option<Namespace>,
     ) -> Option<IdentityManagerProtocol<ServiceCandidate, ServiceIdentity>> {
         when_ok!((service_id:IdentityManagerProtocol<ServiceCandidate, ServiceIdentity> = self.service_id()) {
-            let msg = device_id_release_message(self, &service_id);
+            let msg = device_id_release_message(self, &self.namespace().unwrap(), &self.name(), &service_id);
             if msg.is_none() {
                 info!("[{}] Ignoring Pod {}", service_id, service_id);
             }

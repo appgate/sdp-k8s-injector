@@ -1,6 +1,6 @@
 #[macro_export]
 macro_rules! queue_info {
-    ($msg:expr => $q:ident) => {
+    ($msg:expr => $q:expr) => {
         if let Some(ref q) = $q {
             if let Err(err) = q.send($msg).await {
                 log::error!("Error notifying external watcher:{:?} => {}", $msg, err)
@@ -21,7 +21,7 @@ macro_rules! logger {
                         sdp_info!($module | ($d target $d(, $d arg)*))
                     };
 
-                    ($d protocol:path | ($d target:expr $d(, $d arg:expr)*) => $d q:ident) => {
+                    ($d protocol:path | ($d target:expr $d(, $d arg:expr)*) => $d q:expr) => {
                         sdp_info!($module | $d protocol | ($d target $d(, $d arg)*) => $d q)
                     };
                 }
@@ -32,7 +32,7 @@ macro_rules! logger {
                         sdp_debug!($module | ($d target $d(, $d arg)*))
                     };
 
-                    ($d protocol:path | ($d target:expr $d(, $d arg:expr)*) => $d q:ident) => {
+                    ($d protocol:path | ($d target:expr $d(, $d arg:expr)*) => $d q:expr) => {
                         sdp_debug!($module | $d protocol | ($d target $d(, $d arg)*) => $d q)
                     };
                 }
@@ -43,7 +43,7 @@ macro_rules! logger {
                         sdp_warn!($module | ($d target $d(, $d arg)*))
                     };
 
-                    ($d protocol:path | ($d target:expr $d(, $d arg:expr)*) => $d q:ident) => {
+                    ($d protocol:path | ($d target:expr $d(, $d arg:expr)*) => $d q:expr) => {
                         sdp_warn!($module | $d protocol | ($d target $d(, $d arg)*) => $d q)
                     };
                 }
@@ -54,7 +54,7 @@ macro_rules! logger {
                         sdp_error!($module | ($d target $d(, $d arg)*))
                     };
 
-                    ($d protocol:path | ($d target:expr $d(, $d arg:expr)*) => $d q:ident) => {
+                    ($d protocol:path | ($d target:expr $d(, $d arg:expr)*) => $d q:expr) => {
                         sdp_error!($module | $d protocol | ($d target $d(, $d arg)*) => $d q)
                     };
                 }
@@ -123,13 +123,13 @@ macro_rules! with_dollar_sign {
 
 #[macro_export]
 macro_rules! sdp_log {
-    ($logger:ident | $protocol:path | $module:literal | ($target:expr $(, $arg:expr)*) => $q:ident) => {
+    ($logger:ident | $protocol:path | $module:literal | ($target:expr $(, $arg:expr)*) => $q:expr) => {
         let t = format!($target $(, $arg)*);
         queue_info!($protocol(t.to_string()) => $q);
         log::$logger!("[{}] {}", $module, t);
     };
 
-    ($logger:ident | $protocol:path | ($target:expr $(, $arg:expr)*) => $q:ident) => {
+    ($logger:ident | $protocol:path | ($target:expr $(, $arg:expr)*) => $q:expr) => {
         let t = format!($target $(, $arg)*);
         queue_info!($protocol(t.to_string()) => $q);
         log::$logger!($target $(, $arg)*);
@@ -146,11 +146,11 @@ macro_rules! sdp_log {
 
 #[macro_export]
 macro_rules! sdp_info {
-    ($module:literal | $protocol:path | ($target:expr $(, $arg:expr)*) => $q:ident) => {
+    ($module:literal | $protocol:path | ($target:expr $(, $arg:expr)*) => $q:expr) => {
         sdp_log!(info | $protocol | $module | ($target $(, $arg)*) => $q);
     };
 
-    ($module:ident | $protocol:path | ($target:expr $(, $arg:expr)*) => $q:ident) => {
+    ($module:ident | $protocol:path | ($target:expr $(, $arg:expr)*) => $q:expr) => {
         sdp_log!(info | $protocol | $module | ($target $(, $arg)*) => $q);
     };
 
@@ -175,11 +175,11 @@ macro_rules! sdp_info {
 
 #[macro_export]
 macro_rules! sdp_warn {
-    ($module:literal | $protocol:path | ($target:expr $(, $arg:expr)*) => $q:ident) => {
+    ($module:literal | $protocol:path | ($target:expr $(, $arg:expr)*) => $q:expr) => {
         sdp_log!(warn | $protocol | $module | ($target $(, $arg)*) => $q);
     };
 
-    ($module:ident | $protocol:path | ($target:expr $(, $arg:expr)*) => $q:ident) => {
+    ($module:ident | $protocol:path | ($target:expr $(, $arg:expr)*) => $q:expr) => {
         sdp_log!(warn | $protocol | $module | ($target $(, $arg)*) => $q);
     };
 
@@ -233,11 +233,11 @@ macro_rules! sdp_debug {
 
 #[macro_export]
 macro_rules! sdp_error {
-    ($module:literal | $protocol:path | ($target:expr $(, $arg:expr)*) => $q:ident) => {
+    ($module:literal | $protocol:path | ($target:expr $(, $arg:expr)*) => $q:expr) => {
         sdp_log!(error | $protocol | $module | ($target $(, $arg)*) => $q);
     };
 
-    ($module:ident | $protocol:path | ($target:expr $(, $arg:expr)*) => $q:ident) => {
+    ($module:ident | $protocol:path | ($target:expr $(, $arg:expr)*) => $q:expr) => {
         sdp_log!(error | $protocol | $module | ($target $(, $arg)*) => $q);
     };
 

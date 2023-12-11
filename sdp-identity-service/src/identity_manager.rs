@@ -12,7 +12,6 @@ use sdp_macros::{
     logger, queue_info, sdp_error, sdp_info, sdp_log, sdp_warn, when_ok, with_dollar_sign,
 };
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::fmt;
 use std::iter::FromIterator;
 use tokio::sync::broadcast::Sender as BroadcastSender;
 use tokio::sync::mpsc::{Receiver, Sender};
@@ -28,15 +27,13 @@ const N_WATCHERS: u8 = 2;
 
 /// Trait that represents the pool of ServiceUser entities
 /// We can pop and push ServiceUser entities
-trait ServiceUsersPool {
+trait ServiceUserPool {
     fn pop(&mut self) -> Option<ServiceUser>;
     fn push(&mut self, user_credentials_ref: ServiceUser) -> ();
     fn needs_new_credentials(&self) -> bool;
 }
 
-/// Trait for ServiceIdentity provider
-/// This traits provides instances of To from instances of From
-trait ServiceIdentityProvider {
+trait ServiceCredentialProvider: ServiceUserPool {
     type From: MaybeService + Labeled + Send;
     type To: Service + HasCredentials + Send;
     fn register_identity(&mut self, to: Self::To) -> ();
@@ -90,17 +87,17 @@ trait ServiceIdentityProvider {
 /// This should not be needed once the GAT support is in stable
 /// https://blog.rust-lang.org/2021/08/03/GATs-stabilization-push.html
 #[async_trait]
-trait ServiceIdentityAPI {
-    async fn create<'a>(
-        &'a self,
+trait ServiceIdentityAPI<'a> {
+    async fn create(
+        &self,
         identity: &'a ServiceIdentity,
     ) -> Result<ServiceIdentity, IdentityServiceError>;
-    async fn update<'a>(
-        &'a self,
+    async fn update(
+        &self,
         identity: &'a ServiceIdentity,
     ) -> Result<ServiceIdentity, IdentityServiceError>;
-    async fn delete<'a>(&'a self, identity_name: &'a str) -> Result<(), IdentityServiceError>;
-    async fn list<'a>(&'a self) -> Result<Vec<ServiceIdentity>, IdentityServiceError>;
+    async fn delete(&self, identity: &'a ServiceIdentity) -> Result<(), IdentityServiceError>;
+    async fn list(&self) -> Result<Vec<ServiceIdentity>, IdentityServiceError>;
 }
 
 /*
@@ -109,11 +106,13 @@ trait ServiceIdentityAPI {
  *  the ServiceCandidate Watchers
  */
 #[derive(Debug, Clone)]
-pub enum IdentityManagerProtocol<From: MaybeService, To: Service + HasCredentials> {
+pub enum IdentityManagerProtocol<From, To>
+where
+    From: MaybeService + Send + Sync,
+    To: Service + HasCredentials + Send + Sync,
+{
     /// Message used to request a new ServiceIdentity for ServiceCandidate
-    RequestServiceIdentity {
-        service_candidate: From,
-    },
+    RequestServiceIdentity(From),
     DeleteServiceIdentity(To),
     FoundServiceCandidate(From),
     DeletedServiceCandidate(From),
@@ -128,7 +127,7 @@ pub enum IdentityManagerProtocol<From: MaybeService, To: Service + HasCredential
     IdentityManagerDebug(String),
     // service_user, service_ns, service_name
     ActivatedServiceUser(ServiceUser, String, String),
-    ReleaseDeviceId(String, Uuid),
+    ReleaseDeviceId(ServiceLookup, Uuid),
 }
 
 pub enum IdentityMessageResponse {
@@ -138,12 +137,12 @@ pub enum IdentityMessageResponse {
 }
 
 #[derive(Default)]
-struct IdentityManagerPool {
+pub struct IdentityManagerServiceCredentialsProvider {
     pool: VecDeque<ServiceUser>,
     services: HashMap<String, ServiceIdentity>,
 }
 
-impl ServiceUsersPool for IdentityManagerPool {
+impl ServiceUserPool for IdentityManagerServiceCredentialsProvider {
     fn pop(&mut self) -> Option<ServiceUser> {
         self.pool.pop_front()
     }
@@ -157,7 +156,7 @@ impl ServiceUsersPool for IdentityManagerPool {
     }
 }
 
-impl ServiceIdentityProvider for IdentityManagerPool {
+impl ServiceCredentialProvider for IdentityManagerServiceCredentialsProvider {
     type From = ServiceLookup;
     type To = ServiceIdentity;
 
@@ -213,60 +212,100 @@ impl ServiceIdentityProvider for IdentityManagerPool {
     }
 }
 
+/*
 #[sdp_proc_macros::identity_provider()]
 #[derive(sdp_proc_macros::IdentityProvider)]
 #[IdentityProvider(From = "ServiceLookup", To = "ServiceIdentity")]
 pub struct KubeIdentityManager {
     service_identity_api: Api<ServiceIdentity>,
+    identity_creator_queue: Sender<IdentityCreatorProtocol>
+}
+*/
+
+type IdentityCreatorProtocolSender = Sender<IdentityCreatorProtocol>;
+type IdentityManagerProtocolReceiver =
+    Receiver<IdentityManagerProtocol<ServiceCandidate, ServiceIdentity>>;
+type IdentityManagerProtocolSender =
+    Sender<IdentityManagerProtocol<ServiceCandidate, ServiceIdentity>>;
+type ServiceCandidateWatcherProtocolSender = BroadcastSender<ServiceCandidateWatcherProtocol>;
+
+pub struct IdentityManager<'a> {
+    service_identity_api: Api<ServiceIdentity>,
+    // queue used
+    identity_creator_queue: IdentityCreatorProtocolSender,
+    identity_manager_rx: IdentityManagerProtocolReceiver,
+    identity_manager_tx: IdentityManagerProtocolSender,
+    cluster_id: String,
+    service_credentials_provider: IdentityManagerServiceCredentialsProvider,
+    service_candidate_watcher_proto_tx: ServiceCandidateWatcherProtocolSender,
+    external_queue_tx: Option<&'a IdentityManagerProtocolSender>,
+    existing_service_candidates: HashSet<String>,
+    missing_service_candidates: HashMap<String, ServiceCandidate>,
+    existing_activated_credentials: HashSet<String>,
+    existing_deactivated_credentials: HashSet<String>,
+    identity_creator_ready: bool,
+    deployment_watchers_ready: u8,
+}
+
+impl<'a> IdentityManager<'a> {
+    pub fn new(
+        client: Client,
+        identity_manager_rx: IdentityManagerProtocolReceiver,
+        identity_manager_tx: IdentityManagerProtocolSender,
+        service_candidate_watcher_proto_tx: ServiceCandidateWatcherProtocolSender,
+        identity_creator_queue: IdentityCreatorProtocolSender,
+        external_queue_tx: Option<&'a IdentityManagerProtocolSender>,
+    ) -> Self {
+        let cluster_id = std::env::var(SDP_CLUSTER_ID_ENV);
+        if cluster_id.is_err() {
+            panic!("Unable to get cluster ID from SDP_CLUSTER_ID environment variable");
+        }
+        IdentityManager {
+            service_identity_api: Api::namespaced(client, SDP_K8S_NAMESPACE),
+            identity_creator_queue,
+            service_candidate_watcher_proto_tx,
+            identity_manager_rx,
+            external_queue_tx,
+            identity_manager_tx,
+            cluster_id: cluster_id.unwrap(),
+            service_credentials_provider: IdentityManagerServiceCredentialsProvider::default(),
+            existing_service_candidates: HashSet::default(),
+            existing_activated_credentials: HashSet::default(),
+            missing_service_candidates: HashMap::default(),
+            existing_deactivated_credentials: HashSet::default(),
+            identity_creator_ready: false,
+            deployment_watchers_ready: 0,
+        }
+    }
 }
 
 #[async_trait]
-impl ServiceIdentityAPI for KubeIdentityManager {
-    async fn create<'a>(
-        &'a self,
+impl<'a> ServiceIdentityAPI<'a> for IdentityManager<'a> {
+    async fn create(
+        &self,
         identity: &'a ServiceIdentity,
     ) -> Result<ServiceIdentity, IdentityServiceError> {
         let service_id = identity.service_id();
-        match self
-            .service_identity_api
-            .get_opt(&service_id)
-            .await
-            .map_err(IdentityServiceError::from)
-        {
-            Ok(None) => {
-                info!(
-                    "[{}] ServiceIdentity {} does not exist, creating it.",
-                    service_id, service_id
-                );
-                Some(
-                    self.service_identity_api
-                        .create(&PostParams::default(), identity)
-                        .await
-                        .map_err(IdentityServiceError::from),
-                )
+        match self.service_identity_api.get_opt(&service_id).await? {
+            None => {
+                let service_identity = self
+                    .service_identity_api
+                    .create(&PostParams::default(), identity)
+                    .await?;
+                Ok(service_identity)
             }
-            Ok(_) => {
-                info!(
+            Some(service_identity) => {
+                warn!(
                     "[{}] ServiceIdentity {} already exists.",
                     service_id, service_id
                 );
-                Some(Ok(identity.clone()))
-            }
-            Err(e) => {
-                error!(
-                    "[{}] Error checking if service identity {} exists.",
-                    service_id, service_id
-                );
-                Some(Err(e))
+                Ok(service_identity)
             }
         }
-        .unwrap_or(Err(IdentityServiceError::from(
-            "ServiceIdentity is not a service".to_string(),
-        )))
     }
 
-    async fn update<'a>(
-        &'a self,
+    async fn update(
+        &self,
         identity: &'a ServiceIdentity,
     ) -> Result<ServiceIdentity, IdentityServiceError> {
         if let Some(mut obj) = self
@@ -288,15 +327,30 @@ impl ServiceIdentityAPI for KubeIdentityManager {
         }
     }
 
-    async fn delete<'a>(&'a self, identity_name: &'a str) -> Result<(), IdentityServiceError> {
-        self.service_identity_api
-            .delete(identity_name, &DeleteParams::default())
+    async fn delete(&self, identity: &'a ServiceIdentity) -> Result<(), IdentityServiceError> {
+        let _ = self
+            .service_identity_api
+            .delete(&identity.name(), &DeleteParams::default())
+            .await?;
+        // Ask IdentityCreator to remove the IdentityCredential
+        info!(
+            "[{}] Asking for deletion of IdentityCredential {} from SDP system",
+            identity.service_id(),
+            identity.credentials().name
+        );
+        let _ = self
+            .identity_creator_queue
+            .send(IdentityCreatorProtocol::DeleteServiceUser(
+                identity.credentials().clone(),
+                identity.namespace(),
+                identity.name(),
+            ))
             .await
-            .map(|_| ())
-            .map_err(IdentityServiceError::from)
+            .map_err(|error| IdentityServiceError::from(error.to_string()));
+        Ok(())
     }
 
-    async fn list<'a>(&'a self) -> Result<Vec<ServiceIdentity>, IdentityServiceError> {
+    async fn list(&self) -> Result<Vec<ServiceIdentity>, IdentityServiceError> {
         self.service_identity_api
             .list(&ListParams::default())
             .await
@@ -305,14 +359,495 @@ impl ServiceIdentityAPI for KubeIdentityManager {
     }
 }
 
-trait IdentityManager<From: MaybeService + Send + Sync, To: Service + HasCredentials + Send + Sync>:
-    ServiceIdentityAPI + ServiceIdentityProvider<From = ServiceLookup, To = To> + ServiceUsersPool
+#[async_trait]
+pub trait IdentityManagerService<From, To>
+where
+    From: MaybeService + Send + Sync,
+    To: Service + HasCredentials + Send + Sync,
 {
+    async fn delete_service_identity(&mut self, service_identity: To);
+
+    async fn request_service_identity(&mut self, service_lookup: From);
+
+    async fn found_service_candidate(&mut self, service_lookup: From);
+
+    async fn found_service_user(&mut self, service_user: ServiceUser, activated: bool);
+
+    async fn activated_service_user(
+        &mut self,
+        service_user: ServiceUser,
+        service_ns: String,
+        service_nane: String,
+    );
+
+    async fn identity_creator_ready(&mut self);
+
+    async fn deployment_watcher_ready(&mut self);
+
+    async fn identity_manager_ready(&mut self);
+
+    async fn deleted_service_candidate(&mut self, service_lookup: From);
+
+    async fn release_device_id(&mut self, service_lookup: ServiceLookup, uuid: Uuid);
+
+    async fn initialize(&mut self) -> ();
+
+    async fn get_message(&mut self) -> Option<IdentityManagerProtocol<From, To>>;
+
+    async fn run(&mut self) {
+        info!("Starting Identity Manager service");
+        self.initialize().await;
+
+        while let Some(msg) = self.get_message().await {
+            match msg {
+                IdentityManagerProtocol::DeleteServiceIdentity(service_identity) => {
+                    self.delete_service_identity(service_identity).await;
+                }
+                IdentityManagerProtocol::RequestServiceIdentity(service_lookup) => {
+                    self.request_service_identity(service_lookup).await;
+                }
+                IdentityManagerProtocol::FoundServiceCandidate(service_lookup) => {
+                    self.found_service_candidate(service_lookup).await;
+                }
+                IdentityManagerProtocol::FoundServiceUser(service_user, activated) => {
+                    self.found_service_user(service_user, activated).await;
+                }
+                IdentityManagerProtocol::ActivatedServiceUser(
+                    service_user,
+                    service_ns,
+                    service_name,
+                ) => {
+                    self.activated_service_user(service_user, service_ns, service_name)
+                        .await;
+                }
+                IdentityManagerProtocol::IdentityCreatorReady => {
+                    self.identity_creator_ready().await;
+                }
+                IdentityManagerProtocol::DeploymentWatcherReady => {
+                    self.deployment_watcher_ready().await;
+                }
+                IdentityManagerProtocol::IdentityManagerReady => {
+                    self.identity_manager_ready().await;
+                }
+                IdentityManagerProtocol::DeletedServiceCandidate(service_lookup) => {
+                    self.deleted_service_candidate(service_lookup).await;
+                }
+                IdentityManagerProtocol::ReleaseDeviceId(service_lookup, uuid) => {
+                    self.release_device_id(service_lookup, uuid).await;
+                }
+                _ => {}
+            }
+        }
+    }
 }
 
-pub struct IdentityManagerRunner<From: MaybeService + Send, To: Service + HasCredentials + Send> {
-    im: Box<dyn IdentityManager<From, To> + Send + Sync>,
-    cluster_id: String,
+#[async_trait]
+impl<'a> IdentityManagerService<ServiceCandidate, ServiceIdentity> for IdentityManager<'a> {
+    async fn get_message(
+        &mut self,
+    ) -> Option<IdentityManagerProtocol<ServiceCandidate, ServiceIdentity>> {
+        self.identity_manager_rx.recv().await
+    }
+
+    async fn initialize(&mut self) -> () {
+        info!("Initializing Identity Manager service");
+        match self.list().await {
+            Ok(xs) => {
+                info!("Restoring previous Service Identity instances");
+                for x in xs {
+                    info!(
+                        "[{}] Restoring Service Identity {}",
+                        x.service_id(),
+                        x.service_id()
+                    );
+                    self.service_credentials_provider
+                        .register_identity(x.clone());
+                }
+            }
+            Err(err) => {
+                panic!("Error fetching list of current ServiceIdentity: {}", err);
+            }
+        }
+
+        queue_info! {
+            IdentityManagerProtocol::<ServiceCandidate, ServiceIdentity>::IdentityManagerInitialized => self.external_queue_tx
+        };
+
+        // Ask Identity Creator to awake
+        if let Err(err) = self
+            .identity_creator_queue
+            .send(IdentityCreatorProtocol::StartService)
+            .await
+        {
+            error!(
+                "Error sending StartService message to Identity Creator: {}",
+                err
+            );
+            panic!();
+        }
+    }
+
+    async fn delete_service_identity(&mut self, service_identity: ServiceIdentity) {
+        let service_id = service_identity.service_id();
+        let _service_name = service_identity.service_name();
+        info!(
+            "[{}] Deleting ServiceIdentity with id {}",
+            service_id, service_id
+        );
+        if let Err(err) = self.delete(&service_identity).await {
+            error!(IdentityManagerProtocol::<ServiceCandidate, ServiceIdentity>::IdentityManagerDebug |(
+                "[{}] Error deleting ServiceIdentity for service {}: {}",
+                service_id, service_id,
+                err
+            ) => self.external_queue_tx);
+        } else {
+            info!(
+                "[{}] Unregistering ServiceIdentity with id {}",
+                service_id, service_id
+            );
+
+            // Unregister the identity
+            if let Some(s) = self
+                .service_credentials_provider
+                .unregister_identity(&service_identity)
+            {
+                info!(IdentityManagerProtocol::<ServiceCandidate, ServiceIdentity>::IdentityManagerDebug |
+                    ("[{}] ServiceIdentity with id {} unregistered", s.service_id(), s.service_id()) => self.external_queue_tx);
+            } else {
+                warn!(IdentityManagerProtocol::<ServiceCandidate, ServiceIdentity>::IdentityManagerDebug |
+                    ("[{}] ServiceIdentity with id {} was not registered", service_id, service_id) => self.external_queue_tx);
+            }
+        }
+    }
+
+    async fn request_service_identity(&mut self, service_candidate: ServiceCandidate) {
+        when_ok!((service_id = service_candidate.service_id()) {
+            info!(IdentityManagerProtocol::<ServiceCandidate, ServiceIdentity>::IdentityManagerDebug |(
+                "[{}] New ServiceIdentity requested for ServiceCandidate {}",
+                service_id, service_id
+            ) => self.external_queue_tx);
+            let a = ServiceLookup::try_from_service(&service_candidate).expect("Unable to convert service");
+            match self.service_credentials_provider.next_identity(&a) {
+                Some((service_identity, true)) => match self.create(&service_identity).await {
+                    Ok(service_identity) => {
+                        info!(IdentityManagerProtocol::<ServiceCandidate, ServiceIdentity>::IdentityManagerDebug |(
+                            "[{}] ServiceIdentity created for service {}",
+                            service_id, service_id
+                        ) => self.external_queue_tx);
+
+                        if self.service_credentials_provider.needs_new_credentials() {
+                            info!("[{}] Requesting new UserCredentials to add to the pool", service_id);
+                            if let Err(err) = self.identity_creator_queue
+                                .send(IdentityCreatorProtocol::CreateIdentity)
+                                .await
+                            {
+                                error!(IdentityManagerProtocol::<ServiceCandidate, ServiceIdentity>::IdentityManagerDebug |(
+                                    "[{}] Error when sending IdentityCreatorMessage::CreateIdentity: {}",
+                                    service_id, err
+                                ) => self.external_queue_tx);
+                            }
+                        }
+                        if let Err(err) = self.identity_creator_queue
+                            .send(IdentityCreatorProtocol::ActivateServiceUser(
+                                service_identity.credentials().clone(),
+                                self.cluster_id.clone(),
+                                service_identity.namespace(),
+                                service_identity.name(),
+                                service_candidate.labels().unwrap(),
+                            ))
+                            .await
+                        {
+                            error!("[{}] Error activating ServiceUser for service {}: {}",
+                            service_identity.service_id(), service_identity.service_id(), err);
+                        }
+                    }
+                    Err(err) => {
+                        error!(IdentityManagerProtocol::<ServiceCandidate, ServiceIdentity>::IdentityManagerDebug |(
+                            "[{}] Error creating ServiceIdentity for service with id {}: {}",
+                            service_id, service_id, err
+                    ) => self.external_queue_tx);
+                    }
+                },
+                Some((_, false)) => {
+                    info!(IdentityManagerProtocol::<ServiceCandidate, ServiceIdentity>::IdentityManagerDebug |(
+                        "[{}] ServiceIdentity already exists for service {}",
+                        service_id, service_id
+                    ) => self.external_queue_tx);
+                }
+                None => {
+                    error!(IdentityManagerProtocol::<ServiceCandidate, ServiceIdentity>::IdentityManagerDebug |(
+                        "[{}] Unable to assign service identity for service {}. Identities pool seems to be empty!",
+                        service_id, service_id
+                        ) => self.external_queue_tx);
+                }
+            }
+        });
+    }
+
+    async fn found_service_candidate(&mut self, service_candidate: ServiceCandidate) {
+        when_ok!((candidate_service_id = service_candidate.service_id()) {
+            let service_lookup = ServiceLookup::try_from_service(&service_candidate).unwrap();
+            if let Some(service_identity) = self.service_credentials_provider.identity(&service_lookup) {
+                info!(IdentityManagerProtocol::<ServiceCandidate, ServiceIdentity>::IdentityManagerDebug |(
+                    "[{}] Found registered ServiceCandidate {}",
+                    service_identity.service_id(), service_identity.service_id()
+                ) => self.external_queue_tx);
+                self.existing_service_candidates.insert(candidate_service_id.clone());
+            } else {
+                    info!(IdentityManagerProtocol::<ServiceCandidate, ServiceIdentity>::IdentityManagerDebug |(
+                        "[{}] Found unregistered ServiceCandidate {}",
+                        candidate_service_id, candidate_service_id
+                    ) => self.external_queue_tx);
+                    self.missing_service_candidates.insert(candidate_service_id, service_candidate);
+                }
+        });
+    }
+
+    async fn found_service_user(&mut self, service_user: ServiceUser, activated: bool) {
+        if activated {
+            info!(IdentityManagerProtocol::<ServiceCandidate, ServiceIdentity>::IdentityManagerDebug | ("Found deactivated ServiceUser {} (id: {})", service_user.name, service_user.id) => self.external_queue_tx);
+            self.existing_deactivated_credentials
+                .insert(service_user.id.clone());
+            self.service_credentials_provider.push(service_user);
+        } else {
+            self.existing_activated_credentials
+                .insert(service_user.id.clone());
+            info!(IdentityManagerProtocol::<ServiceCandidate, ServiceIdentity>::IdentityManagerDebug |(
+                "Found activated ServiceUser {} (id: {})",
+                service_user.name,
+                service_user.id
+            ) => self.external_queue_tx);
+        }
+    }
+
+    async fn activated_service_user(
+        &mut self,
+        service_user: ServiceUser,
+        service_ns: String,
+        service_name: String,
+    ) {
+        info!(
+            "[{}] ServiceUser {} (id: {}) has been activated, updating ServiceIdentity",
+            format!("{}_{}", service_ns, service_name),
+            &service_user.name,
+            &service_user.id
+        );
+        if let Some(service_identity) = self
+            .service_credentials_provider
+            .identity(&ServiceLookup::new(&service_ns, &service_name, None))
+        {
+            let mut new_service_identity = service_identity.clone();
+            let new_user_name = service_user.name.clone();
+            let user_id = service_user.id.clone();
+            new_service_identity.spec.service_user = service_user;
+            if let Err(e) = self.update(&new_service_identity).await {
+                error!("[{}] Error updating ServiceIdentity [{}/{}] after activating ServiceUser {} (id: {}): {}",
+                        service_identity.name(), &service_ns, &service_name, &new_user_name, &user_id, e);
+            }
+            self.service_credentials_provider
+                .register_identity(new_service_identity);
+        }
+    }
+
+    async fn identity_creator_ready(&mut self) {
+        info!("IdentityCreator is ready");
+        self.identity_creator_ready = true;
+        if self.deployment_watchers_ready == N_WATCHERS {
+            info!("IdentityManager is ready");
+            if let Err(e) = self
+                .identity_manager_tx
+                .send(IdentityManagerProtocol::IdentityManagerReady)
+                .await
+            {
+                let err_str = format!(
+                    "Unable to create deployment watcher: {}. Exiting.",
+                    e.to_string()
+                );
+                error!("{}", err_str);
+                panic!("{}", err_str);
+            }
+        }
+    }
+
+    async fn deployment_watcher_ready(&mut self) {
+        info!("DeploymentWatcher is ready");
+        self.deployment_watchers_ready += 1;
+        if self.deployment_watchers_ready == N_WATCHERS && self.identity_creator_ready {
+            if let Err(e) = self
+                .identity_manager_tx
+                .send(IdentityManagerProtocol::IdentityManagerReady)
+                .await
+            {
+                let err_str = format!(
+                    "Unable to create deployment watcher: {}. Exiting.",
+                    e.to_string()
+                );
+                error!("{}", err_str);
+                panic!("{}", err_str);
+            }
+        }
+    }
+
+    async fn identity_manager_ready(&mut self) {
+        let mut removed_service_identities: HashSet<String> = HashSet::new();
+        info!("IdentityManager is ready");
+
+        info!(IdentityManagerProtocol::<ServiceCandidate, ServiceIdentity>::IdentityManagerDebug |("Syncing UserCredentials") => self.external_queue_tx);
+
+        // Here we do a basic cleanup of the current state
+        // 1. First we ask for deletion for all the ServiceIdentity instances that don't have a known
+        //    ServiceCandidate. This will eventually remove the ServiceUser associated
+        // 2. Now we remove all the known active ServiceUser instances that don't belong to any ServiceIdentity
+        // 3. Finally we delete any ServiceIdentity instance that does not have a ServiceUser activated
+
+        info!(IdentityManagerProtocol::<ServiceCandidate, ServiceIdentity>::IdentityManagerDebug |("Syncing ServiceIdentity instances") => self.external_queue_tx);
+
+        // 1. Delete IdentityService instances with unknown ServiceCandidate
+        info!("Searching for ServiceIdentities with unknown ServiceCandidate");
+        for service_identity in self
+            .service_credentials_provider
+            .extra_service_identities(&self.existing_service_candidates)
+        {
+            let service_id = service_identity.service_id();
+            info!(
+                "[{}] Found ServiceIdentity {} with unknown ServiceCandidate. Deleting it.",
+                service_id, service_id
+            );
+            if let Err(e) = self
+                .identity_manager_tx
+                .send(IdentityManagerProtocol::DeleteServiceIdentity(
+                    service_identity.clone(),
+                ))
+                .await
+            {
+                error!(
+                    "[{}] Error deleting ServiceIdentity {} with unknown ServiceCandidate: {}",
+                    service_id,
+                    service_id,
+                    e.to_string()
+                );
+            } else {
+                // Make sure we dont try to delete it twice!
+                removed_service_identities.insert(service_id.clone());
+            }
+        }
+
+        // 2. Delete ServiceUser instances that don't belong to any ServiceIdentity
+        info!("Searching for orphaned ServiceUsers");
+        for sdp_user_name in self
+            .service_credentials_provider
+            .orphan_service_users(&self.existing_activated_credentials)
+        {
+            info!(
+                "SDPUser {} is active but not used by any ServiceIdentity, deleting it",
+                sdp_user_name
+            );
+            self.identity_creator_queue
+                .send(IdentityCreatorProtocol::DeleteSDPUser(sdp_user_name))
+                .await
+                .expect("Error deleting orphaned SDPUser");
+        }
+
+        // 3. Delete IdentityService instances holding not active credentials
+        info!("Searching for orphaned ServiceIdentities");
+        for service_identity in self
+            .service_credentials_provider
+            .orphan_service_identities(&self.existing_activated_credentials)
+        {
+            let service_id = service_identity.service_id();
+            if !removed_service_identities.contains(&service_id) {
+                info!(
+                    "[{}] ServiceIdentity {} has deactivated ServiceUser. Deleting it.",
+                    service_id, service_id
+                );
+                if let Err(e) = self
+                    .identity_manager_tx
+                    .send(IdentityManagerProtocol::DeleteServiceIdentity(
+                        service_identity.clone(),
+                    ))
+                    .await
+                {
+                    error!(
+                        "[{}] Error requesting deleting of ServiceIdentity {}: {}",
+                        service_id,
+                        service_id,
+                        e.to_string()
+                    );
+                } else {
+                    // Make sure we dont try to delete it twice!
+                    removed_service_identities.insert(service_id.clone());
+                }
+            }
+        }
+
+        for (service_candidate_id, service_candidate) in &self.missing_service_candidates {
+            info!(
+                "[{}] Requesting missing ServiceCandidate {}",
+                service_candidate_id, service_candidate_id
+            );
+            self.identity_manager_tx
+                .send(IdentityManagerProtocol::RequestServiceIdentity(
+                    service_candidate.clone(),
+                ))
+                .await
+                .expect("Error requesting new ServiceIdentity");
+        }
+
+        // Notify the ServiceCandidate watchers that we are ready to process process for new service candidates..
+        self.service_candidate_watcher_proto_tx
+            .send(ServiceCandidateWatcherProtocol::IdentityManagerReady)
+            .expect("Unable to notify DeploymentWatcher!");
+    }
+
+    async fn deleted_service_candidate(&mut self, service_candidate: ServiceCandidate) {
+        when_ok!((candidate_service_id = service_candidate.service_id()) {
+            let service_lookup = ServiceLookup::try_from_service(&service_candidate).unwrap();
+            match self.service_credentials_provider.identity(&service_lookup) {
+                Some(identity_service) => {
+                    if let Err(e) = self.identity_manager_tx
+                        .send(IdentityManagerProtocol::DeleteServiceIdentity(
+                            identity_service.clone(),
+                        ))
+                        .await
+                    {
+                        // TODO: We should retry later
+                        error!(
+                            "[{}] Unable to queue message to delete ServiceIdentity {}: {}",
+                            identity_service.service_id(),
+                            identity_service.service_id(),
+                            e.to_string()
+                        );
+                    };
+                }
+                None => {
+                    error!("[{}] Deleted ServiceCandidate {} has not IdentityService attached, ignoring!",
+                        candidate_service_id, candidate_service_id);
+                }
+            }
+        });
+    }
+    async fn release_device_id(&mut self, service_lookup: ServiceLookup, _uuid: Uuid) {
+        // We release the device id here
+        // To release the device id:
+        //    call controller API to release it
+        //    update ServiceIdentity to add it to the list of device ids
+        if let Some(servive_identity) = self.service_credentials_provider.identity(&service_lookup)
+        {
+            let _ = self.update(servive_identity).await;
+        }
+        /*
+            if let Err(err) = identity_creator_tx
+            .send(IdentityCreatorProtocol::CreateIdentity)
+            .await
+        {
+            error!(IdentityManagerProtocol::<F, ServiceIdentity>::IdentityManagerDebug |(
+                "[{}] Error when sending IdentityCreatorMessage::CreateIdentity: {}",
+                service_id, err
+            ) => external_queue_tx);
+        }
+        };
+        */
+    }
 }
 
 /// Load all the current ServiceIdentity
@@ -327,475 +862,6 @@ pub struct IdentityManagerRunner<From: MaybeService + Send, To: Service + HasCre
 /// - IM asks DW to start
 /// - DW sends the list of all CandidateServices (Deployments)
 /// - IM creates ServiceIdentity for those CandidateServices that need it and dont have one.
-impl IdentityManagerRunner<ServiceLookup, ServiceIdentity> {
-    pub fn kube_runner(client: Client) -> IdentityManagerRunner<ServiceLookup, ServiceIdentity> {
-        let cluster_id = std::env::var(SDP_CLUSTER_ID_ENV);
-        if cluster_id.is_err() {
-            panic!("Unable to get cluster ID from SDP_CLUSTER_ID environment variable");
-        }
-        let service_identity_api: Api<ServiceIdentity> = Api::namespaced(client, SDP_K8S_NAMESPACE);
-        IdentityManagerRunner {
-            im: Box::new(KubeIdentityManager {
-                pool: IdentityManagerPool {
-                    pool: VecDeque::with_capacity(30),
-                    services: HashMap::new(),
-                },
-                service_identity_api,
-            }),
-            cluster_id: cluster_id.unwrap(),
-        }
-    }
-
-    async fn run_identity_manager<F: MaybeService + Labeled + Clone + fmt::Debug + Send>(
-        im: &mut Box<dyn IdentityManager<ServiceLookup, ServiceIdentity> + Send + Sync>,
-        cluster_id: String,
-        mut identity_manager_rx: Receiver<IdentityManagerProtocol<F, ServiceIdentity>>,
-        identity_manager_tx: Sender<IdentityManagerProtocol<F, ServiceIdentity>>,
-        identity_creator_tx: Sender<IdentityCreatorProtocol>,
-        service_candidate_watcher_proto_tx: BroadcastSender<ServiceCandidateWatcherProtocol>,
-        external_queue_tx: Option<&Sender<IdentityManagerProtocol<F, ServiceIdentity>>>,
-    ) -> () {
-        info!("Starting Identity Manager");
-        let mut deployment_watchers_ready: u8 = 0;
-        let mut identity_creator_ready = false;
-        let mut existing_service_candidates: HashSet<String> = HashSet::new();
-        let mut missing_service_candidates: HashMap<String, F> = HashMap::new();
-        let mut existing_activated_credentials: HashSet<String> = HashSet::new();
-        let mut existing_deactivated_credentials: HashSet<String> = HashSet::new();
-
-        queue_info! {
-            IdentityManagerProtocol::<F, ServiceIdentity>::IdentityManagerStarted => external_queue_tx
-        };
-
-        while let Some(msg) = identity_manager_rx.recv().await {
-            match msg {
-                IdentityManagerProtocol::DeleteServiceIdentity(service_identity) => {
-                    let service_id = service_identity.service_id();
-                    let service_name = service_identity.service_name();
-                    info!(
-                        "[{}] Deleting ServiceIdentity with id {}",
-                        service_id, service_id
-                    );
-                    match im.delete(&service_name).await {
-                        Ok(_) => {
-                            info!(
-                                "[{}] Unregistering ServiceIdentity with id {}",
-                                service_id, service_id
-                            );
-
-                            // Unregister the identity
-                            if let Some(s) = im.unregister_identity(&service_identity) {
-                                info!(IdentityManagerProtocol::<F, ServiceIdentity>::IdentityManagerDebug |
-                                    ("[{}] ServiceIdentity with id {} unregistered", s.service_id(), s.service_id()) => external_queue_tx);
-                            } else {
-                                warn!(IdentityManagerProtocol::<F, ServiceIdentity>::IdentityManagerDebug |
-                                    ("[{}] ServiceIdentity with id {} was not registered", service_id, service_id) => external_queue_tx);
-                            }
-
-                            // Ask IdentityCreator to remove the IdentityCredential
-                            info!(
-                                "[{}] Asking for deletion of IdentityCredential {} from SDP system",
-                                service_id,
-                                service_identity.credentials().name
-                            );
-                            if let Err(err) = identity_creator_tx
-                                .send(IdentityCreatorProtocol::DeleteServiceUser(
-                                    service_identity.credentials().clone(),
-                                    service_identity.namespace(),
-                                    service_identity.name(),
-                                ))
-                                .await
-                            {
-                                error!(IdentityManagerProtocol::<F, ServiceIdentity>::IdentityManagerDebug |(
-                                    "[{}] Error when sending event to delete IdentityCredential: {}", service_id, err
-                                ) => external_queue_tx);
-                            }
-                        }
-                        Err(err) => {
-                            error!(IdentityManagerProtocol::<F, ServiceIdentity>::IdentityManagerDebug |(
-                                "[{}] Error deleting ServiceIdentity for service {}: {}",
-                                service_id, service_id,
-                                err
-                            ) => external_queue_tx);
-                        }
-                    }
-                }
-                IdentityManagerProtocol::RequestServiceIdentity { service_candidate } => {
-                    when_ok!((service_id = service_candidate.service_id()) {
-                        info!(IdentityManagerProtocol::<F, ServiceIdentity>::IdentityManagerDebug |(
-                            "[{}] New ServiceIdentity requested for ServiceCandidate {}",
-                            service_id, service_id
-                        ) => external_queue_tx);
-                        let a = ServiceLookup::try_from_service(&service_candidate).expect("Unable to convert service");
-                        match im.next_identity(&a) {
-                            Some((service_identity, true)) => match im.create(&service_identity).await {
-                                Ok(service_identity) => {
-                                    info!(IdentityManagerProtocol::<F, ServiceIdentity>::IdentityManagerDebug |(
-                                        "[{}] ServiceIdentity created for service {}",
-                                        service_id, service_id
-                                    ) => external_queue_tx);
-
-                                    if im.needs_new_credentials() {
-                                        info!("[{}] Requesting new UserCredentials to add to the pool", service_id);
-                                        if let Err(err) = identity_creator_tx
-                                            .send(IdentityCreatorProtocol::CreateIdentity)
-                                            .await
-                                        {
-                                            error!(IdentityManagerProtocol::<F, ServiceIdentity>::IdentityManagerDebug |(
-                                                "[{}] Error when sending IdentityCreatorMessage::CreateIdentity: {}",
-                                                service_id, err
-                                            ) => external_queue_tx);
-                                        }
-                                    }
-                                    if let Err(err) = identity_creator_tx
-                                        .send(IdentityCreatorProtocol::ActivateServiceUser(
-                                            service_identity.credentials().clone(),
-                                            cluster_id.clone(),
-                                            service_identity.namespace(),
-                                            service_identity.name(),
-                                            service_candidate.labels().unwrap(),
-                                        ))
-                                        .await
-                                    {
-                                        error!("[{}] Error activating ServiceUser for service {}: {}",
-                                        service_identity.service_id(), service_identity.service_id(), err);
-                                    }
-                                }
-                                Err(err) => {
-                                    error!(IdentityManagerProtocol::<F, ServiceIdentity>::IdentityManagerDebug |(
-                                        "[{}] Error creating ServiceIdentity for service with id {}: {}",
-                                        service_id, service_id, err
-                                ) => external_queue_tx);
-                                }
-                            },
-                            Some((_, false)) => {
-                                info!(IdentityManagerProtocol::<F, ServiceIdentity>::IdentityManagerDebug |(
-                                    "[{}] ServiceIdentity already exists for service {}",
-                                    service_id, service_id
-                                ) => external_queue_tx);
-                            }
-                            None => {
-                                error!(IdentityManagerProtocol::<F, ServiceIdentity>::IdentityManagerDebug |(
-                                    "[{}] Unable to assign service identity for service {}. Identities pool seems to be empty!",
-                                    service_id, service_id
-                                    ) => external_queue_tx);
-                            }
-                        }
-                    });
-                }
-                IdentityManagerProtocol::FoundServiceCandidate(service_candidate) => {
-                    when_ok!((candidate_service_id = service_candidate.service_id()) {
-                        let service_lookup = ServiceLookup::try_from_service(&service_candidate).unwrap();
-                        if let Some(service_identity) = im.identity(&service_lookup) {
-                            info!(IdentityManagerProtocol::<F, ServiceIdentity>::IdentityManagerDebug |(
-                                "[{}] Found registered ServiceCandidate {}",
-                                service_identity.service_id(), service_identity.service_id()
-                            ) => external_queue_tx);
-                            existing_service_candidates.insert(candidate_service_id.clone());
-                        } else {
-                                info!(IdentityManagerProtocol::<F, ServiceIdentity>::IdentityManagerDebug |(
-                                    "[{}] Found unregistered ServiceCandidate {}",
-                                    candidate_service_id, candidate_service_id
-                                ) => external_queue_tx);
-                                missing_service_candidates.insert(candidate_service_id, service_candidate);
-                            }
-                    });
-                }
-                // IdentityCreator notifies about fresh, unactivated User Credentials
-                IdentityManagerProtocol::FoundServiceUser(service_user, activated)
-                    if !activated =>
-                {
-                    info!(IdentityManagerProtocol::<F, ServiceIdentity>::IdentityManagerDebug | ("Found deactivated ServiceUser {} (id: {})", service_user.name, service_user.id) => external_queue_tx);
-                    existing_deactivated_credentials.insert(service_user.id.clone());
-                    im.push(service_user);
-                }
-                // IdentityCreator notifies about already activated UserCredentials
-                IdentityManagerProtocol::FoundServiceUser(service_user, activated) if activated => {
-                    existing_activated_credentials.insert(service_user.id.clone());
-                    info!(IdentityManagerProtocol::<F, ServiceIdentity>::IdentityManagerDebug |(
-                        "Found activated ServiceUser {} (id: {})",
-                        service_user.name,
-                        service_user.id
-                    ) => external_queue_tx);
-                }
-                // Identity Creator notifies about already activated User Credentials
-                IdentityManagerProtocol::ActivatedServiceUser(
-                    service_user,
-                    service_ns,
-                    service_name,
-                ) => {
-                    info!(
-                        "[{}] ServiceUser {} (id: {}) has been activated, updating ServiceIdentity",
-                        format!("{}_{}", service_ns, service_name),
-                        &service_user.name,
-                        &service_user.id
-                    );
-                    if let Some(service_identity) =
-                        im.identity(&ServiceLookup::new(&service_ns, &service_name, None))
-                    {
-                        let mut new_service_identity = service_identity.clone();
-                        let new_user_name = service_user.name.clone();
-                        let user_id = service_user.id.clone();
-                        new_service_identity.spec.service_user = service_user;
-                        if let Err(e) = im.update(&new_service_identity).await {
-                            error!("[{}] Error updating ServiceIdentity [{}/{}] after activating ServiceUser {} (id: {}): {}",
-                                    service_identity.name(), &service_ns, &service_name, &new_user_name, &user_id, e);
-                        }
-                        im.register_identity(new_service_identity);
-                    }
-                }
-                // IdentityCreator is ready after this event
-                IdentityManagerProtocol::IdentityCreatorReady => {
-                    info!("IdentityCreator is ready");
-                    identity_creator_ready = true;
-                    if deployment_watchers_ready == N_WATCHERS {
-                        info!("IdentityManager is ready");
-                        if let Err(e) = identity_manager_tx
-                            .send(IdentityManagerProtocol::IdentityManagerReady)
-                            .await
-                        {
-                            let err_str = format!(
-                                "Unable to create deployment watcher: {}. Exiting.",
-                                e.to_string()
-                            );
-                            error!("{}", err_str);
-                            panic!("{}", err_str);
-                        }
-                    }
-                }
-                // DeploymentWatcher is Rready after this
-                IdentityManagerProtocol::DeploymentWatcherReady => {
-                    info!("DeploymentWatcher is ready");
-                    deployment_watchers_ready += 1;
-                    if deployment_watchers_ready == N_WATCHERS && identity_creator_ready {
-                        if let Err(e) = identity_manager_tx
-                            .send(IdentityManagerProtocol::IdentityManagerReady)
-                            .await
-                        {
-                            let err_str = format!(
-                                "Unable to create deployment watcher: {}. Exiting.",
-                                e.to_string()
-                            );
-                            error!("{}", err_str);
-                            panic!("{}", err_str);
-                        }
-                    }
-                }
-
-                // Identity Creator finished the initialization
-                IdentityManagerProtocol::IdentityManagerReady => {
-                    let mut removed_service_identities: HashSet<String> = HashSet::new();
-                    info!("IdentityManager is ready");
-
-                    info!(IdentityManagerProtocol::<F, ServiceIdentity>::IdentityManagerDebug |("Syncing UserCredentials") => external_queue_tx);
-
-                    // Here we do a basic cleanup of the current state
-                    // 1. First we ask for deletion for all the ServiceIdentity instances that don't have a known
-                    //    ServiceCandidate. This will eventually remove the ServiceUser associated
-                    // 2. Now we remove all the known active ServiceUser instances that don't belong to any ServiceIdentity
-                    // 3. Finally we delete any ServiceIdentity instance that does not have a ServiceUser activated
-
-                    info!(IdentityManagerProtocol::<F, ServiceIdentity>::IdentityManagerDebug |("Syncing ServiceIdentity instances") => external_queue_tx);
-
-                    // 1. Delete IdentityService instances with unknown ServiceCandidate
-                    info!("Searching for ServiceIdentities with unknown ServiceCandidate");
-                    for service_identity in
-                        im.extra_service_identities(&existing_service_candidates)
-                    {
-                        let service_id = service_identity.service_id();
-                        info!(
-                            "[{}] Found ServiceIdentity {} with unknown ServiceCandidate. Deleting it.",
-                            service_id, service_id
-                        );
-                        if let Err(e) = identity_manager_tx
-                            .send(IdentityManagerProtocol::DeleteServiceIdentity(
-                                service_identity.clone(),
-                            ))
-                            .await
-                        {
-                            error!(
-                                "[{}] Error deleting ServiceIdentity {} with unknown ServiceCandidate: {}",
-                                service_id,
-                                service_id,
-                                e.to_string()
-                            );
-                        } else {
-                            // Make sure we dont try to delete it twice!
-                            removed_service_identities.insert(service_id.clone());
-                        }
-                    }
-
-                    // 2. Delete ServiceUser instances that don't belong to any ServiceIdentity
-                    info!("Searching for orphaned ServiceUsers");
-                    for sdp_user_name in im.orphan_service_users(&existing_activated_credentials) {
-                        info!(
-                            "SDPUser {} is active but not used by any ServiceIdentity, deleting it",
-                            sdp_user_name
-                        );
-                        identity_creator_tx
-                            .send(IdentityCreatorProtocol::DeleteSDPUser(sdp_user_name))
-                            .await
-                            .expect("Error deleting orphaned SDPUser");
-                    }
-
-                    // 3. Delete IdentityService instances holding not active credentials
-                    info!("Searching for orphaned ServiceIdentities");
-                    for service_identity in
-                        im.orphan_service_identities(&existing_activated_credentials)
-                    {
-                        let service_id = service_identity.service_id();
-                        if !removed_service_identities.contains(&service_id) {
-                            info!(
-                                "[{}] ServiceIdentity {} has deactivated ServiceUser. Deleting it.",
-                                service_id, service_id
-                            );
-                            if let Err(e) = identity_manager_tx
-                                .send(IdentityManagerProtocol::DeleteServiceIdentity(
-                                    service_identity.clone(),
-                                ))
-                                .await
-                            {
-                                error!(
-                                    "[{}] Error requesting deleting of ServiceIdentity {}: {}",
-                                    service_id,
-                                    service_id,
-                                    e.to_string()
-                                );
-                            } else {
-                                // Make sure we dont try to delete it twice!
-                                removed_service_identities.insert(service_id.clone());
-                            }
-                        }
-                    }
-
-                    for (service_candidate_id, service_candidate) in &missing_service_candidates {
-                        info!(
-                            "[{}] Requesting missing ServiceCandidate {}",
-                            service_candidate_id, service_candidate_id
-                        );
-                        identity_manager_tx
-                            .send(IdentityManagerProtocol::RequestServiceIdentity {
-                                service_candidate: service_candidate.clone(),
-                            })
-                            .await
-                            .expect("Error requesting new ServiceIdentity");
-                    }
-
-                    // Notify the ServiceCandidate watchers that we are ready to process process for new service candidates..
-                    service_candidate_watcher_proto_tx
-                        .send(ServiceCandidateWatcherProtocol::IdentityManagerReady)
-                        .expect("Unable to notify DeploymentWatcher!");
-                }
-                IdentityManagerProtocol::DeletedServiceCandidate(service_candidate) => {
-                    when_ok!((candidate_service_id = service_candidate.service_id()) {
-                        let service_lookup = ServiceLookup::try_from_service(&service_candidate).unwrap();
-                        match im.identity(&service_lookup) {
-                            Some(identity_service) => {
-                                if let Err(e) = identity_manager_tx
-                                    .send(IdentityManagerProtocol::DeleteServiceIdentity(
-                                        identity_service.clone(),
-                                    ))
-                                    .await
-                                {
-                                    // TODO: We should retry later
-                                    error!(
-                                        "[{}] Unable to queue message to delete ServiceIdentity {}: {}",
-                                        identity_service.service_id(),
-                                        identity_service.service_id(),
-                                        e.to_string()
-                                    );
-                                };
-                            }
-                            None => {
-                                error!("[{}] Deleted ServiceCandidate {} has not IdentityService attached, ignoring!",
-                                    candidate_service_id, candidate_service_id);
-                            }
-                        }
-                    });
-                }
-                IdentityManagerProtocol::ReleaseDeviceId(_device_id, _uuid) => {
-                    // We release the device id here
-                    // To release the device id:
-                    //    call controller API to release it
-                    //    update ServiceIdentity to add it to the list of device ids
-                    todo!()
-                }
-                _ => {}
-            }
-        }
-    }
-
-    async fn initialize<F: MaybeService + Labeled + Send>(
-        im: &mut Box<dyn IdentityManager<F, ServiceIdentity> + Send + Sync>,
-    ) -> () {
-        info!("Initializing Identity Manager service");
-        match im.list().await {
-            Ok(xs) => {
-                info!("Restoring previous Service Identity instances");
-                let _: u32 = xs
-                    .iter()
-                    .map(|s| {
-                        info!(
-                            "[{}] Restoring Service Identity {}",
-                            s.service_id(),
-                            s.service_id()
-                        );
-                        im.register_identity(s.clone());
-                        1
-                    })
-                    .sum();
-            }
-            Err(err) => {
-                panic!("Error fetching list of current ServiceIdentity: {}", err);
-            }
-        }
-    }
-
-    pub async fn run(
-        mut self,
-        identity_manager_proto_rx: Receiver<
-            IdentityManagerProtocol<ServiceCandidate, ServiceIdentity>,
-        >,
-        identity_manager_proto_tx: Sender<
-            IdentityManagerProtocol<ServiceCandidate, ServiceIdentity>,
-        >,
-        identity_creator_proto_tx: Sender<IdentityCreatorProtocol>,
-        service_candidate_watcher_proto_tx: BroadcastSender<ServiceCandidateWatcherProtocol>,
-        external_queue_tx: Option<
-            Sender<IdentityManagerProtocol<ServiceCandidate, ServiceIdentity>>,
-        >,
-    ) -> () {
-        info!("Starting Identity Manager service");
-        IdentityManagerRunner::initialize(&mut self.im).await;
-
-        queue_info! {
-            IdentityManagerProtocol::<ServiceCandidate, ServiceIdentity>::IdentityManagerInitialized => external_queue_tx
-        };
-
-        // Ask Identity Creator to awake
-        if let Err(err) = identity_creator_proto_tx
-            .send(IdentityCreatorProtocol::StartService)
-            .await
-        {
-            error!(
-                "Error sending StartService message to Identity Creator: {}",
-                err
-            );
-            panic!();
-        }
-        // We are not ready to process events
-        IdentityManagerRunner::run_identity_manager(
-            &mut self.im,
-            self.cluster_id,
-            identity_manager_proto_rx,
-            identity_manager_proto_tx,
-            identity_creator_proto_tx,
-            service_candidate_watcher_proto_tx,
-            external_queue_tx.as_ref(),
-        )
-        .await;
-    }
-}
 
 #[cfg(test)]
 mod tests {
@@ -826,8 +892,8 @@ mod tests {
     };
 
     use super::{
-        IdentityManager, IdentityManagerPool, IdentityManagerRunner, ServiceIdentity,
-        ServiceIdentityAPI, ServiceIdentityProvider, ServiceIdentitySpec, ServiceUsersPool,
+        IdentityManagerService, ServiceCredentialProvider, ServiceIdentity, ServiceIdentityAPI,
+        ServiceIdentitySpec, ServiceUserPool,
     };
 
     macro_rules! test_identity_manager {
@@ -908,7 +974,7 @@ mod tests {
     }
 
     #[sdp_proc_macros::identity_provider()]
-    #[derive(sdp_proc_macros::IdentityProvider, Default)]
+    #[derive(sdp_proc_macros::IdentityProvider)]
     #[IdentityProvider(From = "ServiceLookup", To = "ServiceIdentity")]
     struct TestIdentityManager {
         api_counters: Arc<Mutex<APICounters>>,
@@ -957,7 +1023,7 @@ mod tests {
         im: Box<TestIdentityManager>,
     ) -> IdentityManagerRunner<ServiceLookup, ServiceIdentity> {
         IdentityManagerRunner {
-            im: im as Box<dyn IdentityManager<ServiceLookup, ServiceIdentity> + Send + Sync>,
+            im: im as Box<dyn IdentityManagerService<ServiceLookup, ServiceIdentity> + Send + Sync>,
             cluster_id: "TestCluster".to_string(),
         }
     }
