@@ -212,6 +212,96 @@ impl ServiceCredentialProvider for IdentityManagerServiceCredentialsProvider {
     }
 }
 
+pub struct IdentityManagerServiceIdentityAPI {
+    api: Api<ServiceIdentity>,
+    identity_creator_queue: IdentityCreatorProtocolSender,
+}
+
+impl IdentityManagerServiceIdentityAPI {
+    fn new(
+        api: Api<ServiceIdentity>,
+        identity_creator_queue: IdentityCreatorProtocolSender,
+    ) -> Self {
+        IdentityManagerServiceIdentityAPI {
+            api,
+            identity_creator_queue,
+        }
+    }
+}
+
+#[async_trait]
+impl<'a> ServiceIdentityAPI<'a> for IdentityManagerServiceIdentityAPI {
+    async fn create(
+        &self,
+        identity: &'a ServiceIdentity,
+    ) -> Result<ServiceIdentity, IdentityServiceError> {
+        let service_id = identity.service_id();
+        match self.api.get_opt(&service_id).await? {
+            None => {
+                let service_identity = self.api.create(&PostParams::default(), identity).await?;
+                Ok(service_identity)
+            }
+            Some(service_identity) => {
+                warn!(
+                    "[{}] ServiceIdentity {} already exists.",
+                    service_id, service_id
+                );
+                Ok(service_identity)
+            }
+        }
+    }
+
+    async fn update(
+        &self,
+        identity: &'a ServiceIdentity,
+    ) -> Result<ServiceIdentity, IdentityServiceError> {
+        if let Some(mut obj) = self.api.get_opt(&identity.service_name()).await? {
+            obj.spec = identity.spec.clone();
+            let new_obj = self
+                .api
+                .replace(&identity.service_name(), &PostParams::default(), &obj)
+                .await?;
+            Ok(new_obj)
+        } else {
+            Err(IdentityServiceError::from(format!(
+                "ServiceIdentity {} not found",
+                identity.service_name()
+            )))
+        }
+    }
+
+    async fn delete(&self, identity: &'a ServiceIdentity) -> Result<(), IdentityServiceError> {
+        let _ = self
+            .api
+            .delete(&identity.name(), &DeleteParams::default())
+            .await?;
+        // Ask IdentityCreator to remove the IdentityCredential
+        info!(
+            "[{}] Asking for deletion of IdentityCredential {} from SDP system",
+            identity.service_id(),
+            identity.credentials().name
+        );
+        let _ = self
+            .identity_creator_queue
+            .send(IdentityCreatorProtocol::DeleteServiceUser(
+                identity.credentials().clone(),
+                identity.namespace(),
+                identity.name(),
+            ))
+            .await
+            .map_err(|error| IdentityServiceError::from(error.to_string()));
+        Ok(())
+    }
+
+    async fn list(&self) -> Result<Vec<ServiceIdentity>, IdentityServiceError> {
+        self.api
+            .list(&ListParams::default())
+            .await
+            .map(|xs| xs.items)
+            .map_err(IdentityServiceError::from)
+    }
+}
+
 /*
 #[sdp_proc_macros::identity_provider()]
 #[derive(sdp_proc_macros::IdentityProvider)]
@@ -230,12 +320,11 @@ type IdentityManagerProtocolSender =
 type ServiceCandidateWatcherProtocolSender = BroadcastSender<ServiceCandidateWatcherProtocol>;
 
 pub struct IdentityManager<'a> {
-    service_identity_api: Api<ServiceIdentity>,
-    // queue used
     identity_creator_queue: IdentityCreatorProtocolSender,
     identity_manager_rx: IdentityManagerProtocolReceiver,
     identity_manager_tx: IdentityManagerProtocolSender,
     cluster_id: String,
+    service_identity_api: IdentityManagerServiceIdentityAPI,
     service_credentials_provider: IdentityManagerServiceCredentialsProvider,
     service_candidate_watcher_proto_tx: ServiceCandidateWatcherProtocolSender,
     external_queue_tx: Option<&'a IdentityManagerProtocolSender>,
@@ -261,7 +350,10 @@ impl<'a> IdentityManager<'a> {
             panic!("Unable to get cluster ID from SDP_CLUSTER_ID environment variable");
         }
         IdentityManager {
-            service_identity_api: Api::namespaced(client, SDP_K8S_NAMESPACE),
+            service_identity_api: IdentityManagerServiceIdentityAPI::new(
+                Api::namespaced(client, SDP_K8S_NAMESPACE),
+                identity_creator_queue.clone(),
+            ),
             identity_creator_queue,
             service_candidate_watcher_proto_tx,
             identity_manager_rx,
@@ -285,77 +377,22 @@ impl<'a> ServiceIdentityAPI<'a> for IdentityManager<'a> {
         &self,
         identity: &'a ServiceIdentity,
     ) -> Result<ServiceIdentity, IdentityServiceError> {
-        let service_id = identity.service_id();
-        match self.service_identity_api.get_opt(&service_id).await? {
-            None => {
-                let service_identity = self
-                    .service_identity_api
-                    .create(&PostParams::default(), identity)
-                    .await?;
-                Ok(service_identity)
-            }
-            Some(service_identity) => {
-                warn!(
-                    "[{}] ServiceIdentity {} already exists.",
-                    service_id, service_id
-                );
-                Ok(service_identity)
-            }
-        }
+        self.service_identity_api.create(identity).await
     }
 
     async fn update(
         &self,
         identity: &'a ServiceIdentity,
     ) -> Result<ServiceIdentity, IdentityServiceError> {
-        if let Some(mut obj) = self
-            .service_identity_api
-            .get_opt(&identity.service_name())
-            .await?
-        {
-            obj.spec = identity.spec.clone();
-            let new_obj = self
-                .service_identity_api
-                .replace(&identity.service_name(), &PostParams::default(), &obj)
-                .await?;
-            Ok(new_obj)
-        } else {
-            Err(IdentityServiceError::from(format!(
-                "ServiceIdentity {} not found",
-                identity.service_name()
-            )))
-        }
+        self.service_identity_api.update(identity).await
     }
 
     async fn delete(&self, identity: &'a ServiceIdentity) -> Result<(), IdentityServiceError> {
-        let _ = self
-            .service_identity_api
-            .delete(&identity.name(), &DeleteParams::default())
-            .await?;
-        // Ask IdentityCreator to remove the IdentityCredential
-        info!(
-            "[{}] Asking for deletion of IdentityCredential {} from SDP system",
-            identity.service_id(),
-            identity.credentials().name
-        );
-        let _ = self
-            .identity_creator_queue
-            .send(IdentityCreatorProtocol::DeleteServiceUser(
-                identity.credentials().clone(),
-                identity.namespace(),
-                identity.name(),
-            ))
-            .await
-            .map_err(|error| IdentityServiceError::from(error.to_string()));
-        Ok(())
+        self.service_identity_api.delete(identity).await
     }
 
     async fn list(&self) -> Result<Vec<ServiceIdentity>, IdentityServiceError> {
-        self.service_identity_api
-            .list(&ListParams::default())
-            .await
-            .map(|xs| xs.items)
-            .map_err(IdentityServiceError::from)
+        self.service_identity_api.list().await
     }
 }
 
@@ -881,20 +918,156 @@ mod tests {
     };
     use sdp_macros::{deployment, sdp_service, service_identity, service_user};
     use sdp_test_macros::{assert_message, assert_no_message};
-    use tokio::sync::broadcast::channel as broadcast_channel;
     use tokio::sync::mpsc::channel;
+    use tokio::sync::{broadcast::channel as broadcast_channel, mpsc::Receiver};
     use tokio::time::{sleep, timeout, Duration};
+    use uuid::Uuid;
 
-    use crate::{errors::IdentityServiceError, identity_manager::ServiceUser};
     use crate::{
-        identity_creator::IdentityCreatorProtocol, identity_manager::IdentityManagerProtocol,
+        errors::IdentityServiceError,
+        identity_manager::{ServiceUser, ServiceUserPool},
+    };
+    use crate::{
+        identity_creator::IdentityCreatorProtocol,
+        identity_manager::IdentityManagerProtocol,
+        identity_manager::{
+            IdentityManager, IdentityManagerServiceCredentialsProvider, ServiceCredentialProvider,
+        },
         service_candidate_watcher::ServiceCandidateWatcherProtocol,
     };
 
-    use super::{
-        IdentityManagerService, ServiceCredentialProvider, ServiceIdentity, ServiceIdentityAPI,
-        ServiceIdentitySpec, ServiceUserPool,
-    };
+    use super::{IdentityManagerService, ServiceIdentity, ServiceIdentityAPI, ServiceIdentitySpec};
+
+    #[derive(Default)]
+    struct APICounters {
+        delete_calls: usize,
+        create_calls: usize,
+        list_calls: usize,
+        _update_calls: usize,
+    }
+
+    /*
+    #[sdp_proc_macros::identity_provider()]
+    #[derive(sdp_proc_macros::IdentityProvider)]
+    #[IdentityProvider(From = "ServiceLookup", To = "ServiceIdentity")]
+    */
+    struct TestIdentityManager {
+        api_counters: Arc<Mutex<APICounters>>,
+        methods: HashMap<String, usize>,
+        queue: Receiver<IdentityManagerProtocol<ServiceCandidate, ServiceIdentity>>,
+    }
+
+    impl TestIdentityManager {
+        fn new(
+            queue: Receiver<IdentityManagerProtocol<ServiceCandidate, ServiceIdentity>>,
+        ) -> Self {
+            TestIdentityManager {
+                api_counters: Arc::new(Mutex::new(APICounters::default())),
+                methods: HashMap::default(),
+                queue,
+            }
+        }
+        fn _reset_counters(&self) -> () {
+            let mut api_counters = self.api_counters.lock().unwrap();
+            api_counters.delete_calls = 0;
+            api_counters.create_calls = 0;
+            api_counters.list_calls = 0;
+            api_counters._update_calls = 0;
+        }
+
+        fn inc_method(&self, method: &str) -> () {
+            self.methods
+                .entry(method.to_string())
+                .and_modify(|v| *v += 1);
+        }
+    }
+
+    #[async_trait]
+    impl<'a> ServiceIdentityAPI<'a> for TestIdentityManager {
+        async fn create(
+            &self,
+            identity: &'a ServiceIdentity,
+        ) -> Result<ServiceIdentity, IdentityServiceError> {
+            self.api_counters.lock().unwrap().create_calls += 1;
+            Ok(identity.clone())
+        }
+
+        async fn delete(&self, _: &'a ServiceIdentity) -> Result<(), IdentityServiceError> {
+            self.api_counters.lock().unwrap().delete_calls += 1;
+            Ok(())
+        }
+
+        async fn list(&self) -> Result<Vec<ServiceIdentity>, IdentityServiceError> {
+            self.api_counters.lock().unwrap().list_calls += 1;
+            Ok(vec![])
+        }
+
+        async fn update(
+            &self,
+            identity: &'a ServiceIdentity,
+        ) -> Result<ServiceIdentity, IdentityServiceError> {
+            self.api_counters.lock().unwrap().list_calls += 1;
+            Ok(identity.clone())
+        }
+    }
+
+    #[async_trait]
+    impl IdentityManagerService<ServiceCandidate, ServiceIdentity> for TestIdentityManager {
+        async fn delete_service_identity(&mut self, service_identity: ServiceIdentity) {
+            self.inc_method("delete_service_identity");
+        }
+
+        async fn request_service_identity(&mut self, service_lookup: ServiceCandidate) {
+            self.inc_method("request_service_identity");
+        }
+
+        async fn found_service_candidate(&mut self, service_lookup: ServiceCandidate) {
+            self.inc_method("found_service_candidate");
+        }
+
+        async fn found_service_user(&mut self, service_user: ServiceUser, activated: bool) {
+            self.inc_method("found_service_user");
+        }
+
+        async fn activated_service_user(
+            &mut self,
+            service_user: ServiceUser,
+            service_ns: String,
+            service_nane: String,
+        ) {
+            self.inc_method("activated_service_user");
+        }
+
+        async fn identity_creator_ready(&mut self) {
+            self.inc_method("identity_creator_ready");
+        }
+
+        async fn deployment_watcher_ready(&mut self) {
+            self.inc_method("deployment_watcher_ready");
+        }
+
+        async fn identity_manager_ready(&mut self) {
+            self.inc_method("identity_manager_ready");
+        }
+
+        async fn deleted_service_candidate(&mut self, service_lookup: ServiceCandidate) {
+            self.inc_method("deleted_service_candidate");
+        }
+
+        async fn release_device_id(&mut self, service_lookup: ServiceLookup, uuid: Uuid) {
+            self.inc_method("release_device_id");
+        }
+
+        async fn initialize(&mut self) -> () {
+            self.inc_method("initialize");
+        }
+
+        async fn get_message(
+            &mut self,
+        ) -> Option<IdentityManagerProtocol<ServiceCandidate, ServiceIdentity>> {
+            self.inc_method("get_message");
+        }
+    }
 
     macro_rules! test_identity_manager {
         (($im:ident($vs:expr), $watcher_rx:ident, $identity_manager_proto_tx:ident, $identity_creator_proto_rx:ident, $service_candidate_watcher_proto_rx:ident, $counters:ident) => $e:expr) => {
@@ -906,23 +1079,14 @@ mod tests {
                 broadcast_channel::<ServiceCandidateWatcherProtocol>(10);
             let (watcher_tx, mut $watcher_rx) =
                 channel::<IdentityManagerProtocol<ServiceCandidate, ServiceIdentity>>(10);
-            let mut $im = Box::new(TestIdentityManager::default());
+            let mut $im = IdentityManager::new(identity_manager_proto_rx);
             for i in $vs.clone() {
                 $im.register_identity(i);
             }
             let identity_manager_proto_tx_cp2 = $identity_manager_proto_tx.clone();
             let $counters = $im.api_counters.clone();
             tokio::spawn(async move {
-                let im_runner = new_test_identity_runner($im);
-                im_runner
-                    .run(
-                        identity_manager_proto_rx,
-                        identity_manager_proto_tx_cp2,
-                        identity_creator_proto_tx,
-                        service_candidate_watcher_proto_tx,
-                        Some(watcher_tx),
-                    )
-                    .await
+                $im.run().await;
             });
             $e
         };
@@ -942,94 +1106,32 @@ mod tests {
         }
     }
 
-    macro_rules! test_service_identity_provider {
-        ($im:ident($vs:expr) => $e:expr) => {
-            let mut $im = Box::new(TestIdentityManager::default());
-            assert_eq!($im.identities().len(), 0);
+    macro_rules! test_identity_manager_service_credentials_provider {
+        ($service_credentials_provider:ident($vs:expr) => $e:expr) => {
+            let mut $service_credentials_provider =
+                IdentityManagerServiceCredentialsProvider::default();
+            assert_eq!($service_credentials_provider.identities().len(), 0);
             // register new identities
             for i in $vs.clone() {
-                $im.register_identity(i);
+                $service_credentials_provider.register_identity(i);
             }
             $e
         };
-        ($im:ident => $e:expr) => {
+        ($service_credentials_provider:ident => $e:expr) => {
             let vs = vec![
                 service_identity!(1),
                 service_identity!(2),
                 service_identity!(3),
                 service_identity!(4),
             ];
-            test_service_identity_provider! {
-                $im(vs) => $e
+            test_identity_manager_service_credentials_provider! {
+                $service_credentials_provider(vs) => $e
             }
         };
     }
 
-    #[derive(Default)]
-    struct APICounters {
-        delete_calls: usize,
-        create_calls: usize,
-        list_calls: usize,
-        _update_calls: usize,
-    }
-
-    #[sdp_proc_macros::identity_provider()]
-    #[derive(sdp_proc_macros::IdentityProvider)]
-    #[IdentityProvider(From = "ServiceLookup", To = "ServiceIdentity")]
-    struct TestIdentityManager {
-        api_counters: Arc<Mutex<APICounters>>,
-    }
-
-    impl TestIdentityManager {
-        fn _reset_counters(&self) -> () {
-            let mut api_counters = self.api_counters.lock().unwrap();
-            api_counters.delete_calls = 0;
-            api_counters.create_calls = 0;
-            api_counters.list_calls = 0;
-            api_counters._update_calls = 0;
-        }
-    }
-
-    #[async_trait]
-    impl ServiceIdentityAPI for TestIdentityManager {
-        async fn create<'a>(
-            &'a self,
-            identity: &'a ServiceIdentity,
-        ) -> Result<ServiceIdentity, IdentityServiceError> {
-            self.api_counters.lock().unwrap().create_calls += 1;
-            Ok(identity.clone())
-        }
-
-        async fn delete<'a>(&'a self, _: &'a str) -> Result<(), IdentityServiceError> {
-            self.api_counters.lock().unwrap().delete_calls += 1;
-            Ok(())
-        }
-
-        async fn list<'a>(&'a self) -> Result<Vec<ServiceIdentity>, IdentityServiceError> {
-            self.api_counters.lock().unwrap().list_calls += 1;
-            Ok(vec![])
-        }
-
-        async fn update<'a>(
-            &'a self,
-            identity: &'a ServiceIdentity,
-        ) -> Result<ServiceIdentity, IdentityServiceError> {
-            self.api_counters.lock().unwrap().list_calls += 1;
-            Ok(identity.clone())
-        }
-    }
-
-    fn new_test_identity_runner(
-        im: Box<TestIdentityManager>,
-    ) -> IdentityManagerRunner<ServiceLookup, ServiceIdentity> {
-        IdentityManagerRunner {
-            im: im as Box<dyn IdentityManagerService<ServiceLookup, ServiceIdentity> + Send + Sync>,
-            cluster_id: "TestCluster".to_string(),
-        }
-    }
-
     #[test]
-    fn test_service_identity_provider_identities() {
+    fn test_identity_manager_service_credentials_provider_identities() {
         let identities = vec![
             service_identity!(1),
             service_identity!(2),
