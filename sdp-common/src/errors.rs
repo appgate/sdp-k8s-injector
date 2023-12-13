@@ -1,7 +1,5 @@
 use std::{error::Error as StdError, fmt::Display};
 
-use tokio::sync::mpsc::error::SendError;
-
 use crate::sdp::errors::SDPClientError;
 
 #[derive(Debug, PartialEq)]
@@ -74,12 +72,6 @@ impl From<SDPClientError> for SDPServiceError {
 
 impl From<serde_json::error::Error> for SDPServiceError {
     fn from(error: serde_json::error::Error) -> Self {
-        SDPServiceError::from_string(error.to_string())
-    }
-}
-
-impl<IdentityCreatorProtocol> From<SendError<IdentityCreatorProtocol>> for SDPServiceError {
-    fn from(error: SendError<IdentityCreatorProtocol>) -> Self {
         SDPServiceError::from_string(error.to_string())
     }
 }

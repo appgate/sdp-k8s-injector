@@ -4,7 +4,7 @@ use http::header::{InvalidHeaderValue, ACCEPT};
 use http::{HeaderValue, StatusCode};
 use reqwest::header::HeaderMap;
 use reqwest::{Client, Url};
-use sdp_macros::{logger, sdp_info, sdp_log, with_dollar_sign};
+use sdp_macros::{logger, sdp_error, sdp_info, sdp_log, with_dollar_sign};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
@@ -21,6 +21,19 @@ const SDP_SYSTEM_PROVIDER_ENV: &str = "SDP_K8S_PROVIDER";
 const SDP_SYSTEM_PROVIDER_DEFAULT: &str = "local";
 
 logger!("SDPSystem");
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct OnBoardedUsers {
+    pub data: Vec<OnBoardedUser>,
+}
+
+#[derive(Deserialize, Serialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct OnBoardedUser {
+    pub distinguishe_name: String,
+    pub device_id: String,
+    pub username: String,
+}
 
 pub fn get_sdp_system() -> System {
     let hosts = std::env::var(SDP_SYSTEM_HOSTS)
@@ -271,7 +284,7 @@ impl System {
         info!("Getting users");
         let mut url = Url::from(self.hosts[0].clone());
         url.set_path("/admin/service-users");
-        let service_users = self.get::<SDPUsers>(url).await?;
+        let service_users: SDPUsers = self.get::<SDPUsers>(url).await?;
         Ok(service_users.data)
     }
 
@@ -293,19 +306,39 @@ impl System {
         Ok(created_sdp_user)
     }
 
+    /// POST /on-boarded-devices
     pub async fn get_registered_device_ids_for_user(
         &mut self,
-        _sdp_user: &SDPUser,
-    ) -> Result<Vec<Uuid>, SDPClientError> {
-        todo!();
+        sdp_user: &SDPUser,
+    ) -> Result<Vec<OnBoardedUser>, SDPClientError> {
+        info!("Getting device-ids for user: {}", sdp_user.name);
+        let mut url = Url::from(self.hosts[0].clone());
+        url.set_path(&format!("/admin/on-boarded-devices"));
+        url.set_query(Some(&format!("username={}", sdp_user.name)));
+        url.set_query(Some("providerName=service"));
+        let onboarded_users = self.get::<OnBoardedUsers>(url).await?;
+        Ok(onboarded_users.data)
     }
 
+    /// DELETE /on-boarded-devices-distinguished-name/distinguished-name
     pub async fn unregister_device_id_for_user(
         &mut self,
         sdp_user: &SDPUser,
     ) -> Result<(), SDPClientError> {
-        for _uuid in self.get_registered_device_ids_for_user(sdp_user).await? {
-            todo!();
+        for onboard_user in self.get_registered_device_ids_for_user(sdp_user).await? {
+            info!(
+                "Releasing device id {} for user {}",
+                onboard_user.device_id, onboard_user.username
+            );
+            let mut url = Url::from(self.hosts[0].clone());
+            url.set_path("/admin/on-boarded-devices-distinguished-name");
+            url.set_path(&onboard_user.device_id);
+            if let Err(err) = self.delete(url).await {
+                error!(
+                    "Unable to release device id {} for user {}: {}",
+                    onboard_user.device_id, onboard_user.username, err
+                );
+            };
         }
         Ok(())
     }

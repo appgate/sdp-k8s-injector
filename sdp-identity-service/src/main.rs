@@ -4,17 +4,20 @@ use crate::{
     service_candidate_watcher::ServiceCandidateWatcherProtocol,
 };
 use clap::{Parser, Subcommand};
-use identity_manager::IdentityManagerService;
+use identity_manager::{IdentityManagerRunner, IdentityManagerServiceIdentityAPI};
 use k8s_openapi::api::{
     apps::v1::Deployment,
     core::v1::{Namespace, Pod},
 };
 use kube::{Api, CustomResourceExt};
 use log::error;
-use sdp_common::watcher::{watch, WatcherWaitReady};
 use sdp_common::{crd::SDPService, sdp::system::get_sdp_system, service::ServiceCandidate};
 use sdp_common::{crd::ServiceIdentity, watcher::Watcher};
 use sdp_common::{kubernetes::get_k8s_client, service::get_log_config_path};
+use sdp_common::{
+    kubernetes::SDP_K8S_NAMESPACE,
+    watcher::{watch, WatcherWaitReady},
+};
 use std::{panic, process::exit};
 use tokio::sync::broadcast::channel as broadcast_channel;
 use tokio::sync::mpsc::channel;
@@ -172,7 +175,10 @@ async fn main() -> () {
                     .await;
             });
             let mut identity_manager = IdentityManager::new(
-                identity_manager_client,
+                IdentityManagerServiceIdentityAPI::new(
+                    Api::namespaced(identity_manager_client, SDP_K8S_NAMESPACE),
+                    identity_creator_proto_tx.clone(),
+                ),
                 identity_manager_proto_rx,
                 identity_manager_proto_tx,
                 service_candidate_watcher_proto_tx,

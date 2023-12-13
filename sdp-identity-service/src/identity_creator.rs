@@ -35,6 +35,7 @@ pub enum IdentityCreatorProtocol {
     DeleteServiceUser(ServiceUser, String, String),
     // sdp user name
     DeleteSDPUser(String),
+    ReleaseDeviceId(ServiceUser),
 }
 
 pub struct IdentityCreator {
@@ -315,8 +316,21 @@ impl IdentityCreator {
             // If we dont have a password for this user, don't recover it and ask IC to delete it as soon as possible.
 
             // Get the current registered device ids for use
-            // TODO: We don't want to crash here
-            let device_ids = system.get_registered_device_ids_for_user(&sdp_user).await?;
+            let device_ids = system
+                .get_registered_device_ids_for_user(&sdp_user)
+                .await?
+                .iter()
+                .map(|u| {
+                    if let Ok(device_id) = Uuid::parse_str(&u.device_id) {
+                        Some(device_id)
+                    } else {
+                        error!("Unable to parse device id");
+                        None
+                    }
+                })
+                .filter(Option::is_some)
+                .map(Option::unwrap)
+                .collect();
             // Derive now our ServiceUser from SDPUser, recovering passwords if needed.
             if let Some(service_user) = self
                 .recover_sdp_user(&sdp_user, &client_profile_url, device_ids)
@@ -534,6 +548,20 @@ impl IdentityCreator {
                         error!(
                             "Error deleting SDPUser {}: {}",
                             sdp_user_name,
+                            e.to_string()
+                        );
+                    }
+                }
+                IdentityCreatorProtocol::ReleaseDeviceId(service_user) => {
+                    if let Err(e) = system
+                        .unregister_device_id_for_user(&SDPUser::from_name(
+                            service_user.name.clone(),
+                        ))
+                        .await
+                    {
+                        error!(
+                            "Error deleting SDPUser {}: {}",
+                            service_user.name,
                             e.to_string()
                         );
                     }
