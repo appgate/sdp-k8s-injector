@@ -302,7 +302,6 @@ impl<'a> ServiceIdentityAPI<'a> for IdentityManagerServiceIdentityAPI {
     }
 }
 
-
 type IdentityCreatorProtocolSender = Sender<IdentityCreatorProtocol>;
 type IdentityManagerProtocolReceiver =
     Receiver<IdentityManagerProtocol<ServiceCandidate, ServiceIdentity>>;
@@ -1027,9 +1026,9 @@ mod tests {
     }
 
     struct TestIdentityManager {
-        api_counters: Arc<Mutex<APICounters>>,
+        _api_counters: Arc<Mutex<APICounters>>,
         methods: Arc<Mutex<HashMap<String, usize>>>,
-        queue: Receiver<IdentityManagerProtocol<ServiceCandidate, ServiceIdentity>>,
+        _queue: Receiver<IdentityManagerProtocol<ServiceCandidate, ServiceIdentity>>,
         messages: Vec<IdentityManagerProtocol<ServiceCandidate, ServiceIdentity>>,
         n_message: usize,
     }
@@ -1073,15 +1072,15 @@ mod tests {
             queue: Receiver<IdentityManagerProtocol<ServiceCandidate, ServiceIdentity>>,
         ) -> Self {
             TestIdentityManager {
-                api_counters: Arc::new(Mutex::new(APICounters::default())),
+                _api_counters: Arc::new(Mutex::new(APICounters::default())),
                 methods: Arc::new(Mutex::new(HashMap::default())),
-                queue,
+                _queue: queue,
                 messages,
                 n_message: 0,
             }
         }
         fn _reset_counters(&self) -> () {
-            let mut api_counters = self.api_counters.lock().unwrap();
+            let mut api_counters = self._api_counters.lock().unwrap();
             api_counters.delete_calls = Arc::new(RwLock::new(0));
             api_counters.create_calls = Arc::new(RwLock::new(0));
             api_counters.list_calls = Arc::new(RwLock::new(0));
