@@ -12,10 +12,9 @@ logger!("DeviceIDProvider");
 
 #[derive(Debug, Clone)]
 pub enum DeviceIdProviderRequestProtocol<A: Service + HasCredentials> {
-    FoundServiceIdentity(A),
+    FoundServiceIdentity(A, bool),
     DeletedServiceIdentity(A),
     RequestDeviceId(Sender<DeviceIdProviderResponseProtocol<A>>, String),
-    ReleasedDeviceId(String, Uuid),
 }
 
 #[derive(PartialEq)]
@@ -74,7 +73,7 @@ pub trait IdentityStore<A: Service + HasCredentials>: Send + Sync {
         uuid: Uuid,
     ) -> Result<Option<Uuid>, SDPServiceError>;
 
-    async fn register_service(&mut self, service: A) -> Result<A, SDPServiceError>;
+    async fn register_or_update(&mut self, service: A) -> Result<A, SDPServiceError>;
 
     async fn unregister_service<'a>(
         &mut self,
@@ -103,16 +102,38 @@ impl<'a> InMemoryIdentityStore {
 
 #[async_trait]
 impl<'a> IdentityStore<ServiceIdentity> for InMemoryIdentityStore {
-    async fn register_service(
+    async fn register_or_update(
         &mut self,
         service: ServiceIdentity,
     ) -> Result<ServiceIdentity, SDPServiceError> {
-        let updated_service = self
+        let service_id = service.service_id();
+        let current_service = self.identities.get(&service_id.clone());
+        let mut current_device_ids = current_service
+            .map(|s| s.spec.service_user.device_ids.clone())
+            .unwrap_or(vec![]);
+        let s = self
             .identities
-            .insert(service.service_id(), service.clone());
-        self.registered_device_ids
-            .insert(service.service_id(), RegisteredDeviceId::default());
-        Ok(updated_service.unwrap_or(service))
+            .entry(service_id.clone())
+            .or_insert(service.clone());
+        s.spec.service_user.device_ids = service.spec.service_user.device_ids.clone();
+        s.spec
+            .service_user
+            .device_ids
+            .append(&mut current_device_ids);
+        s.spec.service_user.device_ids.dedup();
+        let registered_device_id = self
+            .registered_device_ids
+            .entry(service_id.clone())
+            .or_insert(RegisteredDeviceId::default());
+        let new_device_ids = service.spec.service_user.device_ids;
+        for device_id in new_device_ids {
+            if !current_device_ids.contains(&device_id) {
+                if let Ok(uuid) = Uuid::parse_str(&device_id) {
+                    registered_device_id.push(uuid)
+                }
+            }
+        }
+        Ok(self.identities[&service_id].clone())
     }
 
     async fn unregister_service<'b>(
@@ -161,7 +182,7 @@ impl<'a> IdentityStore<ServiceIdentity> for InMemoryIdentityStore {
                 }
                 if ds.is_none() {
                     error!(
-                        "[{}] DeviceID does not exist for service {}",
+                        "[{}] RegisteredDeviceId does not exist for service {}",
                         service_id, service_id
                     );
                 }
@@ -220,11 +241,18 @@ impl DeviceIdProvider<ServiceIdentity> {
             tokio::select! {
                 val = watcher_rx.recv() => {
                     match val {
-                        Some(DeviceIdProviderRequestProtocol::FoundServiceIdentity(s)) => {
+                        Some(DeviceIdProviderRequestProtocol::FoundServiceIdentity(s, reapplied)) => {
                             let service_id = s.service_id();
-                            info!("[{}] Registering new service {}", service_id, &service_id);
-                            if let Err(e) = self.store.register_service(s).await {
-                                error!("[{}] Unable to register service identity {}: {}", service_id, service_id, e);
+                            info!("[{}] {} service {}", service_id,
+                                if reapplied {"Updating"} else {"Registering"},
+                                &service_id);
+                            if let Err(e) = self.store.register_or_update(s).await {
+                                error!("[{}] Unable to {} service identity {}: {}",
+                                    service_id,
+                                    if reapplied {"register"} else {"update"},
+                                    service_id,
+                                    e
+                                );
                             }
                         },
                         Some(DeviceIdProviderRequestProtocol::DeletedServiceIdentity(s)) => {
@@ -233,12 +261,6 @@ impl DeviceIdProvider<ServiceIdentity> {
                             if let Err(err) = self.store.unregister_service(&service_id).await {
                                 error!("[{}] Unable to unregister service {}: {}", service_id, service_id, err);
                             };
-                        },
-                        Some(DeviceIdProviderRequestProtocol::ReleasedDeviceId(service_id, uuid)) => {
-                            info!("[{}] Released DeviceID {} for service {}", service_id, uuid.to_string(), service_id);
-                            if let Err(err) = self.store.push_device_id(&service_id, uuid).await {
-                                error!("[{}] Unable to release DeviceID {} for service {}: {}", service_id, uuid, service_id, err);
-                            }
                         },
                         Some(_) => {}
                         None => {},
@@ -324,8 +346,7 @@ mod tests {
         let mut m = InMemoryIdentityStore::new();
         let s: ServiceIdentity = service_identity!(0);
         let service_id = &s.service_id();
-        m.register_service(s.clone()).await.unwrap();
-        m.register_service(service_identity!(0)).await.unwrap();
+        m.register_or_update(s.clone()).await.unwrap();
         let (got_s, got_uuid) = m.pop_device_id(&service_id).await.unwrap();
         assert!(Uuid::try_parse(&got_uuid.to_string()).is_ok());
         assert_eq!(got_s.spec, s.spec);
@@ -336,13 +357,106 @@ mod tests {
     }
 
     #[tokio::test]
+    // Test that we the ServiceIdentity is updated in memory
+    async fn test_in_memory_identity_store_3() {
+        let mut m = InMemoryIdentityStore::new();
+        let mut s0: ServiceIdentity = service_identity!(0);
+        let service_id0 = &s0.service_id();
+        let vs = vec!["f464d45a-869e-45e2-a4c0-b604fc2feafc".to_string()];
+        s0.spec.service_user.device_ids = vs.clone();
+
+        // Register first the service (no device ids)
+        let s00 = m.register_or_update(s0.clone()).await.unwrap();
+        assert_eq!(s00.spec.service_user.device_ids, vs);
+
+        // Update the service with shome device ids
+        let mut s1: ServiceIdentity = service_identity!(0);
+        let vs = vec![
+            "ecdfa8b7-39d9-44ba-8358-e8a693bf9c6d".to_string(),
+            "b46eb528-a4fd-42b8-80b7-836d09fdb78c".to_string(),
+        ];
+        s1.spec.service_user.device_ids = vs.clone();
+        let s11 = m.register_or_update(s1.clone()).await.unwrap();
+        let vss = vec![
+            "ecdfa8b7-39d9-44ba-8358-e8a693bf9c6d".to_string(),
+            "b46eb528-a4fd-42b8-80b7-836d09fdb78c".to_string(),
+            "f464d45a-869e-45e2-a4c0-b604fc2feafc".to_string(),
+        ];
+        assert_eq!(s11.spec.service_user.device_ids, vss);
+
+        // Test that the new device ids are used
+        let (_, got_uuid) = m.pop_device_id(&service_id0).await.unwrap();
+        assert_eq!(
+            got_uuid.to_string(),
+            "b46eb528-a4fd-42b8-80b7-836d09fdb78c".to_string()
+        );
+
+        let (_, got_uuid) = m.pop_device_id(&service_id0).await.unwrap();
+        assert_eq!(
+            got_uuid.to_string(),
+            "ecdfa8b7-39d9-44ba-8358-e8a693bf9c6d".to_string()
+        );
+
+        let (_, got_uuid) = m.pop_device_id(&service_id0).await.unwrap();
+        assert_eq!(
+            got_uuid.to_string(),
+            "f464d45a-869e-45e2-a4c0-b604fc2feafc".to_string()
+        );
+    }
+
+    #[tokio::test]
+    // Test that we the ServiceIdentity is updated in memory
+    async fn test_in_memory_identity_store_4() {
+        // Test that when updating ServiceIdentity we dont have duplicated device ids
+        let mut m = InMemoryIdentityStore::new();
+        let mut s0: ServiceIdentity = service_identity!(0);
+        let service_id0 = &s0.service_id();
+        let vs = vec!["f464d45a-869e-45e2-a4c0-b604fc2feafc".to_string()];
+        s0.spec.service_user.device_ids = vs.clone();
+
+        // Register first the service (no device ids)
+        let s00 = m.register_or_update(s0.clone()).await.unwrap();
+        assert_eq!(s00.spec.service_user.device_ids, vs);
+
+        // Update the service with shome device ids
+        let mut s1: ServiceIdentity = service_identity!(0);
+        let vs = vec![
+            "ecdfa8b7-39d9-44ba-8358-e8a693bf9c6d".to_string(),
+            "b46eb528-a4fd-42b8-80b7-836d09fdb78c".to_string(),
+            "f464d45a-869e-45e2-a4c0-b604fc2feafc".to_string(),
+        ];
+        s1.spec.service_user.device_ids = vs.clone();
+        let s11 = m.register_or_update(s1.clone()).await.unwrap();
+        assert_eq!(s11.spec.service_user.device_ids, vs);
+
+        // Test that the new device ids are used
+        let (_, got_uuid) = m.pop_device_id(&service_id0).await.unwrap();
+        assert_eq!(
+            got_uuid.to_string(),
+            "b46eb528-a4fd-42b8-80b7-836d09fdb78c".to_string()
+        );
+
+        let (_, got_uuid) = m.pop_device_id(&service_id0).await.unwrap();
+        assert_eq!(
+            got_uuid.to_string(),
+            "ecdfa8b7-39d9-44ba-8358-e8a693bf9c6d".to_string()
+        );
+
+        let (_, got_uuid) = m.pop_device_id(&service_id0).await.unwrap();
+        assert_eq!(
+            got_uuid.to_string(),
+            "f464d45a-869e-45e2-a4c0-b604fc2feafc".to_string()
+        );
+    }
+
+    #[tokio::test]
     async fn test_in_memory_identity_store_pop_device_id() {
         let mut m = InMemoryIdentityStore::new();
         let uuids: Vec<Uuid> = (0..3).map(|_i| Uuid::new_v4()).collect();
         let s: ServiceIdentity = service_identity!(0);
         let service_id = &s.service_id();
-        m.register_service(s.clone()).await.unwrap();
-        m.register_service(service_identity!(0)).await.unwrap();
+        m.register_or_update(s.clone()).await.unwrap();
+        m.register_or_update(service_identity!(0)).await.unwrap();
         for uuid in &uuids {
             let _ = m.push_device_id(service_id, uuid.clone()).await;
         }
