@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use sdp_common::errors::SDPServiceError;
 use sdp_common::service::ServiceIdentity;
 use sdp_common::traits::{HasCredentials, Service};
-use sdp_macros::{logger, sdp_error, sdp_info, sdp_log, with_dollar_sign};
+use sdp_macros::{logger, sdp_error, sdp_info, sdp_log, sdp_warn, with_dollar_sign};
 use tokio::sync::mpsc::{Receiver, Sender};
 use uuid::Uuid;
 
@@ -36,7 +36,12 @@ pub struct RegisteredDeviceId(VecDeque<Uuid>);
 
 impl RegisteredDeviceId {
     fn push(&mut self, uuid: Uuid) -> () {
-        self.0.push_front(uuid)
+        info!("[{}] Releasing device id", uuid);
+        if !self.0.contains(&uuid) {
+            self.0.push_front(uuid)
+        } else {
+            warn!("[{}] Device id is already released", uuid);
+        }
     }
 
     fn pop(&mut self) -> ReleasedDeviceId {
