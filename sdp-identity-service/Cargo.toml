@@ -12,7 +12,6 @@ test = true
 [dependencies]
 sdp-common = {path = "../sdp-common"}
 sdp-macros = { path = "../sdp-macros" }
-sdp-proc-macros = { path = "../sdp-proc-macros" }
 sdp-test-macros = { path = "../sdp-test-macros" }
 
 tokio = { version = "~1.34.0", features = ["rt", "macros", "rt-multi-thread"] }

@@ -302,15 +302,6 @@ impl<'a> ServiceIdentityAPI<'a> for IdentityManagerServiceIdentityAPI {
     }
 }
 
-/*
-#[sdp_proc_macros::identity_provider()]
-#[derive(sdp_proc_macros::IdentityProvider)]
-#[IdentityProvider(From = "ServiceLookup", To = "ServiceIdentity")]
-pub struct KubeIdentityManager {
-    service_identity_api: Api<ServiceIdentity>,
-    identity_creator_queue: Sender<IdentityCreatorProtocol>
-}
-*/
 
 type IdentityCreatorProtocolSender = Sender<IdentityCreatorProtocol>;
 type IdentityManagerProtocolReceiver =
@@ -1035,11 +1026,6 @@ mod tests {
         update_calls: Arc<RwLock<usize>>,
     }
 
-    /*
-    #[sdp_proc_macros::identity_provider()]
-    #[derive(sdp_proc_macros::IdentityProvider)]
-    #[IdentityProvider(From = "ServiceLookup", To = "ServiceIdentity")]
-    */
     struct TestIdentityManager {
         api_counters: Arc<Mutex<APICounters>>,
         methods: Arc<Mutex<HashMap<String, usize>>>,
