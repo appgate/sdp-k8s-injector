@@ -939,14 +939,26 @@ impl<'a> IdentityManagerService<ServiceCandidate, ServiceIdentity> for IdentityM
     async fn release_device_id(
         &mut self,
         service_lookup: ServiceLookup,
-        _uuid: Uuid,
+        uuid: Uuid,
     ) -> Result<(), IdentityServiceError> {
         if let Some(service_identity) = self.service_credentials_provider.identity(&service_lookup)
         {
-            self.update(service_identity).await?;
+            info!(
+                "[{}] Releasing device id {}",
+                service_identity.service_name(),
+                uuid
+            );
+            let mut service_identity2 = service_identity.clone();
+            service_identity2
+                .spec
+                .service_user
+                .device_ids
+                .push(uuid.to_string());
+            self.update(&service_identity2).await?;
             self.identity_creator_queue
                 .send(IdentityCreatorProtocol::ReleaseDeviceId(
                     service_identity.spec.service_user.clone(),
+                    uuid,
                 ))
                 .await
                 .map_err(SDPServiceError::from_error(
