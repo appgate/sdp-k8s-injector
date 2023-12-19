@@ -25,6 +25,7 @@ impl SimpleWatchingProtocol<DeviceIdProviderRequestProtocol<ServiceIdentity>> fo
         );
         Some(DeviceIdProviderRequestProtocol::FoundServiceIdentity(
             self.clone(),
+            false,
         ))
     }
 
@@ -39,6 +40,7 @@ impl SimpleWatchingProtocol<DeviceIdProviderRequestProtocol<ServiceIdentity>> fo
         );
         Some(DeviceIdProviderRequestProtocol::FoundServiceIdentity(
             self.clone(),
+            false,
         ))
     }
 
@@ -46,7 +48,15 @@ impl SimpleWatchingProtocol<DeviceIdProviderRequestProtocol<ServiceIdentity>> fo
         &self,
         _ns: Option<Namespace>,
     ) -> Option<DeviceIdProviderRequestProtocol<ServiceIdentity>> {
-        None
+        info!(
+            "[{}] Modified ServiceIdentity {}",
+            self.service_id(),
+            self.service_id()
+        );
+        Some(DeviceIdProviderRequestProtocol::FoundServiceIdentity(
+            self.clone(),
+            true,
+        ))
     }
 
     fn deleted(
