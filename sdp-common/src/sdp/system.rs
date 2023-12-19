@@ -30,7 +30,7 @@ pub struct OnBoardedUsers {
 #[derive(Deserialize, Serialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct OnBoardedUser {
-    pub distinguishe_name: String,
+    pub distinguished_name: String,
     pub device_id: String,
     pub username: String,
 }
