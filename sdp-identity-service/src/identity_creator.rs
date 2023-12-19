@@ -35,7 +35,7 @@ pub enum IdentityCreatorProtocol {
     DeleteServiceUser(ServiceUser, String, String),
     // sdp user name
     DeleteSDPUser(String),
-    ReleaseDeviceId(ServiceUser),
+    ReleaseDeviceId(ServiceUser, Uuid),
 }
 
 pub struct IdentityCreator {
@@ -316,6 +316,7 @@ impl IdentityCreator {
             // If we dont have a password for this user, don't recover it and ask IC to delete it as soon as possible.
 
             // Get the current registered device ids for use
+            info!("Recovering SDPUser {}", &sdp_user.name);
             let device_ids = system
                 .get_registered_device_ids_for_user(&sdp_user)
                 .await?
@@ -552,11 +553,11 @@ impl IdentityCreator {
                         );
                     }
                 }
-                IdentityCreatorProtocol::ReleaseDeviceId(service_user) => {
+                IdentityCreatorProtocol::ReleaseDeviceId(service_user, device_id) => {
                     if let Err(e) = system
                         .unregister_device_id_for_user(&SDPUser::from_name(
                             service_user.name.clone(),
-                        ))
+                        ), &device_id)
                         .await
                     {
                         error!(

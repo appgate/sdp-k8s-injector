@@ -324,21 +324,46 @@ impl System {
     pub async fn unregister_device_id_for_user(
         &mut self,
         sdp_user: &SDPUser,
+        device_id: &Uuid,
     ) -> Result<(), SDPClientError> {
-        for onboard_user in self.get_registered_device_ids_for_user(sdp_user).await? {
-            info!(
-                "Releasing device id {} for user {}",
-                onboard_user.device_id, onboard_user.username
+        info!(
+            "Releasing device id {} for user {}",
+            device_id, sdp_user.name
+        );
+        let mut url = Url::from(self.hosts[0].clone());
+        let base_url = url.clone();
+        // This should be enconded with this
+        // https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/encodeURIComponent
+        let distinguished_name = format!(
+            "CN={},CN={},OU=service",
+            device_id.to_string().replace("-", ""),
+            sdp_user.name
+        );
+        url.path_segments_mut()
+            .map_err(|_| SDPClientError {
+                request_error: None,
+                status_code: None,
+                error_body: Some(format!("Url not valid: {}", base_url)),
+            })?
+            .push("/admin/on-boarded-devices")
+            .push(&distinguished_name);
+        if let Err(err) = self.delete(url).await {
+            error!(
+                "Unable to release device id {} for user {}: {}",
+                device_id, sdp_user.name, err
             );
-            let mut url = Url::from(self.hosts[0].clone());
-            url.set_path("/admin/on-boarded-devices-distinguished-name");
-            url.set_path(&onboard_user.device_id);
-            if let Err(err) = self.delete(url).await {
-                error!(
-                    "Unable to release device id {} for user {}: {}",
-                    onboard_user.device_id, onboard_user.username, err
-                );
-            };
+        };
+        Ok(())
+    }
+
+    pub async fn unregister_device_ids_for_user(
+        &mut self,
+        sdp_user: &SDPUser,
+    ) -> Result<(), SDPClientError> {
+        for onboarded_device in self.get_registered_device_ids_for_user(sdp_user).await? {
+            if let Ok(uuid) = Uuid::parse_str(&onboarded_device.device_id) {
+                self.unregister_device_id_for_user(sdp_user, &uuid).await?;
+            }
         }
         Ok(())
     }
