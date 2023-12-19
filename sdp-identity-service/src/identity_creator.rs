@@ -202,7 +202,9 @@ impl IdentityCreator {
                 .map_err(|e| IdentityServiceError::from(e.to_string()))?;
         }
         info!("Deleting SDPUser {} (id: {})", sdp_user.name, sdp_user.id);
-        self.system.unregister_device_id_for_user(&sdp_user).await?;
+        self.system
+            .unregister_device_ids_for_user(&sdp_user)
+            .await?;
         self.system
             .delete_user(sdp_user_id)
             .await
@@ -555,9 +557,10 @@ impl IdentityCreator {
                 }
                 IdentityCreatorProtocol::ReleaseDeviceId(service_user, device_id) => {
                     if let Err(e) = system
-                        .unregister_device_id_for_user(&SDPUser::from_name(
-                            service_user.name.clone(),
-                        ), &device_id)
+                        .unregister_device_id_for_user(
+                            &SDPUser::from_name(service_user.name.clone()),
+                            &device_id,
+                        )
                         .await
                     {
                         error!(
