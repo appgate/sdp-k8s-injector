@@ -313,9 +313,10 @@ impl System {
     ) -> Result<Vec<OnBoardedUser>, SDPClientError> {
         info!("Getting device-ids for user: {}", sdp_user.name);
         let mut url = Url::from(self.hosts[0].clone());
+        url.query_pairs_mut()
+            .append_pair("username", &sdp_user.name)
+            .append_pair("providerName", "service");
         url.set_path(&format!("/admin/on-boarded-devices"));
-        url.set_query(Some(&format!("username={}", sdp_user.name)));
-        url.set_query(Some("providerName=service"));
         let onboarded_users = self.get::<OnBoardedUsers>(url).await?;
         Ok(onboarded_users.data)
     }
