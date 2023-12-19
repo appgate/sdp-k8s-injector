@@ -273,7 +273,7 @@ impl<'a> ServiceIdentityAPI<'a> for IdentityManagerServiceIdentityAPI {
     async fn delete(&self, identity: &'a ServiceIdentity) -> Result<(), IdentityServiceError> {
         let _ = self
             .api
-            .delete(&identity.name(), &DeleteParams::default())
+            .delete(&identity.service_name(), &DeleteParams::default())
             .await?;
         // Ask IdentityCreator to remove the IdentityCredential
         info!(
@@ -704,7 +704,7 @@ impl<'a> IdentityManagerService<ServiceCandidate, ServiceIdentity> for IdentityM
         service_user: ServiceUser,
         activated: bool,
     ) -> Result<(), IdentityServiceError> {
-        if activated {
+        if !activated {
             info!(IdentityManagerProtocol::<ServiceCandidate, ServiceIdentity>::IdentityManagerDebug | ("Found deactivated ServiceUser {} (id: {})", service_user.name, service_user.id) => self.external_queue_tx);
             self.existing_deactivated_credentials
                 .insert(service_user.id.clone());
