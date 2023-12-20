@@ -3,7 +3,6 @@
 members = [
     "sdp-common",
     "sdp-macros",
-    "sdp-proc-macros",
     "sdp-test-macros",
     "sdp-injector",
     "sdp-identity-service",

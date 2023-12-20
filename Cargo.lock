@@ -1672,7 +1672,6 @@ dependencies = [
  "log4rs",
  "sdp-common",
  "sdp-macros",
- "sdp-proc-macros",
  "sdp-test-macros",
  "serde_json",
  "tokio",
@@ -1710,15 +1709,6 @@ dependencies = [
 [[package]]
 name = "sdp-macros"
 version = "1.1.2"
-
-[[package]]
-name = "sdp-proc-macros"
-version = "1.1.2"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.39",
-]
 
 [[package]]
 name = "sdp-test-macros"
