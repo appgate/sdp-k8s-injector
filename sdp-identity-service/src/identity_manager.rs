@@ -11,6 +11,7 @@ use sdp_common::traits::{
 use sdp_macros::{
     logger, queue_info, sdp_error, sdp_info, sdp_log, sdp_warn, when_ok, with_dollar_sign,
 };
+use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::iter::FromIterator;
 use tokio::sync::broadcast::Sender as BroadcastSender;
@@ -36,11 +37,11 @@ trait ServiceUserPool {
 trait ServiceCredentialProvider: ServiceUserPool {
     type From: MaybeService + Labeled + Send;
     type To: Service + HasCredentials + Send;
-    fn register_identity(&mut self, to: Self::To) -> ();
+    fn register_or_update_identity(&mut self, to: Self::To) -> ();
     fn unregister_identity(&mut self, to: &Self::To) -> Option<Self::To>;
     // true if identity is newly created, false if identity is already registered
     fn next_identity(&mut self, from: &Self::From) -> Option<(Self::To, bool)>;
-    fn identity(&self, from: &Self::From) -> Option<&Self::To>;
+    fn identity(&mut self, from: &Self::From) -> Option<Entry<String, Self::To>>;
     fn identities(&self) -> Vec<&Self::To>;
 
     /// ServiceIdentity instances without known ServiceCandidate
@@ -94,10 +95,14 @@ trait ServiceIdentityAPI<'a> {
     ) -> Result<ServiceIdentity, IdentityServiceError>;
     async fn update(
         &self,
-        identity: &'a ServiceIdentity,
+        identity: ServiceIdentity,
     ) -> Result<ServiceIdentity, IdentityServiceError>;
     async fn delete(&self, identity: &'a ServiceIdentity) -> Result<(), IdentityServiceError>;
     async fn list(&self) -> Result<Vec<ServiceIdentity>, IdentityServiceError>;
+    async fn get(
+        &self,
+        identity: &'a ServiceIdentity,
+    ) -> Result<Option<ServiceIdentity>, IdentityServiceError>;
 }
 
 /*
@@ -160,8 +165,8 @@ impl ServiceCredentialProvider for IdentityManagerServiceCredentialsProvider {
     type From = ServiceLookup;
     type To = ServiceIdentity;
 
-    fn register_identity(&mut self, to: Self::To) -> () {
-        self.services.insert(to.service_id(), to);
+    fn register_or_update_identity(&mut self, to: Self::To) -> () {
+        *self.services.entry(to.service_id()).or_insert(to) = to.clone();
     }
 
     fn unregister_identity(&mut self, to: &Self::To) -> Option<Self::To> {
@@ -190,7 +195,7 @@ impl ServiceCredentialProvider for IdentityManagerServiceCredentialsProvider {
                             "[{}] ServiceCandidate {} has no associated ServiceIdentities. Registering.",
                             service_id, service_id
                         );
-                        self.register_identity(id.clone());
+                        self.register_or_update_identity(id.clone());
                         Some((id, true))
                     } else {
                         error!("[{}] Unable to get a new identity for service candidate {}, is the identities pool empty?", service_id, service_id);
@@ -201,9 +206,9 @@ impl ServiceCredentialProvider for IdentityManagerServiceCredentialsProvider {
         })
     }
 
-    fn identity(&self, from: &Self::From) -> Option<&Self::To> {
-        when_ok!((service_id: &Self::To = from.service_id()) {
-            self.services.get(&service_id)
+    fn identity(&mut self, from: &Self::From) -> Option<Entry<String, Self::To>> {
+        when_ok!((service_id: Entry<String, ServiceIdentity> = from.service_id()) {
+            Some(self.services.entry(service_id))
         })
     }
 
@@ -236,6 +241,7 @@ impl<'a> ServiceIdentityAPI<'a> for IdentityManagerServiceIdentityAPI {
         identity: &'a ServiceIdentity,
     ) -> Result<ServiceIdentity, IdentityServiceError> {
         let service_id = identity.service_id();
+        info!("Creating ServiceIdentity {:?}", &identity);
         match self.api.get_opt(&service_id).await? {
             None => {
                 let service_identity = self.api.create(&PostParams::default(), identity).await?;
@@ -253,20 +259,18 @@ impl<'a> ServiceIdentityAPI<'a> for IdentityManagerServiceIdentityAPI {
 
     async fn update(
         &self,
-        identity: &'a ServiceIdentity,
+        identity: ServiceIdentity,
     ) -> Result<ServiceIdentity, IdentityServiceError> {
-        if let Some(mut obj) = self.api.get_opt(&identity.service_name()).await? {
-            obj.spec = identity.spec.clone();
-            let new_obj = self
-                .api
-                .replace(&identity.service_name(), &PostParams::default(), &obj)
-                .await?;
-            Ok(new_obj)
-        } else {
-            Err(IdentityServiceError::from(format!(
-                "ServiceIdentity {} not found",
-                identity.service_name()
-            )))
+        match self.api.get_opt(&identity.service_name()).await? {
+            Some(mut obj) => {
+                obj.spec = identity.spec.clone();
+                let new_obj = self
+                    .api
+                    .replace(&identity.service_name(), &PostParams::default(), &obj)
+                    .await?;
+                Ok(new_obj)
+            }
+            None => Ok(self.create(&identity).await?),
         }
     }
 
@@ -299,6 +303,14 @@ impl<'a> ServiceIdentityAPI<'a> for IdentityManagerServiceIdentityAPI {
             .await
             .map(|xs| xs.items)
             .map_err(IdentityServiceError::from)
+    }
+
+    async fn get(
+        &self,
+        identity: &'a ServiceIdentity,
+    ) -> Result<Option<ServiceIdentity>, IdentityServiceError> {
+        let identity = self.api.get_opt(&identity.service_name()).await?;
+        Ok(identity)
     }
 }
 
@@ -369,7 +381,7 @@ impl<'a> ServiceIdentityAPI<'a> for IdentityManager<'a> {
 
     async fn update(
         &self,
-        identity: &'a ServiceIdentity,
+        identity: ServiceIdentity,
     ) -> Result<ServiceIdentity, IdentityServiceError> {
         self.service_identity_api.update(identity).await
     }
@@ -380,6 +392,13 @@ impl<'a> ServiceIdentityAPI<'a> for IdentityManager<'a> {
 
     async fn list(&self) -> Result<Vec<ServiceIdentity>, IdentityServiceError> {
         self.service_identity_api.list().await
+    }
+
+    async fn get(
+        &self,
+        identity: &'a ServiceIdentity,
+    ) -> Result<Option<ServiceIdentity>, IdentityServiceError> {
+        self.get(identity).await
     }
 }
 
@@ -534,7 +553,7 @@ impl<'a> IdentityManagerService<ServiceCandidate, ServiceIdentity> for IdentityM
                         x.service_id()
                     );
                     self.service_credentials_provider
-                        .register_identity(x.clone());
+                        .register_or_update_identity(x.clone());
                 }
             }
             Err(err) => {
@@ -672,10 +691,10 @@ impl<'a> IdentityManagerService<ServiceCandidate, ServiceIdentity> for IdentityM
     ) -> Result<(), IdentityServiceError> {
         when_ok!((candidate_service_id = service_candidate.service_id()) {
             let service_lookup = ServiceLookup::try_from_service(&service_candidate).unwrap();
-            if let Some(service_identity) = self.service_credentials_provider.identity(&service_lookup) {
+            if let Some(Entry::Occupied(entry)) = self.service_credentials_provider.identity(&service_lookup) {
                 info!(IdentityManagerProtocol::<ServiceCandidate, ServiceIdentity>::IdentityManagerDebug |(
                     "[{}] Found registered ServiceCandidate {}",
-                    service_identity.service_id(), service_identity.service_id()
+                    entry.get().service_id(), entry.get().service_id()
                 ) => self.external_queue_tx);
                 self.existing_service_candidates.insert(candidate_service_id.clone());
             } else {
@@ -723,20 +742,24 @@ impl<'a> IdentityManagerService<ServiceCandidate, ServiceIdentity> for IdentityM
             &service_user.name,
             &service_user.id
         );
-        if let Some(service_identity) = self
+        if let Some(Entry::Occupied(entry)) = self
             .service_credentials_provider
             .identity(&ServiceLookup::new(&service_ns, &service_name, None))
         {
-            let mut new_service_identity = service_identity.clone();
+            let mut new_service_identity = entry.get().clone();
             let new_user_name = service_user.name.clone();
             let user_id = service_user.id.clone();
             new_service_identity.spec.service_user = service_user;
-            if let Err(e) = self.update(&new_service_identity).await {
+            if let Err(e) = self
+                .service_identity_api
+                .update(new_service_identity.clone())
+                .await
+            {
                 error!("[{}] Error updating ServiceIdentity [{}/{}] after activating ServiceUser {} (id: {}): {}",
-                        service_identity.name(), &service_ns, &service_name, &new_user_name, &user_id, e);
+                        entry.get().name(), &service_ns, &service_name, &new_user_name, &user_id, e);
             }
             self.service_credentials_provider
-                .register_identity(new_service_identity);
+                .register_or_update_identity(new_service_identity);
         }
         Ok(())
     }
@@ -901,23 +924,23 @@ impl<'a> IdentityManagerService<ServiceCandidate, ServiceIdentity> for IdentityM
         when_ok!((candidate_service_id = service_candidate.service_id()) {
             let service_lookup = ServiceLookup::try_from_service(&service_candidate).unwrap();
             match self.service_credentials_provider.identity(&service_lookup) {
-                Some(identity_service) => {
+                Some(Entry::Occupied(entry)) => {
                     if let Err(e) = self.identity_manager_tx
                         .send(IdentityManagerProtocol::DeleteServiceIdentity(
-                            identity_service.clone(),
+                            entry.get().clone(),
                         ))
                         .await
                     {
                         // TODO: We should retry later
                         error!(
                             "[{}] Unable to queue message to delete ServiceIdentity {}: {}",
-                            identity_service.service_id(),
-                            identity_service.service_id(),
+                            entry.get().service_id(),
+                            entry.get().service_id(),
                             e.to_string()
                         );
                     };
                 }
-                None => {
+                _ => {
                     error!("[{}] Deleted ServiceCandidate {} has not IdentityService attached, ignoring!",
                         candidate_service_id, candidate_service_id);
                 }
@@ -931,55 +954,44 @@ impl<'a> IdentityManagerService<ServiceCandidate, ServiceIdentity> for IdentityM
         service_lookup: ServiceLookup,
         uuid: Uuid,
     ) -> Result<(), IdentityServiceError> {
-        if let Some(service_identity) = self.service_credentials_provider.identity(&service_lookup)
+        if let Some(Entry::Occupied(mut entry)) =
+            self.service_credentials_provider.identity(&service_lookup)
         {
-            info!(
-                "[{}] Releasing device id {}",
-                service_identity.service_name(),
-                uuid
-            );
-            let mut service_identity2 = service_identity.clone();
-            service_identity2
+            let service_identity = entry.get_mut();
+            service_identity
                 .spec
                 .service_user
                 .device_ids
                 .push(uuid.to_string());
-            self.update(&service_identity2).await?;
+            self.service_identity_api
+                .update(service_identity.clone())
+                .await?;
             self.identity_creator_queue
                 .send(IdentityCreatorProtocol::ReleaseDeviceId(
-                    service_identity.spec.service_user.clone(),
+                    entry.get_mut().spec.service_user.clone(),
                     uuid,
                 ))
                 .await
                 .map_err(SDPServiceError::from_error(
                     "Error asking IdentityCreator to release device id",
                 ))?;
-            Ok(())
         } else {
-            Ok(())
-        }
+            warn!(
+                "[{}] Unable to release device id {}, ServiceIdentity not found.",
+                service_lookup.name(),
+                uuid
+            );
+        };
+        Ok(())
     }
 }
 
 impl<'a> IdentityManagerRunner<ServiceCandidate, ServiceIdentity> for IdentityManager<'a> {}
 
-/// Load all the current ServiceIdentity
-/// Flow between services is:
-/// - IM collects all ServiceIdentity defined
-/// - IM asks IC to collect current ServiceUser
-/// - IC notifies IM with defined ServiceUser (active and not active)
-/// - DW notifies IM with the current defined ServiceCandidates
-/// - IM cleans up extra ServiceUser (credentials active in system without a ServiceIdentity)
-/// - IM cleans up ServiceIdentities that have ServiceUser not active
-/// - IM cleans up ServiceIdentities that don't have a ServiceCandidate attached
-/// - IM asks DW to start
-/// - DW sends the list of all CandidateServices (Deployments)
-/// - IM creates ServiceIdentity for those CandidateServices that need it and dont have one.
-
 #[cfg(test)]
 mod tests {
     use std::{
-        collections::{HashMap, HashSet},
+        collections::{hash_map::Entry, HashMap, HashSet},
         sync::{Arc, Mutex},
         time,
     };
@@ -1023,6 +1035,7 @@ mod tests {
         create_calls: Arc<RwLock<usize>>,
         list_calls: Arc<RwLock<usize>>,
         update_calls: Arc<RwLock<usize>>,
+        get_calls: Arc<RwLock<usize>>,
     }
 
     struct TestIdentityManager {
@@ -1058,11 +1071,20 @@ mod tests {
 
         async fn update(
             &self,
-            identity: &'a ServiceIdentity,
+            identity: ServiceIdentity,
         ) -> Result<ServiceIdentity, IdentityServiceError> {
             let mut c = self.update_calls.write().await;
             *c += 1;
             Ok(identity.clone())
+        }
+
+        async fn get(
+            &self,
+            identity: &'a ServiceIdentity,
+        ) -> Result<Option<ServiceIdentity>, IdentityServiceError> {
+            let mut c = self.get_calls.write().await;
+            *c += 1;
+            Ok(Some(identity.clone()))
         }
     }
 
@@ -1226,7 +1248,7 @@ mod tests {
             assert_eq!($service_credentials_provider.identities().len(), 0);
             // register new identities
             for i in $vs.clone() {
-                $service_credentials_provider.register_identity(i);
+                $service_credentials_provider.register_or_update_identity(i);
             }
             $e
         };
@@ -1262,9 +1284,18 @@ mod tests {
                 let mut is1: Vec<ServiceIdentity> = identities.iter().map(|i| i.clone()).collect();
                 let sorted_is1 = is1.sort_by(|a, b| a.spec().service_name.partial_cmp(&b.spec().service_name).unwrap());
                 assert_eq!(sorted_is0, sorted_is1);
-                assert!(im.identity(&ServiceLookup::try_from_service(&d1).unwrap()).is_none());
-                assert!(im.identity(&ServiceLookup::try_from_service(&d2).unwrap()).is_some());
-                assert!(im.identity(&ServiceLookup::try_from_service(&ss1).unwrap()).is_some());
+                assert!(matches!(
+                    im.identity(&ServiceLookup::try_from_service(&d1).unwrap()),
+                    Some(Entry::Vacant(_)))
+                );
+                assert!(matches!(
+                    im.identity(&ServiceLookup::try_from_service(&d2).unwrap()),
+                    Some(Entry::Occupied(_)))
+                );
+                assert!(matches!(
+                    im.identity(&ServiceLookup::try_from_service(&ss1).unwrap()),
+                    Some(Entry::Occupied(_)))
+                );
             }
         }
     }
