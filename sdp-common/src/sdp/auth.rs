@@ -61,21 +61,17 @@ pub struct SDPUser {
 }
 
 impl SDPUser {
-    pub fn from_name(name: String) -> Self {
+    pub fn new(id: String, name: Option<String>) -> Self {
         let password = Uuid::new_v4();
         Self {
-            id: name.clone(),
+            name: name.unwrap_or(id.clone()),
+            id,
             labels: HashMap::new(),
-            name: name,
             password: Some(password.to_string()),
             disabled: true,
             failed_login_attempts: None,
             lock_start: None,
         }
-    }
-
-    pub fn new() -> Self {
-        SDPUser::from_name(Uuid::new_v4().to_string())
     }
 }
 
