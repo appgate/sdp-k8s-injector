@@ -13,7 +13,7 @@ use sdp_macros::{
 
 use crate::identity_manager::IdentityManagerProtocol;
 
-logger!("SDPServiceWatcher");
+logger!("ServiceCandidateWatcher");
 
 #[derive(Debug, Clone)]
 pub enum ServiceCandidateWatcherProtocol {
