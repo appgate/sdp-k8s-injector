@@ -45,6 +45,29 @@ spec:
       containers:
         - name: {{ .Chart.Name }}-injector
           env:
+          env:
+            - name: SDP_SYSTEM_NO_VERIFY
+              value: {{ .Values.sdp.identityService.sdpSystemNoVerify | quote }}
+            - name: SDP_SYSTEM_HOSTS
+              valueFrom:
+                configMapKeyRef:
+                  name: sdp-injector-client-config
+                  key: client-controller-url
+            - name: SDP_K8S_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: {{ required ".Values.sdp.adminSecret is required" .Values.sdp.adminSecret }}
+                  key: sdp-injector-api-username
+            - name: SDP_K8S_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ required ".Values.sdp.adminSecret is required" .Values.sdp.adminSecret }}
+                  key: sdp-injector-api-password
+            - name: SDP_K8S_PROVIDER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ required ".Values.sdp.adminSecret is required" .Values.sdp.adminSecret }}
+                  key: sdp-injector-api-provider
             - name: SDP_LOG_CONFIG_FILE
               value: /opt/sdp-injector/log4rs.yaml
             - name: SDP_DEFAULT_CLIENT_VERSION
