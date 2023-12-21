@@ -429,14 +429,15 @@ impl IdentityCreator {
                 IdentityCreatorProtocol::CreateIdentity => {
                     match self.create_user().await {
                         Ok(service_user) => {
+                            let user_name = service_user.name.clone();
                             info!(
                                 "New ServiceUser {} (id: {}) created, notifying IdentityManager",
-                                service_user.name, service_user.id
+                                user_name, service_user.id
                             );
-                            let msg =
+                            let msg: IdentityManagerProtocol<ServiceCandidate, ServiceIdentity> =
                                 IdentityManagerProtocol::FoundServiceUser(service_user, false);
                             if let Err(err) = identity_manager_proto_tx.send(msg).await {
-                                error!("Error notifying identity: {}", err);
+                                error!("[{}] Error notifying identity: {}", user_name, err);
                                 // TODO: Try later, identity is already created
                             }
                         }
