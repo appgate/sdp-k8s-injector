@@ -957,12 +957,20 @@ impl<'a> IdentityManagerService<ServiceCandidate, ServiceIdentity> for IdentityM
         if let Some(Entry::Occupied(mut entry)) =
             self.service_credentials_provider.identity(&service_lookup)
         {
+            let uuid_s = uuid.to_string();
             let service_identity = entry.get_mut();
-            service_identity
+            if !service_identity
                 .spec
                 .service_user
                 .device_ids
-                .push(uuid.to_string());
+                .contains(&uuid_s)
+            {
+                service_identity
+                    .spec
+                    .service_user
+                    .device_ids
+                    .push(uuid.to_string());
+            }
             self.service_identity_api
                 .update(service_identity.clone())
                 .await?;
