@@ -34,12 +34,12 @@ pub enum ReleasedDeviceId {
 pub struct RegisteredDeviceId(VecDeque<Uuid>);
 
 impl RegisteredDeviceId {
-    fn push(&mut self, uuid: Uuid) -> () {
-        info!("[{}] Releasing device id", uuid);
+    fn push(&mut self, uuid: Uuid) -> Option<Uuid> {
         if !self.0.contains(&uuid) {
-            self.0.push_front(uuid)
+            self.0.push_front(uuid);
+            Some(uuid)
         } else {
-            warn!("[{}] Device id is already released", uuid);
+            None
         }
     }
 
@@ -100,6 +100,14 @@ impl<'a> InMemoryIdentityStore {
     }
 }
 
+fn merge_device_ids(device_ids_dest: &mut Vec<String>, device_ids_src: &Vec<String>) -> () {
+    for device_id in device_ids_src {
+        if !device_ids_dest.contains(&device_id) {
+            device_ids_dest.push(device_id.clone())
+        }
+    }
+}
+
 #[async_trait]
 impl<'a> IdentityStore<ServiceIdentity> for InMemoryIdentityStore {
     async fn register_or_update(
@@ -107,29 +115,30 @@ impl<'a> IdentityStore<ServiceIdentity> for InMemoryIdentityStore {
         service: ServiceIdentity,
     ) -> Result<ServiceIdentity, SDPServiceError> {
         let service_id = service.service_id();
-        let current_service = self.identities.get(&service_id.clone());
-        let mut current_device_ids = current_service
+        let service_name = service.service_name();
+        let before_registered_service = self.identities.get(&service_id.clone());
+        let current_device_ids = before_registered_service
             .map(|s| s.spec.service_user.device_ids.clone())
             .unwrap_or(vec![]);
-        let s = self
+        let after_registered_service = self
             .identities
             .entry(service_id.clone())
             .or_insert(service.clone());
-        s.spec.service_user.device_ids = service.spec.service_user.device_ids.clone();
-        s.spec
-            .service_user
-            .device_ids
-            .append(&mut current_device_ids);
-        s.spec.service_user.device_ids.dedup();
+        merge_device_ids(
+            &mut after_registered_service.spec.service_user.device_ids,
+            &service.spec.service_user.device_ids,
+        );
         let registered_device_id = self
             .registered_device_ids
             .entry(service_id.clone())
             .or_insert(RegisteredDeviceId::default());
-        let new_device_ids = service.spec.service_user.device_ids;
-        for device_id in new_device_ids {
+        for device_id in service.spec.service_user.device_ids {
             if !current_device_ids.contains(&device_id) {
                 if let Ok(uuid) = Uuid::parse_str(&device_id) {
-                    registered_device_id.push(uuid)
+                    info!("[{}|{}] Releasing device id", &service_name, uuid);
+                    if registered_device_id.push(uuid).is_none() {
+                        warn!("[{}|{}] Device id is already released", &service_name, uuid);
+                    }
                 }
             }
         }
@@ -161,7 +170,6 @@ impl<'a> IdentityStore<ServiceIdentity> for InMemoryIdentityStore {
                         "[{}] Got device id {} as a fresh device id",
                         service_id, uuid
                     );
-                    println!("FRESH!");
                     Ok((sid.clone(), uuid))
                 }
                 ReleasedDeviceId::FromPool(uuid) => {
@@ -169,7 +177,6 @@ impl<'a> IdentityStore<ServiceIdentity> for InMemoryIdentityStore {
                         "[{}] Got device id {} from the service identity pool of device ids",
                         service_id, uuid
                     );
-                    println!("CACHED!");
                     Ok((sid.clone(), uuid))
                 }
             },
@@ -311,7 +318,7 @@ mod tests {
     use sdp_macros::{service_identity, service_user};
     use uuid::Uuid;
 
-    use super::{IdentityStore, InMemoryIdentityStore};
+    use super::{merge_device_ids, IdentityStore, InMemoryIdentityStore};
     use sdp_common::crd::ServiceIdentitySpec;
     use sdp_common::service::{ServiceIdentity, ServiceUser};
 
@@ -378,9 +385,9 @@ mod tests {
         s1.spec.service_user.device_ids = vs.clone();
         let s11 = m.register_or_update(s1.clone()).await.unwrap();
         let vss = vec![
+            "f464d45a-869e-45e2-a4c0-b604fc2feafc".to_string(),
             "ecdfa8b7-39d9-44ba-8358-e8a693bf9c6d".to_string(),
             "b46eb528-a4fd-42b8-80b7-836d09fdb78c".to_string(),
-            "f464d45a-869e-45e2-a4c0-b604fc2feafc".to_string(),
         ];
         assert_eq!(s11.spec.service_user.device_ids, vss);
 
@@ -421,9 +428,9 @@ mod tests {
         // Update the service with shome device ids
         let mut s1: ServiceIdentity = service_identity!(0);
         let vs = vec![
+            "f464d45a-869e-45e2-a4c0-b604fc2feafc".to_string(),
             "ecdfa8b7-39d9-44ba-8358-e8a693bf9c6d".to_string(),
             "b46eb528-a4fd-42b8-80b7-836d09fdb78c".to_string(),
-            "f464d45a-869e-45e2-a4c0-b604fc2feafc".to_string(),
         ];
         s1.spec.service_user.device_ids = vs.clone();
         let s11 = m.register_or_update(s1.clone()).await.unwrap();
@@ -507,7 +514,7 @@ mod tests {
         if let ReleasedDeviceId::Fresh(uuid) = registered_device_id.pop() {
             // Release it
             fresh_uuid = Some(uuid.clone());
-            registered_device_id.push(uuid)
+            registered_device_id.push(uuid);
         } else {
             assert!(false, "Expected a fresh uuid since the pool was empty");
         }
@@ -528,5 +535,22 @@ mod tests {
         assert_eq!(got_uuid, ReleasedDeviceId::FromPool(uuids[0]));
         let got_uuid = registered_device_id.pop();
         assert_eq!(got_uuid, ReleasedDeviceId::FromPool(fresh_uuid.unwrap()));
+    }
+
+    #[test]
+    fn test_merge_device_ids() {
+        let mut xs0 = vec![
+            "60fb061e-2fbf-4a07-a730-0f12e9dbd5c9".to_string(),
+            "da34ad27-0276-4b91-ba7e-80a81e5da858".to_string(),
+        ];
+        let xs1 = vec!["60fb061e-2fbf-4a07-a730-0f12e9dbd5c9".to_string()];
+        merge_device_ids(&mut xs0, &xs1);
+        assert_eq!(
+            xs0,
+            vec![
+                "60fb061e-2fbf-4a07-a730-0f12e9dbd5c9".to_string(),
+                "da34ad27-0276-4b91-ba7e-80a81e5da858".to_string()
+            ]
+        );
     }
 }

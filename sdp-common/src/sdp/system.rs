@@ -4,7 +4,7 @@ use http::header::{InvalidHeaderValue, ACCEPT};
 use http::{HeaderValue, StatusCode};
 use reqwest::header::HeaderMap;
 use reqwest::{Client, Url};
-use sdp_macros::{logger, sdp_error, sdp_info, sdp_log, with_dollar_sign};
+use sdp_macros::{logger, sdp_info, sdp_log, with_dollar_sign};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
