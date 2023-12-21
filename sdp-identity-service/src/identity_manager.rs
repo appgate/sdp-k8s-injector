@@ -9,7 +9,8 @@ use sdp_common::traits::{
     HasCredentials, Labeled, MaybeNamespaced, MaybeService, Named, Namespaced, Service,
 };
 use sdp_macros::{
-    logger, queue_info, sdp_error, sdp_info, sdp_log, sdp_warn, when_ok, with_dollar_sign,
+    logger, queue_info, sdp_error, sdp_info, sdp_log, sdp_warn, service_identity, when_ok,
+    with_dollar_sign,
 };
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -241,7 +242,7 @@ impl<'a> ServiceIdentityAPI<'a> for IdentityManagerServiceIdentityAPI {
         identity: &'a ServiceIdentity,
     ) -> Result<ServiceIdentity, IdentityServiceError> {
         let service_id = identity.service_id();
-        info!("Creating ServiceIdentity {:?}", &identity);
+        info!("[{}] Creating ServiceIdentity", &identity.service_name());
         match self.api.get_opt(&service_id).await? {
             None => {
                 let service_identity = self.api.create(&PostParams::default(), identity).await?;
