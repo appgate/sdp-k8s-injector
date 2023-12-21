@@ -2,6 +2,7 @@ use std::collections::{HashMap, VecDeque};
 
 use async_trait::async_trait;
 use sdp_common::errors::SDPServiceError;
+use sdp_common::sdp::system::System;
 use sdp_common::service::ServiceIdentity;
 use sdp_common::traits::{HasCredentials, Service};
 use sdp_macros::{logger, sdp_error, sdp_info, sdp_log, sdp_warn, with_dollar_sign};
@@ -73,7 +74,11 @@ pub trait IdentityStore<A: Service + HasCredentials>: Send + Sync {
         uuid: Uuid,
     ) -> Result<Option<Uuid>, SDPServiceError>;
 
-    async fn register_or_update(&mut self, service: A) -> Result<A, SDPServiceError>;
+    async fn register_or_update(
+        &mut self,
+        service: A,
+        used_device_ids: Option<Vec<String>>,
+    ) -> Result<A, SDPServiceError>;
 
     async fn unregister_service<'a>(
         &mut self,
@@ -100,9 +105,13 @@ impl<'a> InMemoryIdentityStore {
     }
 }
 
-fn merge_device_ids(device_ids_dest: &mut Vec<String>, device_ids_src: &Vec<String>) -> () {
+fn merge_device_ids(
+    device_ids_dest: &mut Vec<String>,
+    device_ids_src: &Vec<String>,
+    used_device_ids: Vec<String>,
+) -> () {
     for device_id in device_ids_src {
-        if !device_ids_dest.contains(&device_id) {
+        if !device_ids_dest.contains(&device_id) && !used_device_ids.contains(device_id) {
             device_ids_dest.push(device_id.clone())
         }
     }
@@ -113,6 +122,7 @@ impl<'a> IdentityStore<ServiceIdentity> for InMemoryIdentityStore {
     async fn register_or_update(
         &mut self,
         service: ServiceIdentity,
+        used_device_ids: Option<Vec<String>>,
     ) -> Result<ServiceIdentity, SDPServiceError> {
         let service_id = service.service_id();
         let service_name = service.service_name();
@@ -124,14 +134,15 @@ impl<'a> IdentityStore<ServiceIdentity> for InMemoryIdentityStore {
             .identities
             .entry(service_id.clone())
             .or_insert(service.clone());
-        merge_device_ids(
-            &mut after_registered_service.spec.service_user.device_ids,
-            &service.spec.service_user.device_ids,
-        );
         let registered_device_id = self
             .registered_device_ids
             .entry(service_id.clone())
             .or_insert(RegisteredDeviceId::default());
+        merge_device_ids(
+            &mut after_registered_service.spec.service_user.device_ids,
+            &service.spec.service_user.device_ids,
+            used_device_ids.unwrap_or(vec![]),
+        );
         for device_id in service.spec.service_user.device_ids {
             if !current_device_ids.contains(&device_id) {
                 if let Ok(uuid) = Uuid::parse_str(&device_id) {
@@ -242,6 +253,7 @@ impl DeviceIdProvider<ServiceIdentity> {
         &mut self,
         mut provider_rx: Receiver<DeviceIdProviderRequestProtocol<ServiceIdentity>>,
         mut watcher_rx: Receiver<DeviceIdProviderRequestProtocol<ServiceIdentity>>,
+        mut sdp_system: System,
     ) {
         info!("Starting DeviceID Provider");
         loop {
@@ -253,7 +265,14 @@ impl DeviceIdProvider<ServiceIdentity> {
                             info!("[{}] {} service {}", service_id,
                                 if reapplied {"Updating"} else {"Registering"},
                                 &service_id);
-                            if let Err(e) = self.store.register_or_update(s).await {
+                            let used_device_ids: Option<Vec<String>> = match sdp_system.get_registered_device_ids(&s.spec.service_user.name).await {
+                                Ok(onboarded_devices) => {
+                                    Some(onboarded_devices.iter().map(|a| a.device_id.clone()).collect())
+                                },
+                                Err(_) => None
+                            };
+
+                            if let Err(e) = self.store.register_or_update(s, used_device_ids).await {
                                 error!("[{}] Unable to {} service identity {}: {}",
                                     service_id,
                                     if reapplied {"register"} else {"update"},
@@ -353,7 +372,7 @@ mod tests {
         let mut m = InMemoryIdentityStore::new();
         let s: ServiceIdentity = service_identity!(0);
         let service_id = &s.service_id();
-        m.register_or_update(s.clone()).await.unwrap();
+        m.register_or_update(s.clone(), None).await.unwrap();
         let (got_s, got_uuid) = m.pop_device_id(&service_id).await.unwrap();
         assert!(Uuid::try_parse(&got_uuid.to_string()).is_ok());
         assert_eq!(got_s.spec, s.spec);
@@ -373,7 +392,7 @@ mod tests {
         s0.spec.service_user.device_ids = vs.clone();
 
         // Register first the service (no device ids)
-        let s00 = m.register_or_update(s0.clone()).await.unwrap();
+        let s00 = m.register_or_update(s0.clone(), None).await.unwrap();
         assert_eq!(s00.spec.service_user.device_ids, vs);
 
         // Update the service with shome device ids
@@ -383,7 +402,7 @@ mod tests {
             "b46eb528-a4fd-42b8-80b7-836d09fdb78c".to_string(),
         ];
         s1.spec.service_user.device_ids = vs.clone();
-        let s11 = m.register_or_update(s1.clone()).await.unwrap();
+        let s11 = m.register_or_update(s1.clone(), None).await.unwrap();
         let vss = vec![
             "f464d45a-869e-45e2-a4c0-b604fc2feafc".to_string(),
             "ecdfa8b7-39d9-44ba-8358-e8a693bf9c6d".to_string(),
@@ -422,7 +441,7 @@ mod tests {
         s0.spec.service_user.device_ids = vs.clone();
 
         // Register first the service (no device ids)
-        let s00 = m.register_or_update(s0.clone()).await.unwrap();
+        let s00 = m.register_or_update(s0.clone(), None).await.unwrap();
         assert_eq!(s00.spec.service_user.device_ids, vs);
 
         // Update the service with shome device ids
@@ -433,7 +452,7 @@ mod tests {
             "b46eb528-a4fd-42b8-80b7-836d09fdb78c".to_string(),
         ];
         s1.spec.service_user.device_ids = vs.clone();
-        let s11 = m.register_or_update(s1.clone()).await.unwrap();
+        let s11 = m.register_or_update(s1.clone(), None).await.unwrap();
         assert_eq!(s11.spec.service_user.device_ids, vs);
 
         // Test that the new device ids are used
@@ -462,8 +481,10 @@ mod tests {
         let uuids: Vec<Uuid> = (0..3).map(|_i| Uuid::new_v4()).collect();
         let s: ServiceIdentity = service_identity!(0);
         let service_id = &s.service_id();
-        m.register_or_update(s.clone()).await.unwrap();
-        m.register_or_update(service_identity!(0)).await.unwrap();
+        m.register_or_update(s.clone(), None).await.unwrap();
+        m.register_or_update(service_identity!(0), None)
+            .await
+            .unwrap();
         for uuid in &uuids {
             let _ = m.push_device_id(service_id, uuid.clone()).await;
         }
@@ -544,7 +565,7 @@ mod tests {
             "da34ad27-0276-4b91-ba7e-80a81e5da858".to_string(),
         ];
         let xs1 = vec!["60fb061e-2fbf-4a07-a730-0f12e9dbd5c9".to_string()];
-        merge_device_ids(&mut xs0, &xs1);
+        merge_device_ids(&mut xs0, &xs1, vec![]);
         assert_eq!(
             xs0,
             vec![

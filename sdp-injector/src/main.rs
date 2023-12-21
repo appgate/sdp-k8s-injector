@@ -17,6 +17,7 @@ use hyper::Server;
 use kube::{Api, Client, Config};
 use sdp_common::crd::ServiceIdentity;
 use sdp_common::kubernetes::{KUBE_SYSTEM_NAMESPACE, SDP_K8S_NAMESPACE};
+use sdp_common::sdp::system::get_sdp_system;
 use sdp_common::service::get_log_config_path;
 use sdp_common::watcher::{watch, Watcher};
 use sdp_macros::{logger, sdp_debug, sdp_error, sdp_info, sdp_log, sdp_warn, with_dollar_sign};
@@ -139,7 +140,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
     // Spawn the DeviceIdProvider
     tokio::spawn(async move {
         let mut device_id_provider = DeviceIdProvider::new(None);
-        device_id_provider.run(device_id_rx, watcher_rx).await;
+        let sdp_system = get_sdp_system();
+        device_id_provider
+            .run(device_id_rx, watcher_rx, sdp_system)
+            .await;
     });
 
     info!("Starting SDP Injector server");
