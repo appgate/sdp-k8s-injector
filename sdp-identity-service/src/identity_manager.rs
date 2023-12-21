@@ -9,8 +9,7 @@ use sdp_common::traits::{
     HasCredentials, Labeled, MaybeNamespaced, MaybeService, Named, Namespaced, Service,
 };
 use sdp_macros::{
-    logger, queue_info, sdp_error, sdp_info, sdp_log, sdp_warn, service_identity, when_ok,
-    with_dollar_sign,
+    logger, queue_info, sdp_error, sdp_info, sdp_log, sdp_warn, when_ok, with_dollar_sign,
 };
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -548,11 +547,7 @@ impl<'a> IdentityManagerService<ServiceCandidate, ServiceIdentity> for IdentityM
             Ok(xs) => {
                 info!("Restoring previous Service Identity instances");
                 for x in xs {
-                    info!(
-                        "[{}] Restoring Service Identity {}",
-                        x.service_id(),
-                        x.service_id()
-                    );
+                    info!("[{}] Restoring Service Identity", x.service_name());
                     self.service_credentials_provider
                         .register_or_update_identity(x.clone());
                 }
@@ -714,8 +709,9 @@ impl<'a> IdentityManagerService<ServiceCandidate, ServiceIdentity> for IdentityM
         service_user: ServiceUser,
         activated: bool,
     ) -> Result<(), IdentityServiceError> {
+        let user_name = service_user.name.clone();
         if !activated {
-            info!(IdentityManagerProtocol::<ServiceCandidate, ServiceIdentity>::IdentityManagerDebug | ("Found deactivated ServiceUser {} (id: {})", service_user.name, service_user.id) => self.external_queue_tx);
+            info!(IdentityManagerProtocol::<ServiceCandidate, ServiceIdentity>::IdentityManagerDebug | ("[{} | {}] Found deactivated ServiceUser", user_name, service_user.id) => self.external_queue_tx);
             self.existing_deactivated_credentials
                 .insert(service_user.id.clone());
             self.service_credentials_provider.push(service_user);
@@ -723,8 +719,8 @@ impl<'a> IdentityManagerService<ServiceCandidate, ServiceIdentity> for IdentityM
             self.existing_activated_credentials
                 .insert(service_user.id.clone());
             info!(IdentityManagerProtocol::<ServiceCandidate, ServiceIdentity>::IdentityManagerDebug |(
-                "Found activated ServiceUser {} (id: {})",
-                service_user.name,
+                "[{} | {}] Found activated ServiceUser",
+                user_name,
                 service_user.id
             ) => self.external_queue_tx);
         }
