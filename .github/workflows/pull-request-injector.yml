@@ -7,11 +7,9 @@ on:
     paths:
       - docker/sdp-k8s-injector-Dockerfile
       - sdp-common/*
-      - sdp-device-id-service/*
       - sdp-identity-service/*
       - sdp-injector/*
       - sdp-macros/*
-      - sdp-proc-macros/*
       - sdp-test-macros/*
       - Cargo.lock
       - Cargo.toml
