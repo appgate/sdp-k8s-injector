@@ -52,5 +52,4 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry,id=k8s-injector-registry
     --mount=type=cache,target=/sdp-build/target,id=k8s-injector-deps \
     mkdir -p /sdp-build/bin && \
     cp /sdp-build/target/$PROFILE/sdp-injector /sdp-build/bin && \
-    cp /sdp-build/target/$PROFILE/sdp-identity-service /sdp-build/bin && \
-    cp /sdp-build/target/$PROFILE/sdp-device-id-service /sdp-build/bin
+    cp /sdp-build/target/$PROFILE/sdp-identity-service /sdp-build/bin
