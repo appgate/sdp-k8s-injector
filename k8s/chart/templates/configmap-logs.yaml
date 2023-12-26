@@ -6,24 +6,6 @@ metadata:
   labels:
   {{- include "sdp-injector.labels" . | nindent 4 }}
 data:
-  sdp-device-id-service-log4rs.yaml: |
-    refresh_rate: 30 seconds
-    appenders:
-      stdout:
-        kind: console
-        encoder:
-          pattern: "{h({d(%Y-%m-%d %H:%M:%S %Z)} {l} {m}{n})}"
-      file:
-        kind: file
-        path: "sdp-device-id-service.log"
-        encoder:
-          pattern: "{d(%Y-%m-%d %H:%M:%S %Z)} {l} {m}{n}"
-    root:
-      level: {{ .Values.sdp.deviceIdService.logLevel }}
-      appenders:
-        - stdout
-        - file
-
   sdp-identity-service-log4rs.yaml: |
     refresh_rate: 30 seconds
     appenders:
