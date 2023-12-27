@@ -806,8 +806,6 @@ impl<'a> IdentityManagerService<ServiceCandidate, ServiceIdentity> for IdentityM
         let mut removed_service_identities: HashSet<String> = HashSet::new();
         info!("IdentityManager is ready");
 
-        info!(IdentityManagerProtocol::<ServiceCandidate, ServiceIdentity>::IdentityManagerDebug |("Syncing UserCredentials") => self.external_queue_tx);
-
         // Here we do a basic cleanup of the current state
         // 1. First we ask for deletion for all the ServiceIdentity instances that don't have a known
         //    ServiceCandidate. This will eventually remove the ServiceUser associated
