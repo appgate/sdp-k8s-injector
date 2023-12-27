@@ -169,7 +169,7 @@ impl IdentityCreator {
             .system
             .create_user(&service_user)
             .await
-            .map(|u| ServiceUser::from_sdp_user(&u, &profile_url, None, vec![]))?
+            .map(|u| ServiceUser::from_sdp_user(&u, &profile_url, None, Some(vec![])))?
         {
             service_user
                 .update_secrets_fields(
@@ -189,7 +189,7 @@ impl IdentityCreator {
     async fn delete_sdp_user(&mut self, sdp_user: SDPUser) -> Result<(), IdentityServiceError> {
         // Derive a ServiceUser that we can use to delete the secret fields
         if let Some(service_user) =
-            ServiceUser::from_sdp_user(&sdp_user, &ClientProfileUrl::default(), None, vec![])
+            ServiceUser::from_sdp_user(&sdp_user, &ClientProfileUrl::default(), None, Some(vec![]))
         {
             service_user
                 .delete_secrets_fields(
@@ -224,7 +224,7 @@ impl IdentityCreator {
             sdp_user,
             client_profile_url,
             Some(&uuid::Uuid::new_v4().to_string()),
-            device_ids.iter().map(|uuid| uuid.to_string()).collect(),
+            Some(device_ids.iter().map(|uuid| uuid.to_string()).collect()),
         )
         .unwrap();
         service_user

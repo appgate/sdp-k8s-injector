@@ -51,7 +51,6 @@ spec:
                   profile_url:
                     type: string
                 required:
-                - device_ids
                 - id
                 - name
                 - password

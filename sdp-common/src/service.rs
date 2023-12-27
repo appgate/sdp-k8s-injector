@@ -160,7 +160,7 @@ pub struct ServiceUser {
     pub name: String,
     pub password: String,
     pub profile_url: String,
-    pub device_ids: Vec<String>,
+    pub device_ids: Option<Vec<String>>,
 }
 
 fn bytes_to_string(bs: &ByteString) -> Option<String> {
@@ -186,7 +186,7 @@ impl ServiceUser {
         sdp_user: &SDPUser,
         client_profile_url: &ClientProfileUrl,
         password: Option<&str>,
-        device_ids: Vec<String>,
+        device_ids: Option<Vec<String>>,
     ) -> Option<Self> {
         password
             .or_else(|| sdp_user.password.as_ref().map(|s| s.as_str()))

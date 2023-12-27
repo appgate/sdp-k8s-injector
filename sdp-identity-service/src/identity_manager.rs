@@ -956,16 +956,21 @@ impl<'a> IdentityManagerService<ServiceCandidate, ServiceIdentity> for IdentityM
         {
             let uuid_s = uuid.to_string();
             let service_identity = entry.get_mut();
-            if !service_identity
-                .spec
-                .service_user
-                .device_ids
-                .contains(&uuid_s)
+            if service_identity.spec.service_user.device_ids.is_some()
+                && !service_identity
+                    .spec
+                    .service_user
+                    .device_ids
+                    .as_ref()
+                    .unwrap()
+                    .contains(&uuid_s)
             {
                 service_identity
                     .spec
                     .service_user
                     .device_ids
+                    .as_mut()
+                    .unwrap()
                     .push(uuid.to_string());
             }
             self.service_identity_api
