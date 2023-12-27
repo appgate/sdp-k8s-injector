@@ -61,17 +61,21 @@ pub struct SDPUser {
 }
 
 impl SDPUser {
-    pub fn new(id: String, name: Option<String>) -> Self {
+    pub fn new(id: String, name: Option<String>, disabled: Option<bool>) -> Self {
         let password = Uuid::new_v4();
         Self {
             name: name.unwrap_or(id.clone()),
             id,
             labels: HashMap::new(),
             password: Some(password.to_string()),
-            disabled: true,
+            disabled: disabled.unwrap_or(true),
             failed_login_attempts: None,
             lock_start: None,
         }
+    }
+
+    pub fn prefix_name(self: &Self) -> Option<String> {
+        (!self.disabled).then_some(self.name[0..(self.name.len() - 6)].to_string())
     }
 }
 

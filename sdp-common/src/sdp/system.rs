@@ -7,6 +7,7 @@ use reqwest::{Client, Url};
 use sdp_macros::{logger, sdp_info, sdp_log, with_dollar_sign};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use std::time::Duration;
 use uuid::Uuid;
 
@@ -336,7 +337,7 @@ impl System {
         info!("Releasing device id {}", distinguished_name);
         let mut url = Url::from(self.hosts[0].clone());
         let base_url = url.clone();
-        // This should be enconded with this
+        // This should be encoded with this
         // https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/encodeURIComponent
         url.path_segments_mut()
             .map_err(|_| SDPClientError {
@@ -370,8 +371,18 @@ impl System {
     pub async fn unregister_device_ids_for_username(
         &mut self,
         username: &str,
+        filter_names: Option<&HashSet<String>>,
     ) -> Result<(), SDPClientError> {
-        for onboarded_device in self.get_registered_device_ids(username).await? {
+        for onboarded_device in self
+            .get_registered_device_ids(username)
+            .await?
+            .iter()
+            .filter(|od| {
+                filter_names.is_none()
+                    || (filter_names.is_some()
+                        && !filter_names.as_ref().unwrap().contains(&od.username))
+            })
+        {
             self.unregister_device_id(&onboarded_device.distinguished_name)
                 .await?;
         }

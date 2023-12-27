@@ -810,7 +810,10 @@ impl<'a> IdentityManagerService<ServiceCandidate, ServiceIdentity> for IdentityM
         // 1. First we ask for deletion for all the ServiceIdentity instances that don't have a known
         //    ServiceCandidate. This will eventually remove the ServiceUser associated
         // 2. Now we remove all the known active ServiceUser instances that don't belong to any ServiceIdentity
-        // 3. Finally we delete any ServiceIdentity instance that does not have a ServiceUser activated
+        // 3. Then we delete any ServiceIdentity instance that does not have a ServiceUser activated
+        // 4. Finally we unregister all device ids for current services that have unused clients:
+        //    Example: ns1_app1_XXXXX is active but we have device ids registered for ns1_app1_YYYYY and
+        //             ns1_app1_ZZZZZ. Then ns1_app1_YYYYY and ns1_app1_ZZZZZ will be unregistered.
 
         info!(IdentityManagerProtocol::<ServiceCandidate, ServiceIdentity>::IdentityManagerDebug |("Syncing ServiceIdentity instances") => self.external_queue_tx);
 
@@ -892,6 +895,20 @@ impl<'a> IdentityManagerService<ServiceCandidate, ServiceIdentity> for IdentityM
             }
         }
 
+        // Reconcile sdp_user device ids registered for active users that have a ServiceIdentity
+        self.identity_creator_queue
+            .send(IdentityCreatorProtocol::ReconcileSDPUsers(
+                HashSet::from_iter(
+                    self.service_credentials_provider
+                        .identities()
+                        .iter()
+                        .map(|s| s.credentials().name.clone()),
+                ),
+            ))
+            .await
+            .expect("Error reconciliating SDP users");
+
+        // Request ServiceIdentity for candidates that dont have it
         for (service_candidate_id, service_candidate) in &self.missing_service_candidates {
             info!(
                 "[{}] Requesting missing ServiceCandidate {}",
