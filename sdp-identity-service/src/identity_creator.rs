@@ -204,12 +204,18 @@ impl IdentityCreator {
             "Deleting SDPUser and associated device ids {} (id: {})",
             sdp_user.name, sdp_user.id
         );
-        self.system
-            .unregister_device_ids_for_username(
-                &sdp_user.prefix_name().unwrap_or(sdp_user.name),
-                None,
-            )
-            .await?;
+        let user_name = sdp_user.prefix_name().unwrap_or(sdp_user.name);
+        if let Err(e) = self
+            .system
+            .unregister_device_ids_for_username(&user_name, None)
+            .await
+        {
+            error!(
+                "[{}] Unable to unregister device ids: {}",
+                user_name,
+                e.to_string()
+            );
+        }
         self.system
             .delete_user(&sdp_user.id)
             .await
@@ -329,21 +335,28 @@ impl IdentityCreator {
 
             // Get the current registered device ids for use
             info!("Recovering SDPUser {}", &sdp_user.name);
-            let device_ids = system
-                .get_registered_device_ids_for_user(&sdp_user)
-                .await?
-                .iter()
-                .map(|u| {
-                    if let Ok(device_id) = Uuid::parse_str(&u.device_id) {
-                        Some(device_id)
-                    } else {
-                        error!("Unable to parse device id");
-                        None
-                    }
-                })
-                .filter(Option::is_some)
-                .map(Option::unwrap)
-                .collect();
+            let mut device_ids = vec![];
+            if let Ok(on_boarded_users) = system.get_registered_device_ids_for_user(&sdp_user).await
+            {
+                device_ids = on_boarded_users
+                    .iter()
+                    .map(|u| {
+                        if let Ok(device_id) = Uuid::parse_str(&u.device_id) {
+                            Some(device_id)
+                        } else {
+                            error!(
+                                "[{}] Unable to parse device id: {}",
+                                sdp_user.name, &u.device_id
+                            );
+                            None
+                        }
+                    })
+                    .filter(Option::is_some)
+                    .map(Option::unwrap)
+                    .collect();
+            } else {
+                error!("[{}] Unable to recover device ids for user", sdp_user.name);
+            }
 
             // Derive now our ServiceUser from SDPUser, recovering passwords if needed.
             if let Some(service_user) = self
