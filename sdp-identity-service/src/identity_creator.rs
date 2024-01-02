@@ -176,6 +176,7 @@ impl IdentityCreator {
                 .update_secrets_fields(
                     self.secrets_api(SDP_K8S_NAMESPACE),
                     IDENTITY_MANAGER_SECRET_NAME,
+                    false,
                 )
                 .await
                 .map_err(|e| IdentityServiceError::from(e.to_string()))
@@ -518,7 +519,11 @@ impl IdentityCreator {
                         service_user.id
                     );
                     if let Err(e) = service_user
-                        .create_secrets(self.secrets_api(&service_ns), &service_ns, &service_name)
+                        .create_or_update_secrets(
+                            self.secrets_api(&service_ns),
+                            &service_ns,
+                            &service_name,
+                        )
                         .await
                     {
                         error!(
