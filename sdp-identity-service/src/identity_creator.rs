@@ -277,43 +277,6 @@ impl IdentityCreator {
         Ok(())
     }
 
-    async fn delete_user(
-        &mut self,
-        service_user: &ServiceUser,
-        service_ns: &str,
-        service_name: &str,
-    ) -> Result<(), IdentityServiceError> {
-        let sdp_user = SDPUser::new(
-            service_user.id.clone(),
-            Some(service_user.name.clone()),
-            None,
-        );
-        self.delete_sdp_user(sdp_user).await?;
-        service_user
-            .delete_secrets(self.secrets_api(service_ns), service_ns, service_name)
-            .await
-            .map_err(|e| {
-                IdentityServiceError::from(format!(
-                    "[{}] Unable to delete secrets for ServiceUser {}: {}",
-                    format!("{}_{}", service_ns, service_name),
-                    service_user.name,
-                    e.to_string()
-                ))
-            })?;
-        service_user
-            .delete_config(self.configmap_api(service_ns), service_ns, service_name)
-            .await
-            .map_err(|e| {
-                IdentityServiceError::from(format!(
-                    "[{}] Unable to delete secrets for ServiceUser {}: {}",
-                    format!("{}_{}", service_ns, service_name),
-                    service_user.name,
-                    e.to_string()
-                ))
-            })?;
-        Ok(())
-    }
-
     pub async fn initialize(
         &mut self,
         system: &mut System,
@@ -474,22 +437,33 @@ impl IdentityCreator {
                     service_name,
                 ) => {
                     info!(
-                        "[{}] Deleting ServiceUser {}",
-                        format!("{}_{}", service_ns, service_name),
-                        service_user.name
+                        "[{}|{}] Deleting ServiceUser",
+                        service_user.name, service_user.id
                     );
-
-                    if let Err(err) = self
-                        .delete_user(&service_user, &service_ns, &service_name)
+                    let sdp_user = SDPUser::new(
+                        service_user.id.clone(),
+                        Some(service_user.name.clone()),
+                        None,
+                    );
+                    if let Err(err) = self.delete_sdp_user(sdp_user).await {
+                        error!(
+                            "[{}|{}] Error deleting ServiceUser: {}",
+                            service_user.name, service_user.id, err
+                        );
+                    }
+                    info!("[{}] Deleting secrets", service_user.name);
+                    if let Err(err) = service_user
+                        .delete_secrets(self.secrets_api(&service_ns), &service_ns, &service_name)
                         .await
                     {
-                        error!(
-                            "[{}] Error deleting ServiceUser {} (id: {}): {}",
-                            format!("{}_{}", service_ns, service_name),
-                            service_user.name,
-                            service_user.id,
-                            err
-                        );
+                        error!("[{}] Error deleting secrets: {}", service_user.name, err);
+                    }
+                    info!("[{}] Deleting config", service_user.name);
+                    if let Err(err) = service_user
+                        .delete_config(self.configmap_api(&service_ns), &service_ns, &service_name)
+                        .await
+                    {
+                        error!("[{}] Error deleting config: {}", service_user.name, err);
                     }
                 }
                 IdentityCreatorProtocol::ActivateServiceUser(
