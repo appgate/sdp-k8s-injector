@@ -13,7 +13,7 @@ use sdp_macros::{
 
 use crate::identity_manager::IdentityManagerProtocol;
 
-logger!("SDPServiceWatcher");
+logger!("ServiceCandidateWatcher");
 
 #[derive(Debug, Clone)]
 pub enum ServiceCandidateWatcherProtocol {
@@ -50,9 +50,7 @@ trait ServiceCandidateProtocol {
             let ns_candidate = ns.as_ref().and_then(|ns| ns.labels().get(SDP_INJECTOR_LABEL)).map(|s| s.eq_ignore_ascii_case("enabled")).unwrap_or(false);
             if ns_candidate && self.service_candidate().is_candidate() {
                 info!("[{}] Applied service candidate {}", service_id, service_id);
-                Some(IdentityManagerProtocol::RequestServiceIdentity {
-                    service_candidate: self.service_candidate().clone(),
-                })
+                Some(IdentityManagerProtocol::RequestServiceIdentity(self.service_candidate().clone()))
             } else {
                 info!("[{}] Ignoring applied service candidate, not a candidate {}", service_id, service_id);
                 None

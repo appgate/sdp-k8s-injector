@@ -1637,7 +1637,7 @@ dependencies = [
 
 [[package]]
 name = "sdp-common"
-version = "1.1.2"
+version = "1.2.0"
 dependencies = [
  "chrono",
  "const_format",
@@ -1659,28 +1659,8 @@ dependencies = [
 ]
 
 [[package]]
-name = "sdp-device-id-service"
-version = "1.1.2"
-dependencies = [
- "async-trait",
- "clap",
- "futures",
- "k8s-openapi",
- "kube",
- "log",
- "log4rs",
- "sdp-common",
- "sdp-macros",
- "sdp-proc-macros",
- "sdp-test-macros",
- "serde_json",
- "tokio",
- "uuid",
-]
-
-[[package]]
 name = "sdp-identity-service"
-version = "1.1.2"
+version = "1.2.0"
 dependencies = [
  "async-trait",
  "clap",
@@ -1692,7 +1672,6 @@ dependencies = [
  "log4rs",
  "sdp-common",
  "sdp-macros",
- "sdp-proc-macros",
  "sdp-test-macros",
  "serde_json",
  "tokio",
@@ -1701,7 +1680,7 @@ dependencies = [
 
 [[package]]
 name = "sdp-injector"
-version = "1.1.2"
+version = "1.2.0"
 dependencies = [
  "async-trait",
  "futures",
@@ -1729,20 +1708,11 @@ dependencies = [
 
 [[package]]
 name = "sdp-macros"
-version = "1.1.2"
-
-[[package]]
-name = "sdp-proc-macros"
-version = "1.1.2"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.39",
-]
+version = "1.2.0"
 
 [[package]]
 name = "sdp-test-macros"
-version = "1.1.2"
+version = "1.2.0"
 
 [[package]]
 name = "secrecy"

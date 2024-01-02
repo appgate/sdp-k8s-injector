@@ -14,6 +14,7 @@ use sdp_common::service::{
 };
 use sdp_macros::{logger, sdp_debug, sdp_error, sdp_info, sdp_log, sdp_warn, with_dollar_sign};
 use tokio::sync::mpsc::{Receiver, Sender};
+use uuid::Uuid;
 
 use crate::errors::IdentityServiceError;
 use crate::identity_manager::{IdentityManagerProtocol, ServiceIdentity};
@@ -34,6 +35,8 @@ pub enum IdentityCreatorProtocol {
     DeleteServiceUser(ServiceUser, String, String),
     // sdp user name
     DeleteSDPUser(String),
+    ReconcileSDPUsers(HashSet<String>),
+    ReleaseDeviceId(ServiceUser, Uuid),
 }
 
 pub struct IdentityCreator {
@@ -131,7 +134,7 @@ async fn get_client_profile_url(
 }
 
 impl IdentityCreator {
-    pub fn new(system: System, client: Client, credentials_pool_size: usize) -> IdentityCreator {
+    pub fn new(system: System, client: Client, service_users_pool_size: usize) -> IdentityCreator {
         let cluster_id = std::env::var(SDP_CLUSTER_ID_ENV);
         if cluster_id.is_err() {
             panic!(
@@ -140,8 +143,8 @@ impl IdentityCreator {
         }
         IdentityCreator {
             system,
-            client: client,
-            service_users_pool_size: credentials_pool_size,
+            client,
+            service_users_pool_size,
             cluster_id: cluster_id.unwrap(),
         }
     }
@@ -157,7 +160,7 @@ impl IdentityCreator {
     }
 
     async fn create_user(&mut self) -> Result<ServiceUser, IdentityServiceError> {
-        let service_user = SDPUser::new();
+        let service_user = SDPUser::new(Uuid::new_v4().to_string(), None, None);
         let profile_url = get_client_profile_url(&mut self.system, &self.cluster_id).await?;
         info!(
             "Creating ServiceUser {} (id: {})",
@@ -167,7 +170,7 @@ impl IdentityCreator {
             .system
             .create_user(&service_user)
             .await
-            .map(|u| ServiceUser::from_sdp_user(&u, &profile_url, None))?
+            .map(|u| ServiceUser::from_sdp_user(&u, &profile_url, None, Some(vec![])))?
         {
             service_user
                 .update_secrets_fields(
@@ -184,12 +187,10 @@ impl IdentityCreator {
         }
     }
 
-    async fn delete_sdp_user(&mut self, sdp_user_id: &str) -> Result<(), IdentityServiceError> {
-        // Create a default SDPUser with the name of the one we want to delete
-        let sdp_user = SDPUser::from_name(sdp_user_id.to_string());
+    async fn delete_sdp_user(&mut self, sdp_user: SDPUser) -> Result<(), IdentityServiceError> {
         // Derive a ServiceUser that we can use to delete the secret fields
         if let Some(service_user) =
-            ServiceUser::from_sdp_user(&sdp_user, &ClientProfileUrl::default(), None)
+            ServiceUser::from_sdp_user(&sdp_user, &ClientProfileUrl::default(), None, Some(vec![]))
         {
             service_user
                 .delete_secrets_fields(
@@ -199,9 +200,24 @@ impl IdentityCreator {
                 .await
                 .map_err(|e| IdentityServiceError::from(e.to_string()))?;
         }
-        info!("Deleting SDPUser {} (id: {})", sdp_user.name, sdp_user.id);
+        info!(
+            "Deleting SDPUser and associated device ids {} (id: {})",
+            sdp_user.name, sdp_user.id
+        );
+        let user_name = sdp_user.prefix_name().unwrap_or(sdp_user.name);
+        if let Err(e) = self
+            .system
+            .unregister_device_ids_for_username(&user_name, None)
+            .await
+        {
+            error!(
+                "[{}] Unable to unregister device ids: {}",
+                user_name,
+                e.to_string()
+            );
+        }
         self.system
-            .delete_user(sdp_user_id)
+            .delete_user(&sdp_user.id)
             .await
             .map_err(|e| IdentityServiceError::from(e.to_string()))
     }
@@ -210,6 +226,7 @@ impl IdentityCreator {
         &mut self,
         sdp_user: &SDPUser,
         client_profile_url: &ClientProfileUrl,
+        device_ids: Vec<Uuid>,
     ) -> Option<ServiceUser> {
         let api = self.secrets_api(SDP_K8S_NAMESPACE);
         // Create first the ServiceUser with a random password
@@ -217,6 +234,7 @@ impl IdentityCreator {
             sdp_user,
             client_profile_url,
             Some(&uuid::Uuid::new_v4().to_string()),
+            Some(device_ids.iter().map(|uuid| uuid.to_string()).collect()),
         )
         .unwrap();
         service_user
@@ -265,7 +283,12 @@ impl IdentityCreator {
         service_ns: &str,
         service_name: &str,
     ) -> Result<(), IdentityServiceError> {
-        self.delete_sdp_user(&service_user.id).await?;
+        let sdp_user = SDPUser::new(
+            service_user.id.clone(),
+            Some(service_user.name.clone()),
+            None,
+        );
+        self.delete_sdp_user(sdp_user).await?;
         service_user
             .delete_secrets(self.secrets_api(service_ns), service_ns, service_name)
             .await
@@ -308,10 +331,37 @@ impl IdentityCreator {
             // We got a SDPUser. We dont have any way to recover passwords
             // from there (SDPUsers dont contain the password when fetched from a controller)
             // IM always saves those creds for ServiceUsers that are deactivated.
-            // If we dont have a password for this user, don't recover it and ask IC to delete as soon as possible.
+            // If we dont have a password for this user, don't recover it and ask IC to delete it as soon as possible.
+
+            // Get the current registered device ids for use
+            info!("Recovering SDPUser {}", &sdp_user.name);
+            let mut device_ids = vec![];
+            if let Ok(on_boarded_users) = system.get_registered_device_ids_for_user(&sdp_user).await
+            {
+                device_ids = on_boarded_users
+                    .iter()
+                    .map(|u| {
+                        if let Ok(device_id) = Uuid::parse_str(&u.device_id) {
+                            Some(device_id)
+                        } else {
+                            error!(
+                                "[{}] Unable to parse device id: {}",
+                                sdp_user.name, &u.device_id
+                            );
+                            None
+                        }
+                    })
+                    .filter(Option::is_some)
+                    .map(Option::unwrap)
+                    .collect();
+            } else {
+                error!("[{}] Unable to recover device ids for user", sdp_user.name);
+            }
 
             // Derive now our ServiceUser from SDPUser, recovering passwords if needed.
-            if let Some(service_user) = self.recover_sdp_user(&sdp_user, &client_profile_url).await
+            if let Some(service_user) = self
+                .recover_sdp_user(&sdp_user, &client_profile_url, device_ids)
+                .await
             {
                 let activated = !sdp_user.disabled;
                 if !activated && n_missing_users > 0 {
@@ -320,17 +370,19 @@ impl IdentityCreator {
                 }
                 let (_, pw_field, _) = service_user.secrets_field_names(false);
                 known_service_users.insert(pw_field);
-                let msg = IdentityManagerProtocol::FoundServiceUser(service_user, activated);
+                let msg: IdentityManagerProtocol<ServiceCandidate, ServiceIdentity> =
+                    IdentityManagerProtocol::FoundServiceUser(service_user, activated);
                 identity_manager_proto_tx.send(msg).await?;
             } else {
+                let sdp_user_name = sdp_user.name.clone();
                 error!(
                     "Error recovering ServiceUser information from SDPUser {}. Deleting SDPUser.",
-                    sdp_user.name
+                    sdp_user_name
                 );
-                if let Err(e) = self.delete_sdp_user(&sdp_user.id).await {
+                if let Err(e) = self.delete_sdp_user(sdp_user).await {
                     error!(
                         "Error deleting SDPUser {} from collective: {}",
-                        sdp_user.name,
+                        sdp_user_name,
                         e.to_string()
                     );
                 }
@@ -399,14 +451,15 @@ impl IdentityCreator {
                 IdentityCreatorProtocol::CreateIdentity => {
                     match self.create_user().await {
                         Ok(service_user) => {
+                            let user_name = service_user.name.clone();
                             info!(
                                 "New ServiceUser {} (id: {}) created, notifying IdentityManager",
-                                service_user.name, service_user.id
+                                user_name, service_user.id
                             );
-                            let msg =
+                            let msg: IdentityManagerProtocol<ServiceCandidate, ServiceIdentity> =
                                 IdentityManagerProtocol::FoundServiceUser(service_user, false);
                             if let Err(err) = identity_manager_proto_tx.send(msg).await {
-                                error!("Error notifying identity: {}", err);
+                                error!("[{}] Error notifying identity: {}", user_name, err);
                                 // TODO: Try later, identity is already created
                             }
                         }
@@ -519,11 +572,50 @@ impl IdentityCreator {
                         );
                     }
                 }
-                IdentityCreatorProtocol::DeleteSDPUser(sdp_user_name) => {
-                    if let Err(e) = self.delete_sdp_user(&sdp_user_name).await {
+                IdentityCreatorProtocol::DeleteSDPUser(sdp_user_id) => {
+                    if let Err(e) = self
+                        .delete_sdp_user(SDPUser::new(sdp_user_id.clone(), None, None))
+                        .await
+                    {
                         error!(
-                            "Error deleting SDPUser {}: {}",
-                            sdp_user_name,
+                            "[{}] Error deleting SDPUser: {}",
+                            sdp_user_id,
+                            e.to_string()
+                        );
+                    }
+                }
+                IdentityCreatorProtocol::ReconcileSDPUsers(sdp_users) => {
+                    info!("Reconciling SDPUsers: {:?}", sdp_users);
+                    for sdp_user in &sdp_users {
+                        let sdp_user_name =
+                            SDPUser::new(sdp_user.clone(), Some(sdp_user.clone()), Some(false))
+                                .prefix_name()
+                                .unwrap_or(sdp_user.to_string());
+                        info!("[{}] Reconciling SDPUser", &sdp_user);
+                        if let Err(e) = self
+                            .system
+                            .unregister_device_ids_for_username(&sdp_user_name, Some(&sdp_users))
+                            .await
+                        {
+                            error!(
+                                "[{}] Error reconciling SDPUser: {}",
+                                sdp_user_name,
+                                e.to_string()
+                            );
+                        }
+                    }
+                }
+                IdentityCreatorProtocol::ReleaseDeviceId(service_user, device_id) => {
+                    if let Err(e) = system
+                        .unregister_device_id_for_user(
+                            &SDPUser::new(service_user.id, Some(service_user.name.clone()), None),
+                            &device_id,
+                        )
+                        .await
+                    {
+                        error!(
+                            "[{}] Error deleting SDPUser: {}",
+                            service_user.name,
                             e.to_string()
                         );
                     }

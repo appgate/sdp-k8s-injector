@@ -143,3 +143,36 @@ macro_rules! pod {
         pod!($n, $pod,$($fs => $es),*)
     }};
 }
+
+#[macro_export]
+macro_rules! replicaset {
+    ($n:tt, $owner_references:expr) => {{
+        let mut rs = replicaset!($n, 0, $owner_references);
+        rs.spec = None;
+        rs
+    }};
+    ($n:tt, $replicas:expr, $owner_references:expr) => {{
+        let mut rs = ReplicaSet::default();
+        let mut spec = ReplicaSetSpec::default();
+        spec.replicas = $replicas;
+        rs.spec = Some(spec);
+        rs.metadata.namespace = Some(format!("{}{}", stringify!(ns), $n));
+        rs.metadata.name = Some(format!(
+            "srv{}-replica{}-testpod{}",
+            stringify!($n),
+            stringify!($n),
+            stringify!($n)
+        ));
+        rs.metadata.owner_references = $owner_references;
+        rs
+    }};
+}
+
+#[macro_export]
+macro_rules! owner_reference {
+    ($name:expr) => {{
+        let mut or = OwnerReference::default();
+        or.name = format!("{}", $name);
+        or
+    }};
+}

@@ -7,6 +7,7 @@ use reqwest::{Client, Url};
 use sdp_macros::{logger, sdp_info, sdp_log, with_dollar_sign};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use std::time::Duration;
 use uuid::Uuid;
 
@@ -21,6 +22,19 @@ const SDP_SYSTEM_PROVIDER_ENV: &str = "SDP_K8S_PROVIDER";
 const SDP_SYSTEM_PROVIDER_DEFAULT: &str = "local";
 
 logger!("SDPSystem");
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct OnBoardedUsers {
+    pub data: Vec<OnBoardedUser>,
+}
+
+#[derive(Deserialize, Serialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct OnBoardedUser {
+    pub distinguished_name: String,
+    pub device_id: String,
+    pub username: String,
+}
 
 pub fn get_sdp_system() -> System {
     let hosts = std::env::var(SDP_SYSTEM_HOSTS)
@@ -271,7 +285,7 @@ impl System {
         info!("Getting users");
         let mut url = Url::from(self.hosts[0].clone());
         url.set_path("/admin/service-users");
-        let service_users = self.get::<SDPUsers>(url).await?;
+        let service_users: SDPUsers = self.get::<SDPUsers>(url).await?;
         Ok(service_users.data)
     }
 
@@ -291,6 +305,88 @@ impl System {
         let mut created_sdp_user = self.post::<SDPUser>(url, sdp_user).await?;
         created_sdp_user.password = sdp_user.password.clone();
         Ok(created_sdp_user)
+    }
+
+    pub async fn get_registered_device_ids(
+        &mut self,
+        username: &str,
+    ) -> Result<Vec<OnBoardedUser>, SDPClientError> {
+        info!("Getting device-ids with user name: {}", username);
+        let mut url = Url::from(self.hosts[0].clone());
+        url.query_pairs_mut()
+            .append_pair("username", &username)
+            .append_pair("providerName", "service");
+        url.set_path(&format!("/admin/on-boarded-devices"));
+        let onboarded_users = self.get::<OnBoardedUsers>(url).await?;
+        Ok(onboarded_users.data)
+    }
+
+    pub async fn get_registered_device_ids_for_user(
+        &mut self,
+        sdp_user: &SDPUser,
+    ) -> Result<Vec<OnBoardedUser>, SDPClientError> {
+        info!("Getting device-ids for user: {}", sdp_user.name);
+        self.get_registered_device_ids(&sdp_user.name).await
+    }
+
+    /// DELETE /on-boarded-devices-distinguished-name/distinguished-name
+    pub async fn unregister_device_id(
+        &mut self,
+        distinguished_name: &str,
+    ) -> Result<(), SDPClientError> {
+        info!("Releasing device id {}", distinguished_name);
+        let mut url = Url::from(self.hosts[0].clone());
+        let base_url = url.clone();
+        // This should be encoded with this
+        // https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/encodeURIComponent
+        url.path_segments_mut()
+            .map_err(|_| SDPClientError {
+                request_error: None,
+                status_code: None,
+                error_body: Some(format!("Url not valid: {}", base_url)),
+            })?
+            .push("/admin/on-boarded-devices")
+            .push(distinguished_name);
+        self.delete(url).await
+    }
+
+    /// DELETE /on-boarded-devices-distinguished-name/distinguished-name
+    pub async fn unregister_device_id_for_user(
+        &mut self,
+        sdp_user: &SDPUser,
+        device_id: &Uuid,
+    ) -> Result<(), SDPClientError> {
+        info!(
+            "Releasing device id {} for user {}",
+            device_id, sdp_user.name
+        );
+        let distinguished_name = format!(
+            "CN={},CN={},OU=service",
+            device_id.to_string().replace("-", ""),
+            sdp_user.name
+        );
+        self.unregister_device_id(&distinguished_name).await
+    }
+
+    pub async fn unregister_device_ids_for_username(
+        &mut self,
+        username: &str,
+        filter_names: Option<&HashSet<String>>,
+    ) -> Result<(), SDPClientError> {
+        for onboarded_device in self
+            .get_registered_device_ids(username)
+            .await?
+            .iter()
+            .filter(|od| {
+                filter_names.is_none()
+                    || (filter_names.is_some()
+                        && !filter_names.as_ref().unwrap().contains(&od.username))
+            })
+        {
+            self.unregister_device_id(&onboarded_device.distinguished_name)
+                .await?;
+        }
+        Ok(())
     }
 
     /// POST /service-users/id

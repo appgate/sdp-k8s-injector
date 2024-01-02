@@ -1,16 +1,23 @@
 use crate::{
     identity_creator::{IdentityCreator, IdentityCreatorProtocol},
-    identity_manager::{IdentityManagerProtocol, IdentityManagerRunner},
+    identity_manager::{IdentityManager, IdentityManagerProtocol},
     service_candidate_watcher::ServiceCandidateWatcherProtocol,
 };
 use clap::{Parser, Subcommand};
-use k8s_openapi::api::{apps::v1::Deployment, core::v1::Namespace};
+use identity_manager::{IdentityManagerRunner, IdentityManagerServiceIdentityAPI};
+use k8s_openapi::api::{
+    apps::v1::Deployment,
+    core::v1::{Namespace, Pod},
+};
 use kube::{Api, CustomResourceExt};
 use log::error;
-use sdp_common::watcher::{watch, WatcherWaitReady};
 use sdp_common::{crd::SDPService, sdp::system::get_sdp_system, service::ServiceCandidate};
 use sdp_common::{crd::ServiceIdentity, watcher::Watcher};
 use sdp_common::{kubernetes::get_k8s_client, service::get_log_config_path};
+use sdp_common::{
+    kubernetes::SDP_K8S_NAMESPACE,
+    watcher::{watch, WatcherWaitReady},
+};
 use std::{panic, process::exit};
 use tokio::sync::broadcast::channel as broadcast_channel;
 use tokio::sync::mpsc::channel;
@@ -18,6 +25,7 @@ use tokio::sync::mpsc::channel;
 pub mod errors;
 pub mod identity_creator;
 pub mod identity_manager;
+pub mod pod_watcher;
 pub mod service_candidate_watcher;
 
 const CREDENTIALS_POOL_SIZE: usize = 10;
@@ -63,9 +71,8 @@ async fn main() -> () {
             let identity_manager_client = client.clone();
             let deployment_watcher_client = client.clone();
             let sdp_service_watcher = client.clone();
+            let pod_watcher = client.clone();
             let identity_creator_client = client;
-            let identity_manager_runner =
-                IdentityManagerRunner::kube_runner(identity_manager_client);
 
             // Create channel for IdentityManagerProtocol
             // It has several Senders (IdentityCreator, IdentityManager and ServiceCandidate watchers)
@@ -76,6 +83,7 @@ async fn main() -> () {
             let identity_manager_proto_tx_1 = identity_manager_proto_tx.clone();
             let identity_manager_proto_tx_2 = identity_manager_proto_tx.clone();
             let identity_manager_proto_tx_3 = identity_manager_proto_tx.clone();
+            let identity_manager_proto_tx_4 = identity_manager_proto_tx.clone();
 
             // Create channel for IdentityCreatorProtocol
             // IdentityService is the Sender and IdentityCreator is the Receiver (mpsc channel is used)
@@ -131,6 +139,28 @@ async fn main() -> () {
                     panic!("Error deploying SDPService Watcher: {}", e);
                 }
             });
+
+            // Thread to watch Pod entities
+            // When a Pod that is a candidate has been deleted, we just return back the device id
+            // it was using to the device ids provider.
+            let pods_api: Api<Pod> = Api::all(pod_watcher);
+            tokio::spawn(async move {
+                let watcher = Watcher {
+                    api_ns: None,
+                    api: pods_api,
+                    queue_tx: identity_manager_proto_tx_3,
+                    notification_message: None,
+                };
+                let w = watch::<
+                    Pod,
+                    IdentityManagerProtocol<ServiceCandidate, ServiceIdentity>,
+                    IdentityManagerProtocol<ServiceCandidate, ServiceIdentity>,
+                >(watcher, None);
+                if let Err(e) = w.await {
+                    panic!("Unable to start Pod Watcher: {}", e);
+                }
+            });
+
             tokio::spawn(async move {
                 let system = get_sdp_system();
                 let identity_creator =
@@ -140,19 +170,22 @@ async fn main() -> () {
                     .run(
                         &mut system2,
                         identity_creator_proto_rx,
-                        identity_manager_proto_tx_3,
+                        identity_manager_proto_tx_4,
                     )
                     .await;
             });
-            identity_manager_runner
-                .run(
-                    identity_manager_proto_rx,
-                    identity_manager_proto_tx,
+            let mut identity_manager = IdentityManager::new(
+                IdentityManagerServiceIdentityAPI::new(
+                    Api::namespaced(identity_manager_client, SDP_K8S_NAMESPACE),
                     identity_creator_proto_tx.clone(),
-                    service_candidate_watcher_proto_tx,
-                    None,
-                )
-                .await;
+                ),
+                identity_manager_proto_rx,
+                identity_manager_proto_tx,
+                service_candidate_watcher_proto_tx,
+                identity_creator_proto_tx.clone(),
+                None,
+            );
+            identity_manager.run().await;
         }
     }
 }

@@ -12,7 +12,6 @@ logger!("ServiceIdentityWatcher");
  * ServiceIdentity implement SimpleWatchingProtocol for DeviceIdProviderRequestProtocol
  * This watching protocol is used to register new ServiceIdentity created so they can later
  * be associated with new pods
- * TODO: This is so close to the implementation for DeviceId, a macro to redue code would be nice
  */
 impl SimpleWatchingProtocol<DeviceIdProviderRequestProtocol<ServiceIdentity>> for ServiceIdentity {
     fn initialized(
@@ -26,6 +25,7 @@ impl SimpleWatchingProtocol<DeviceIdProviderRequestProtocol<ServiceIdentity>> fo
         );
         Some(DeviceIdProviderRequestProtocol::FoundServiceIdentity(
             self.clone(),
+            false,
         ))
     }
 
@@ -40,6 +40,7 @@ impl SimpleWatchingProtocol<DeviceIdProviderRequestProtocol<ServiceIdentity>> fo
         );
         Some(DeviceIdProviderRequestProtocol::FoundServiceIdentity(
             self.clone(),
+            false,
         ))
     }
 
@@ -47,7 +48,15 @@ impl SimpleWatchingProtocol<DeviceIdProviderRequestProtocol<ServiceIdentity>> fo
         &self,
         _ns: Option<Namespace>,
     ) -> Option<DeviceIdProviderRequestProtocol<ServiceIdentity>> {
-        None
+        info!(
+            "[{}] Modified ServiceIdentity {}",
+            self.service_id(),
+            self.service_id()
+        );
+        Some(DeviceIdProviderRequestProtocol::FoundServiceIdentity(
+            self.clone(),
+            true,
+        ))
     }
 
     fn deleted(

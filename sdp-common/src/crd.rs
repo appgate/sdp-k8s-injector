@@ -140,37 +140,3 @@ impl HasCredentials for ServiceIdentity {
     }
 }
 impl Service for ServiceIdentity {}
-
-/// DeviceId
-/// DeviceId represents the UUIDs assigned to a ServiceIdentity. There are N uuids stored
-/// in the DeviceId where N equals to the number of replicas in a replicaset. The
-/// combination of the service_name and service_namespace is unique to the cluster.
-#[derive(Debug, CustomResource, Serialize, Deserialize, Clone, JsonSchema, PartialEq)]
-#[kube(
-    group = "injector.sdp.com",
-    version = "v1",
-    kind = "DeviceId",
-    namespaced
-)]
-pub struct DeviceIdSpec {
-    /// List of UUIDs
-    pub uuids: Vec<String>,
-    /// Name of the deployment that this is assigned to
-    pub service_name: String,
-    /// Namespace of the deployment that this is assigned to
-    pub service_namespace: String,
-}
-
-impl Named for DeviceId {
-    fn name(&self) -> String {
-        self.spec().service_name.clone()
-    }
-}
-
-impl Namespaced for DeviceId {
-    fn namespace(&self) -> String {
-        self.spec().service_namespace.clone()
-    }
-}
-
-impl Service for DeviceId {}

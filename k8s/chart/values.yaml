@@ -61,19 +61,6 @@ sdp:
       tag: ""
       pullPolicy: Always
 
-  ## @param sdp.deviceIdService.logLevel SDP Device ID Service log level.
-  ## @param sdp.deviceIdService.replica Number of SDP Device ID Service replicas to deploy
-  ## @param sdp.deviceIdService.image.repository SDP Device ID Service image repository. If set, it overrides `.global.image.repository`.
-  ## @param sdp.deviceIdService.image.tag SDP Device ID Service image tag. If set, it overrides `.chart.appVersion`.
-  ## @param sdp.deviceIdService.image.pullPolicy SDP Device ID Service pull policy. If set, it overrides `.global.image.pullPolicy`.
-  deviceIdService:
-    logLevel: info
-    replica: 1
-    image:
-      repository: ""
-      tag: ""
-      pullPolicy: Always
-
   ## @param sdp.identityService.sdpSystemNoVerify Do not verify SDP System certificate
   ## @param sdp.identityService.logLevel SDP Identity Service log level.
   ## @param sdp.identityService.replica Number of SDP Identity Service replicas to deploy
