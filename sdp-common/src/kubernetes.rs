@@ -63,7 +63,7 @@ impl Named for Pod {
             })
             .map(|(name, n)| {
                 let xs: Vec<&str> = name.split("-").collect();
-                let n = xs.len() - n;
+                let n: usize = xs.len() - n;
                 xs[0..n].join("-")
             });
         match maybe_name {
