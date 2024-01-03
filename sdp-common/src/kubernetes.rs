@@ -9,6 +9,7 @@ use kube::{core::admission::AdmissionRequest, Client, Config, Resource, Resource
 use log::error;
 
 use crate::{
+    annotations::SDP_INJECTOR_ANNOTATION_SERVICE_ID,
     errors::SDPServiceError,
     service::needs_injection,
     traits::{Annotated, Candidate, Labeled, MaybeNamespaced, MaybeService, Named, ObjectRequest},
@@ -41,42 +42,37 @@ pub async fn get_k8s_client() -> Client {
 }
 
 // Implement required traits for Pod
-
 impl Named for Pod {
     fn name(&self) -> String {
         /*
-        To get the name for a pod we do:
-         1. Use `name_any` from kube crate (we get something like deployment-replicaset-pod)
-         2. If `name_any` can not provide that info, get the first owner and get the
-            name from there (we get something like deployment-replicaset)
-         3. If none of those worked we just return a random name to make sure there
-            are not matches later in the registered services
-         3. If we got something we split by "-" and we remove 1 or 2 items from the right
-            (depending where the name is coming from)
+        To get the service name for a pod we do:
+         1. Check if it's in an annotation defined (added by injector). If it's tehre return it
+         2. Check if we have a generate_name field in the metadata (replica set owner / old injectors), then use it.
+         3. Return the name as it is
         */
-        let name = self.name_any();
-        let maybe_name = (name != "")
-            .then_some((name, 2))
-            .or_else(|| {
-                let owners = self.owner_references();
-                (owners.len() > 0).then_some((owners[0].name.clone(), 1))
+        self.annotation(SDP_INJECTOR_ANNOTATION_SERVICE_ID)
+            .map(Clone::clone)
+            .unwrap_or({
+                match self.metadata.generate_name.as_ref() {
+                    Some(generate_name) => {
+                        let mut xs = generate_name.split("-").collect::<Vec<&str>>();
+                        if xs.len() > 2 {
+                            xs.truncate(xs.len() - 2);
+                            xs.join("-")
+                        } else {
+                            error!(
+                                "Unable to find a suitable generate name field: {}",
+                                generate_name
+                            );
+                            uuid::Uuid::new_v4().to_string()
+                        }
+                    }
+                    None => self.metadata.name.as_ref().map(Clone::clone).unwrap_or({
+                        error!("Unable to find service name for Pod");
+                        uuid::Uuid::new_v4().to_string()
+                    }),
+                }
             })
-            .map(|(name, n)| {
-                let xs: Vec<&str> = name.split("-").collect();
-                let n: usize = xs.len() - n;
-                xs[0..n].join("-")
-            });
-        match maybe_name {
-            Some(name) if name == "" => {
-                error!("Empty service name for Pod");
-                uuid::Uuid::new_v4().to_string()
-            }
-            Some(name) => name,
-            None => {
-                error!("Unable to find service name for Pod");
-                uuid::Uuid::new_v4().to_string()
-            }
-        }
     }
 }
 
@@ -261,9 +257,55 @@ mod test {
     use std::collections::BTreeMap;
 
     use crate::{
-        annotations::{SDP_INJECTOR_ANNOTATION_ENABLED, SDP_INJECTOR_ANNOTATION_STRATEGY},
-        traits::Candidate,
+        annotations::{
+            SDP_INJECTOR_ANNOTATION_ENABLED, SDP_INJECTOR_ANNOTATION_SERVICE_ID,
+            SDP_INJECTOR_ANNOTATION_STRATEGY,
+        },
+        traits::{Candidate, Named},
     };
+
+    #[test]
+    fn test_pod_service_name() {
+        assert_eq!(
+            &pod!(0, generate_name => Some("None".to_string()), name => Some("bat".to_string()))
+                .name(),
+            &"bat"
+        );
+        assert_eq!(
+            &pod!(0, generate_name => Some("None".to_string()), name => Some("bat-bi".to_string()))
+                .name(),
+            &"bat-bi"
+        );
+        assert_eq!(
+            &pod!(0, generate_name => Some("None".to_string()), name => Some("bat-bi-hiru".to_string())).name(),
+            &"bat-bi-hiru"
+        );
+        assert_eq!(
+            &pod!(0, generate_name => Some("None".to_string()), name => Some("bat-bi".to_string()),
+            annotations => vec![
+               (SDP_INJECTOR_ANNOTATION_SERVICE_ID, "bost-sei-zazpi-zortzi")
+            ])
+            .name(),
+            &"bost-sei-zazpi-zortzi"
+        );
+        assert_eq!(
+            &pod!(0, name => Some("bat-bi".to_string()),
+                generate_name => Some("bost-sei-zazpi-".to_string())
+            )
+            .name(),
+            &"bost-sei"
+        );
+        assert_eq!(
+            &pod!(0, name => Some("bat-bi".to_string()),
+                generate_name => Some("bost-sei-zazpi-".to_string()),
+                annotations => vec![
+                   (SDP_INJECTOR_ANNOTATION_SERVICE_ID, "bost-sei-zazpi-zortzi")
+                ]
+            )
+            .name(),
+            &"bost-sei-zazpi-zortzi"
+        );
+    }
 
     #[test]
     fn test_sdp_injection_enabled() {

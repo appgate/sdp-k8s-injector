@@ -115,6 +115,18 @@ macro_rules! set_pod_field {
             }
         }
     };
+    ($pod:expr, generate_name => $cs:expr) => {
+        let mut meta = &mut $pod.metadata;
+        meta.generate_name = $cs;
+    };
+    ($pod:expr, name => $cs:expr) => {
+        let mut meta = &mut $pod.metadata;
+        meta.name = $cs;
+    };
+    ($pod:expr, ns => $cs:expr) => {
+        let mut meta = &mut $pod.metadata.as_mut();
+        meta.ns = $cs;
+    };
 }
 
 #[macro_export]
@@ -125,8 +137,22 @@ macro_rules! pod {
         pod!($n, pod)
     }};
     ($n:tt, $pod:expr) => {{
-        $pod.metadata.namespace = Some(format!("{}{}", stringify!(ns), $n));
-        $pod.metadata.name = Some(format!("srv{}-replica{}-testpod{}", stringify!($n), stringify!($n), stringify!($n)));
+        if $pod.metadata.namespace.is_none() {
+            $pod.metadata.namespace = Some(format!("{}{}", stringify!(ns), $n));
+        }
+        if $pod.metadata.name.as_ref().is_none() {
+            $pod.metadata.name = Some(format!("srv{}-replica{}-testpod{}", stringify!($n), stringify!($n), stringify!($n)));
+        }
+        match $pod.metadata.generate_name.as_ref() {
+            None => {
+                $pod.metadata.generate_name = Some(format!("srv{}-replica{}-", stringify!($n), stringify!($n)));
+            },
+            Some(x) => {
+                if x == "None" {
+                    $pod.metadata.generate_name = None;
+                }
+            }
+        }
         $pod
     }};
     ($n:tt, $($fs:ident => $es:expr),*) => {{
