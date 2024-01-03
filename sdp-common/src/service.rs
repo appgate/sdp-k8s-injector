@@ -398,6 +398,7 @@ impl ServiceUser {
         &self,
         api: Api<Secret>,
         secrets_name: &str,
+        update_always: bool,
     ) -> Result<(), Box<dyn Error>> {
         let namespaced = is_secrets_namespaced(secrets_name);
         let (user_field, pw_field, url_field) = self.secrets_field_names(namespaced);
@@ -405,21 +406,21 @@ impl ServiceUser {
             self.has_secrets_fields(&api, secrets_name).await;
         let mut secret = Secret::default();
         let mut data = BTreeMap::new();
-        if !user_field_exists {
+        if !user_field_exists || update_always {
             info!(
                 "Username entry update for ServiceUser {} is required",
                 &self.name
             );
             data.insert(user_field, ByteString(self.name.as_bytes().to_vec()));
         }
-        if !passwd_field_exists {
+        if !passwd_field_exists || update_always {
             info!(
                 "Password entry update for ServiceUser {} is required",
                 &self.name
             );
             data.insert(pw_field, ByteString(self.password.as_bytes().to_vec()));
         }
-        if !url_field_exists {
+        if !url_field_exists || update_always {
             info!(
                 "Client profile url entry update for ServiceUser {} is required",
                 &self.name
@@ -436,7 +437,7 @@ impl ServiceUser {
         Ok(())
     }
 
-    pub async fn create_secrets(
+    pub async fn create_or_update_secrets(
         &self,
         api: Api<Secret>,
         service_ns: &str,
@@ -445,7 +446,8 @@ impl ServiceUser {
         let (user_field, pw_field, url_field) = self.secrets_field_names(true);
         let secret_name = self.secrets_name(service_ns, service_name);
         if let Some(_) = api.get_opt(&secret_name).await? {
-            self.update_secrets_fields(api, &secret_name).await
+            warn!("[{}] Found old secret. Updating it.", &secret_name);
+            self.update_secrets_fields(api, &secret_name, true).await
         } else {
             let mut secret = Secret::default();
             secret.data = Some(BTreeMap::from([
