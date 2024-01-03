@@ -74,8 +74,18 @@ impl SDPUser {
         }
     }
 
-    pub fn prefix_name(self: &Self) -> Option<String> {
-        (!self.disabled).then_some(self.name[0..(self.name.len() - 6)].to_string())
+    // Return the prefix of the name for the users we create
+    // Check for the user parts (strings between the _ character).
+    // If we have 4 (cluster_ns_service_random) return 3 everything except the random part
+    // If we have 3 (cluster_ns_service) return it (this is old naming for compatibility support with old versions)
+    // Otherwise return the name
+    pub fn prefix_name(self: &Self) -> String {
+        let parts = self.name.split("_");
+        let parts: Vec<&str> = match parts.clone().collect::<Vec<&str>>().len() {
+            4 | 3 => parts.take(3).collect(),
+            _ => parts.collect(),
+        };
+        parts.join("_")
     }
 }
 
@@ -98,7 +108,7 @@ impl From<&ServiceUser> for SDPUser {
 mod test {
     use chrono::{DateTime, TimeZone, Utc};
 
-    use super::{Login, LoginUser};
+    use super::{Login, LoginUser, SDPUser};
 
     impl LoginUser {
         fn new(name: &str) -> LoginUser {
@@ -122,5 +132,82 @@ mod test {
         assert!(l.is_expired(Some(Utc.with_ymd_and_hms(2023, 1, 19, 14, 50, 00).unwrap())));
         assert!(l.is_expired(Some(Utc.with_ymd_and_hms(2023, 1, 19, 14, 30, 00).unwrap())));
         assert!(!l.is_expired(Some(Utc.with_ymd_and_hms(2023, 1, 19, 14, 29, 59).unwrap())));
+    }
+
+    #[test]
+    fn test_prefix_name() {
+        assert_eq!(
+            SDPUser::new("bat".to_string(), None, None).prefix_name(),
+            "bat"
+        );
+        assert_eq!(
+            SDPUser::new("bat_bi".to_string(), Some("bat".to_string()), None).prefix_name(),
+            "bat"
+        );
+        assert_eq!(
+            SDPUser::new("bat_bi".to_string(), None, None).prefix_name(),
+            "bat_bi"
+        );
+        assert_eq!(
+            SDPUser::new("bat_bi".to_string(), Some("bat_bi_hiru".to_string()), None).prefix_name(),
+            "bat_bi_hiru"
+        );
+        assert_eq!(
+            SDPUser::new("bat_bi_hiru".to_string(), None, None).prefix_name(),
+            "bat_bi_hiru"
+        );
+        assert_eq!(
+            SDPUser::new("bat_bi_hiru_lau".to_string(), None, None).prefix_name(),
+            "bat_bi_hiru"
+        );
+        assert_eq!(
+            SDPUser::new("id".to_string(), Some("bat_bi_hiru_lau".to_string()), None).prefix_name(),
+            "bat_bi_hiru"
+        );
+        assert_eq!(
+            SDPUser::new(
+                "id".to_string(),
+                Some("bat_bi_hiru_lau".to_string()),
+                Some(true)
+            )
+            .prefix_name(),
+            "bat_bi_hiru"
+        );
+        assert_eq!(
+            SDPUser::new(
+                "id".to_string(),
+                Some("bat_bi_hiru_lau_bost".to_string()),
+                None
+            )
+            .prefix_name(),
+            "bat_bi_hiru_lau_bost"
+        );
+        assert_eq!(
+            SDPUser::new(
+                "id".to_string(),
+                Some("bat_bi_hiru_lau_bost_sei".to_string()),
+                None
+            )
+            .prefix_name(),
+            "bat_bi_hiru_lau_bost_sei"
+        );
+        assert_eq!(
+            SDPUser::new(
+                "id".to_string(),
+                Some("bat_bi_hiru_lau_bost_sei".to_string()),
+                Some(true)
+            )
+            .prefix_name(),
+            "bat_bi_hiru_lau_bost_sei"
+        );
+        assert_eq!(
+            SDPUser::new(
+                "id".to_string(),
+                Some("bat-bi-hiru-lau".to_string()),
+                Some(true)
+            )
+            .prefix_name(),
+            "bat-bi-hiru-lau"
+        );
     }
 }
