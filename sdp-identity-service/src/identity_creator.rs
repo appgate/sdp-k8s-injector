@@ -205,7 +205,7 @@ impl IdentityCreator {
             "Deleting SDPUser and associated device ids {} (id: {})",
             sdp_user.name, sdp_user.id
         );
-        let user_name = sdp_user.prefix_name().unwrap_or(sdp_user.name);
+        let user_name = sdp_user.prefix_name();
         if let Err(e) = self
             .system
             .unregister_device_ids_for_username(&user_name, None)
@@ -213,7 +213,7 @@ impl IdentityCreator {
         {
             error!(
                 "[{}] Unable to unregister device ids: {}",
-                user_name,
+                &user_name,
                 e.to_string()
             );
         }
@@ -568,8 +568,7 @@ impl IdentityCreator {
                     for sdp_user in &sdp_users {
                         let sdp_user_name =
                             SDPUser::new(sdp_user.clone(), Some(sdp_user.clone()), Some(false))
-                                .prefix_name()
-                                .unwrap_or(sdp_user.to_string());
+                                .prefix_name();
                         info!("[{}] Reconciling SDPUser", &sdp_user);
                         if let Err(e) = self
                             .system
