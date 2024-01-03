@@ -22,6 +22,7 @@ macro_rules! patch_annotation {
     }};
 }
 
+pub const SDP_INJECTOR_ANNOTATION_SERVICE_ID: &str = appgate_annotate!("service-id");
 pub const SDP_INJECTOR_ANNOTATION_STRATEGY: &str = appgate_annotate!("strategy");
 pub const SDP_INJECTOR_ANNOTATION_ENABLED: &str = appgate_annotate!("enabled");
 pub const SDP_INJECTOR_ANNOTATION_CLIENT_VERSION: &str = appgate_annotate!("client-version");

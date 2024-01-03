@@ -23,7 +23,7 @@ use sdp_common::annotations::{
     SDP_ANNOTATION_CLIENT_CONFIG, SDP_ANNOTATION_CLIENT_DEVICE_ID, SDP_ANNOTATION_CLIENT_SECRETS,
     SDP_ANNOTATION_DNS_SEARCHES, SDP_INJECTOR_ANNOTATION_CLIENT_VERSION,
     SDP_INJECTOR_ANNOTATION_DISABLE_INIT_CONTAINERS, SDP_INJECTOR_ANNOTATION_ENABLED,
-    SDP_INJECTOR_ANNOTATION_STRATEGY,
+    SDP_INJECTOR_ANNOTATION_SERVICE_ID, SDP_INJECTOR_ANNOTATION_STRATEGY,
 };
 use sdp_common::constants::{MAX_PATCH_ATTEMPTS, SDP_DEFAULT_CLIENT_VERSION_ENV};
 use sdp_common::errors::SDPServiceError;
@@ -537,6 +537,13 @@ impl Patched for SDPPod {
                     patch_annotation!(SDP_ANNOTATION_CLIENT_DEVICE_ID)
                 ),
                 value: serde_json::to_value(&environment.client_device_id)?,
+            }));
+            patches.push(Add(AddOperation {
+                path: format!(
+                    "/metadata/annotations/{}",
+                    patch_annotation!(SDP_INJECTOR_ANNOTATION_SERVICE_ID)
+                ),
+                value: serde_json::to_value(environment.service_name.clone())?,
             }));
 
             if std::env::var(SDP_DEFAULT_CLIENT_VERSION_ENV).is_err() {
