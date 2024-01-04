@@ -9,7 +9,7 @@ use kube::{core::admission::AdmissionRequest, Client, Config, Resource, Resource
 use log::error;
 
 use crate::{
-    annotations::SDP_INJECTOR_ANNOTATION_SERVICE_ID,
+    annotations::SDP_INJECTOR_ANNOTATION_POD_NAME,
     errors::SDPServiceError,
     service::needs_injection,
     traits::{Annotated, Candidate, Labeled, MaybeNamespaced, MaybeService, Named, ObjectRequest},
@@ -50,7 +50,7 @@ impl Named for Pod {
          2. Check if we have a generate_name field in the metadata (replica set owner / old injectors), then use it.
          3. Return the name as it is
         */
-        self.annotation(SDP_INJECTOR_ANNOTATION_SERVICE_ID)
+        self.annotation(SDP_INJECTOR_ANNOTATION_POD_NAME)
             .map(Clone::clone)
             .unwrap_or({
                 match self.metadata.generate_name.as_ref() {
@@ -258,7 +258,7 @@ mod test {
 
     use crate::{
         annotations::{
-            SDP_INJECTOR_ANNOTATION_ENABLED, SDP_INJECTOR_ANNOTATION_SERVICE_ID,
+            SDP_INJECTOR_ANNOTATION_ENABLED, SDP_INJECTOR_ANNOTATION_POD_NAME,
             SDP_INJECTOR_ANNOTATION_STRATEGY,
         },
         traits::{Candidate, Named},
@@ -283,7 +283,7 @@ mod test {
         assert_eq!(
             &pod!(0, generate_name => Some("None".to_string()), name => Some("bat-bi".to_string()),
             annotations => vec![
-               (SDP_INJECTOR_ANNOTATION_SERVICE_ID, "bost-sei-zazpi-zortzi")
+               (SDP_INJECTOR_ANNOTATION_POD_NAME, "bost-sei-zazpi-zortzi")
             ])
             .name(),
             &"bost-sei-zazpi-zortzi"
@@ -299,7 +299,7 @@ mod test {
             &pod!(0, name => Some("bat-bi".to_string()),
                 generate_name => Some("bost-sei-zazpi-".to_string()),
                 annotations => vec![
-                   (SDP_INJECTOR_ANNOTATION_SERVICE_ID, "bost-sei-zazpi-zortzi")
+                   (SDP_INJECTOR_ANNOTATION_POD_NAME, "bost-sei-zazpi-zortzi")
                 ]
             )
             .name(),

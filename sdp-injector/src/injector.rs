@@ -23,7 +23,8 @@ use sdp_common::annotations::{
     SDP_ANNOTATION_CLIENT_CONFIG, SDP_ANNOTATION_CLIENT_DEVICE_ID, SDP_ANNOTATION_CLIENT_SECRETS,
     SDP_ANNOTATION_DNS_SEARCHES, SDP_INJECTOR_ANNOTATION_CLIENT_VERSION,
     SDP_INJECTOR_ANNOTATION_DISABLE_INIT_CONTAINERS, SDP_INJECTOR_ANNOTATION_ENABLED,
-    SDP_INJECTOR_ANNOTATION_SERVICE_ID, SDP_INJECTOR_ANNOTATION_STRATEGY,
+    SDP_INJECTOR_ANNOTATION_POD_NAME, SDP_INJECTOR_ANNOTATION_SERVICE_ID,
+    SDP_INJECTOR_ANNOTATION_SERVICE_NAME, SDP_INJECTOR_ANNOTATION_STRATEGY,
 };
 use sdp_common::constants::{MAX_PATCH_ATTEMPTS, SDP_DEFAULT_CLIENT_VERSION_ENV};
 use sdp_common::errors::SDPServiceError;
@@ -300,6 +301,8 @@ trait Patched {
 
 #[derive(Debug, PartialEq)]
 struct ServiceEnvironment {
+    pod_name: String,
+    service_id: String,
     service_name: String,
     client_config: String,
     client_secret_name: String,
@@ -336,6 +339,8 @@ impl ServiceEnvironment {
         device_id_requester: Arc<E>,
     ) -> Result<Self, SDPServiceError> {
         let service_id = request.service_id()?;
+        let service_name = request.service_name()?;
+        let pod_name = request.name();
         device_id_requester
             .request(&service_id)
             .await
@@ -349,7 +354,9 @@ impl ServiceEnvironment {
                     .credentials()
                     .config_name(&s.spec.service_namespace, &s.spec.service_name);
                 ServiceEnvironment {
-                    service_name: service_id,
+                    pod_name,
+                    service_id,
+                    service_name,
                     client_config: config_name,
                     client_secret_name: secrets_name,
                     client_secret_controller_url_key: profile_field,
@@ -378,11 +385,14 @@ impl ServiceEnvironment {
         let device_id = pod.annotation(SDP_ANNOTATION_CLIENT_DEVICE_ID);
         let user_field = format!("{}-user", &service_id);
         let pwd_field = format!("{}-password", &service_id);
+        let client_config = config
+            .map(|s| s.clone())
+            .unwrap_or(format!("{}-service-config", &service_name));
         Ok(secret.map(|s| ServiceEnvironment {
-            service_name: service_id.clone(),
-            client_config: config
-                .map(|s| s.clone())
-                .unwrap_or(format!("{}-service-config", &service_name)),
+            pod_name: request.name(),
+            service_id,
+            service_name,
+            client_config,
             client_secret_name: s.to_string(),
             client_secret_controller_url_key: pwd_field.to_string(),
             client_secret_pwd_key: pwd_field,
@@ -404,6 +414,7 @@ impl ServiceEnvironment {
         let mut envs: Vec<EnvVar> = vec![
             env_var!(value :: "POD_N_CONTAINERS" => self.n_containers.clone()),
             env_var!(value :: "SERVICE_NAME" => self.service_name.clone()),
+            env_var!(value :: "SERVICE_ID" => self.service_id.clone()),
         ];
 
         if container_name == SDP_SERVICE_CONTAINER_NAME {
@@ -541,9 +552,23 @@ impl Patched for SDPPod {
             patches.push(Add(AddOperation {
                 path: format!(
                     "/metadata/annotations/{}",
+                    patch_annotation!(SDP_INJECTOR_ANNOTATION_SERVICE_NAME)
+                ),
+                value: serde_json::to_value(&environment.service_name)?,
+            }));
+            patches.push(Add(AddOperation {
+                path: format!(
+                    "/metadata/annotations/{}",
                     patch_annotation!(SDP_INJECTOR_ANNOTATION_SERVICE_ID)
                 ),
-                value: serde_json::to_value(environment.service_name.clone())?,
+                value: serde_json::to_value(&environment.service_id)?,
+            }));
+            patches.push(Add(AddOperation {
+                path: format!(
+                    "/metadata/annotations/{}",
+                    patch_annotation!(SDP_INJECTOR_ANNOTATION_POD_NAME)
+                ),
+                value: serde_json::to_value(&environment.pod_name)?,
             }));
 
             if std::env::var(SDP_DEFAULT_CLIENT_VERSION_ENV).is_err() {
@@ -1081,7 +1106,10 @@ mod tests {
     };
     use kube::core::admission::AdmissionReview;
     use kube::core::ObjectMeta;
-    use sdp_common::annotations::SDP_INJECTOR_ANNOTATION_ENABLED;
+    use sdp_common::annotations::{
+        SDP_INJECTOR_ANNOTATION_ENABLED, SDP_INJECTOR_ANNOTATION_POD_NAME,
+        SDP_INJECTOR_ANNOTATION_SERVICE_ID, SDP_INJECTOR_ANNOTATION_SERVICE_NAME,
+    };
     use sdp_common::constants::SDP_DEFAULT_CLIENT_VERSION_ENV;
     use sdp_common::crd::{ServiceIdentity, ServiceIdentitySpec};
     use sdp_common::errors::SDPServiceError;
@@ -1178,6 +1206,7 @@ mod tests {
         image_pull_secrets: Option<Vec<&'a str>>,
         sysctls: Option<Vec<Sysctl>>,
         k8s_server_version: u32,
+        annotations: Option<Vec<(String, String)>>,
     }
 
     impl Default for TestPatch<'_> {
@@ -1196,6 +1225,7 @@ mod tests {
                 image_pull_secrets: None,
                 sysctls: None,
                 k8s_server_version: 22,
+                annotations: None,
             }
         }
     }
@@ -1212,16 +1242,6 @@ mod tests {
         vec![
             TestPatch {
                 pod: pod!(0),
-                envs: vec![
-                    ("POD_N_CONTAINERS".to_string(), Some("0".to_string())),
-                    ("SERVICE_NAME".to_string(), Some("ns0_srv0".to_string())),
-                ],
-                service: KubeService::default(),
-                dns_searches: Some(vec![
-                    "ns0.svc.cluster.local".to_string(),
-                    "svc.cluster.local".to_string(),
-                    "cluster.local".to_string(),
-                ]),
                 ..Default::default()
             },
             TestPatch {
@@ -1243,7 +1263,9 @@ mod tests {
                         "APPGATE_DEVICE_ID".to_string(),
                         Some("0f74690e-b99b-46dc-828b-6162638d7a77".to_string()),
                     ),
-                    ("SERVICE_NAME".to_string(), Some("ns1_srv1".to_string())),
+                    ("SERVICE_ID".to_string(), Some("ns1_srv1".to_string())),
+                    ("SERVICE_NAME".to_string(), Some("ns1-srv1".to_string())),
+                    ("POD_NAME".to_string(), Some("srv1".to_string())),
                 ],
                 client_config_map: "ns1-srv1-service-config",
                 client_secrets: "ns1-srv1-service-user",
@@ -1263,6 +1285,20 @@ mod tests {
                         value: "666".to_string(),
                     },
                 ]),
+                annotations: Some(vec![
+                    (
+                        SDP_INJECTOR_ANNOTATION_SERVICE_NAME.to_string(),
+                        "ns1-srv1".to_string(),
+                    ),
+                    (
+                        SDP_INJECTOR_ANNOTATION_SERVICE_ID.to_string(),
+                        "ns1_srv1".to_string(),
+                    ),
+                    (
+                        SDP_INJECTOR_ANNOTATION_POD_NAME.to_string(),
+                        "srv1".to_string(),
+                    ),
+                ]),
                 ..Default::default()
             },
             TestPatch {
@@ -1274,7 +1310,9 @@ mod tests {
                         "K8S_DNS_SERVICE".to_string(),
                         Some("10.10.10.10".to_string()),
                     ),
-                    ("SERVICE_NAME".to_string(), Some("ns2_srv2".to_string())),
+                    ("SERVICE_ID".to_string(), Some("ns2_srv2".to_string())),
+                    ("SERVICE_NAME".to_string(), Some("ns2-srv2".to_string())),
+                    ("POD_NAME".to_string(), Some("srv2".to_string())),
                     (
                         "APPGATE_DEVICE_ID".to_string(),
                         Some("0f74690e-b99b-46dc-828b-6162638d7a77".to_string()),
@@ -1287,6 +1325,20 @@ mod tests {
                     "ns2.svc.cluster.local".to_string(),
                     "svc.cluster.local".to_string(),
                     "cluster.local".to_string(),
+                ]),
+                annotations: Some(vec![
+                    (
+                        SDP_INJECTOR_ANNOTATION_SERVICE_NAME.to_string(),
+                        "ns2-srv2".to_string(),
+                    ),
+                    (
+                        SDP_INJECTOR_ANNOTATION_SERVICE_ID.to_string(),
+                        "ns2_srv2".to_string(),
+                    ),
+                    (
+                        SDP_INJECTOR_ANNOTATION_POD_NAME.to_string(),
+                        "srv2".to_string(),
+                    ),
                 ]),
                 ..Default::default()
             },
@@ -1312,13 +1364,29 @@ mod tests {
                         "APPGATE_DEVICE_ID".to_string(),
                         Some("00000000-0000-0000-0000-000000000003".to_string()),
                     ),
-                    ("SERVICE_NAME".to_string(), Some("ns3_srv3".to_string())),
+                    ("SERVICE_ID".to_string(), Some("ns3_srv3".to_string())),
+                    ("SERVICE_NAME".to_string(), Some("ns3-srv3".to_string())),
+                    ("POD_NAME".to_string(), Some("srv3".to_string())),
                 ],
                 dns_searches: Some(vec![
                     "ns3.one.svc.local".to_string(),
                     "one.svc.local".to_string(),
                     "two.svc.local".to_string(),
                     "svc.local".to_string(),
+                ]),
+                annotations: Some(vec![
+                    (
+                        SDP_INJECTOR_ANNOTATION_SERVICE_NAME.to_string(),
+                        "ns3-srv3".to_string(),
+                    ),
+                    (
+                        SDP_INJECTOR_ANNOTATION_SERVICE_ID.to_string(),
+                        "ns3_srv3".to_string(),
+                    ),
+                    (
+                        SDP_INJECTOR_ANNOTATION_POD_NAME.to_string(),
+                        "srv3".to_string(),
+                    ),
                 ]),
                 ..Default::default()
             },
@@ -1341,13 +1409,29 @@ mod tests {
                         "APPGATE_DEVICE_ID".to_string(),
                         Some("00000000-0000-0000-0000-000000000004".to_string()),
                     ),
-                    ("SERVICE_NAME".to_string(), Some("ns4_srv4".to_string())),
+                    ("SERVICE_ID".to_string(), Some("ns4_srv4".to_string())),
+                    ("SERVICE_NAME".to_string(), Some("ns4-srv4".to_string())),
+                    ("POD_NAME".to_string(), Some("srv4".to_string())),
                 ],
                 dns_searches: Some(vec![
                     "ns4.one.svc.local".to_string(),
                     "one.svc.local".to_string(),
                     "two.svc.local".to_string(),
                     "svc.local".to_string(),
+                ]),
+                annotations: Some(vec![
+                    (
+                        SDP_INJECTOR_ANNOTATION_SERVICE_NAME.to_string(),
+                        "ns4-srv4".to_string(),
+                    ),
+                    (
+                        SDP_INJECTOR_ANNOTATION_SERVICE_ID.to_string(),
+                        "ns4_srv4".to_string(),
+                    ),
+                    (
+                        SDP_INJECTOR_ANNOTATION_POD_NAME.to_string(),
+                        "srv4".to_string(),
+                    ),
                 ]),
                 ..Default::default()
             },
@@ -1359,7 +1443,9 @@ mod tests {
                 envs: vec![
                     ("POD_N_CONTAINERS".to_string(), Some("2".to_string())),
                     ("K8S_DNS_SERVICE".to_string(), Some("10.0.0.10".to_string())),
-                    ("SERVICE_NAME".to_string(), Some("ns5_srv5".to_string())),
+                    ("SERVICE_ID".to_string(), Some("ns5_srv5".to_string())),
+                    ("SERVICE_NAME".to_string(), Some("ns5-srv5".to_string())),
+                    ("POD_NAME".to_string(), Some("srv5".to_string())),
                     (
                         "APPGATE_DEVICE_ID".to_string(),
                         Some("0f74690e-b99b-46dc-828b-6162638d7a77".to_string()),
@@ -1373,27 +1459,26 @@ mod tests {
                     "svc.cluster.local".to_string(),
                     "cluster.local".to_string(),
                 ]),
+                annotations: Some(vec![
+                    (
+                        SDP_INJECTOR_ANNOTATION_SERVICE_NAME.to_string(),
+                        "ns5-srv5".to_string(),
+                    ),
+                    (
+                        SDP_INJECTOR_ANNOTATION_SERVICE_ID.to_string(),
+                        "ns5_srv5".to_string(),
+                    ),
+                    (
+                        SDP_INJECTOR_ANNOTATION_POD_NAME.to_string(),
+                        "srv5".to_string(),
+                    ),
+                ]),
                 ..Default::default()
             },
             TestPatch {
                 pod: pod!(6, containers => vec![sdp_sidecar_names[0].clone(),
                                                      sdp_sidecar_names[1].clone(),
                                                      "some-random-service".to_string()]),
-                envs: vec![
-                    ("POD_N_CONTAINERS".to_string(), Some("3".to_string())),
-                    (
-                        "K8S_DNS_SERVICE".to_string(),
-                        Some("10.10.10.10".to_string()),
-                    ),
-                    ("SERVICE_NAME".to_string(), Some("ns6_srv6".to_string())),
-                ],
-                client_config_map: "ns6-srv6-service-config",
-                client_secrets: "ns6-srv6-service-user",
-                dns_searches: Some(vec![
-                    "ns6.svc.cluster.local".to_string(),
-                    "svc.cluster.local".to_string(),
-                    "cluster.local".to_string(),
-                ]),
                 ..Default::default()
             },
             TestPatch {
@@ -1401,62 +1486,17 @@ mod tests {
                                                      sdp_sidecar_names[1].clone(),
                                                      "some-random-service".to_string()],
                                   annotations => vec![("sdp-injector", "true")]),
-                envs: vec![
-                    ("POD_N_CONTAINERS".to_string(), Some("3".to_string())),
-                    (
-                        "K8S_DNS_SERVICE".to_string(),
-                        Some("10.10.10.10".to_string()),
-                    ),
-                    ("SERVICE_NAME".to_string(), Some("ns7_srv7".to_string())),
-                ],
-                client_config_map: "ns7-srv7-service-config",
-                client_secrets: "ns7-srv7-service-user",
-                dns_searches: Some(vec![
-                    "ns7.svc.cluster.local".to_string(),
-                    "svc.cluster.local".to_string(),
-                    "cluster.local".to_string(),
-                ]),
                 ..Default::default()
             },
             TestPatch {
                 pod: pod!(8, containers => vec![sdp_sidecar_names[1].clone(),
                                                      "some-random-service".to_string()]),
-                envs: vec![
-                    ("POD_N_CONTAINERS".to_string(), Some("2".to_string())),
-                    (
-                        "K8S_DNS_SERVICE".to_string(),
-                        Some("10.10.10.10".to_string()),
-                    ),
-                    ("SERVICE_NAME".to_string(), Some("ns8_srv8".to_string())),
-                ],
-                client_config_map: "ns8-srv8-service-config",
-                client_secrets: "ns8-srv8-service-user",
-                dns_searches: Some(vec![
-                    "ns8.svc.cluster.local".to_string(),
-                    "svc.cluster.local".to_string(),
-                    "cluster.local".to_string(),
-                ]),
                 ..Default::default()
             },
             TestPatch {
                 pod: pod!(9, containers => vec![sdp_sidecar_names[1].clone(),
                                                     "some-random-service".to_string()],
                                   annotations => vec![("sdp-injector", "true")]),
-                envs: vec![
-                    ("POD_N_CONTAINERS".to_string(), Some("2".to_string())),
-                    (
-                        "K8S_DNS_SERVICE".to_string(),
-                        Some("10.10.10.10".to_string()),
-                    ),
-                    ("SERVICE_NAME".to_string(), Some("ns9_srv9".to_string())),
-                ],
-                client_config_map: "ns9-srv9-service-config",
-                client_secrets: "ns9-srv9-service-user",
-                dns_searches: Some(vec![
-                    "ns9.svc.cluster.local".to_string(),
-                    "svc.cluster.local".to_string(),
-                    "cluster.local".to_string(),
-                ]),
                 ..Default::default()
             },
             TestPatch {
@@ -1473,7 +1513,9 @@ mod tests {
                         "APPGATE_DEVICE_ID".to_string(),
                         Some("0f74690e-b99b-46dc-828b-6162638d7a77".to_string()),
                     ),
-                    ("SERVICE_NAME".to_string(), Some("ns10_srv10".to_string())),
+                    ("SERVICE_ID".to_string(), Some("ns10_srv10".to_string())),
+                    ("SERVICE_NAME".to_string(), Some("ns10-srv10".to_string())),
+                    ("POD_NAME".to_string(), Some("srv10".to_string())),
                 ],
                 client_config_map: "ns10-srv10-service-config",
                 client_secrets: "ns10-srv10-service-user",
@@ -1481,6 +1523,20 @@ mod tests {
                     "ns10.svc.cluster.local".to_string(),
                     "svc.cluster.local".to_string(),
                     "cluster.local".to_string(),
+                ]),
+                annotations: Some(vec![
+                    (
+                        SDP_INJECTOR_ANNOTATION_SERVICE_NAME.to_string(),
+                        "ns10-srv10".to_string(),
+                    ),
+                    (
+                        SDP_INJECTOR_ANNOTATION_SERVICE_ID.to_string(),
+                        "ns10_srv10".to_string(),
+                    ),
+                    (
+                        SDP_INJECTOR_ANNOTATION_POD_NAME.to_string(),
+                        "srv10".to_string(),
+                    ),
                 ]),
                 ..Default::default()
             },
@@ -1496,7 +1552,9 @@ mod tests {
                         "K8S_DNS_SERVICE".to_string(),
                         Some("10.10.10.10".to_string()),
                     ),
-                    ("SERVICE_NAME".to_string(), Some("ns11_srv11".to_string())),
+                    ("SERVICE_ID".to_string(), Some("ns11_srv11".to_string())),
+                    ("SERVICE_NAME".to_string(), Some("ns11-srv11".to_string())),
+                    ("POD_NAME".to_string(), Some("srv11".to_string())),
                     (
                         "APPGATE_DEVICE_ID".to_string(),
                         Some("0f74690e-b99b-46dc-828b-6162638d7a77".to_string()),
@@ -1515,6 +1573,20 @@ mod tests {
                     name: "some.sysctl.specified.by.user".to_string(),
                     value: "666".to_string(),
                 }]),
+                annotations: Some(vec![
+                    (
+                        SDP_INJECTOR_ANNOTATION_SERVICE_NAME.to_string(),
+                        "ns11-srv11".to_string(),
+                    ),
+                    (
+                        SDP_INJECTOR_ANNOTATION_SERVICE_ID.to_string(),
+                        "ns11_srv11".to_string(),
+                    ),
+                    (
+                        SDP_INJECTOR_ANNOTATION_POD_NAME.to_string(),
+                        "srv11".to_string(),
+                    ),
+                ]),
                 ..Default::default()
             },
             TestPatch {
@@ -1525,7 +1597,9 @@ mod tests {
                         "K8S_DNS_SERVICE".to_string(),
                         Some("10.10.10.10".to_string()),
                     ),
-                    ("SERVICE_NAME".to_string(), Some("ns12_srv12".to_string())),
+                    ("SERVICE_ID".to_string(), Some("ns12_srv12".to_string())),
+                    ("SERVICE_NAME".to_string(), Some("ns12-srv12".to_string())),
+                    ("POD_NAME".to_string(), Some("srv12".to_string())),
                     (
                         "APPGATE_DEVICE_ID".to_string(),
                         Some("0f74690e-b99b-46dc-828b-6162638d7a77".to_string()),
@@ -1543,6 +1617,20 @@ mod tests {
                     name: "net.ipv4.ip_unprivileged_port_start".to_string(),
                     value: "0".to_string(),
                 }]),
+                annotations: Some(vec![
+                    (
+                        SDP_INJECTOR_ANNOTATION_SERVICE_NAME.to_string(),
+                        "ns12-srv12".to_string(),
+                    ),
+                    (
+                        SDP_INJECTOR_ANNOTATION_SERVICE_ID.to_string(),
+                        "ns12_srv12".to_string(),
+                    ),
+                    (
+                        SDP_INJECTOR_ANNOTATION_POD_NAME.to_string(),
+                        "srv12".to_string(),
+                    ),
+                ]),
                 ..Default::default()
             },
         ]
@@ -1755,6 +1843,28 @@ Pod is missing required volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-
                     ))
             };
 
+        let assert_annotations = |pod: &Pod, test_patch: &TestPatch| -> Result<bool, String> {
+            let mut annotation_errors: Vec<String> = vec![];
+            for annotation in test_patch.annotations.as_ref().unwrap_or(&vec![]) {
+                let a = pod.annotation(&annotation.0);
+                if a != Some(&annotation.1) {
+                    let error = format!(
+                        "Annotation {} got annotation {:?}, expected {}",
+                        &annotation.0, a, &annotation.1
+                    );
+                    annotation_errors.insert(0, error);
+                }
+            }
+            if annotation_errors.len() > 0 {
+                Err(format!(
+                    "Found errors on Pod annotations: {}",
+                    annotation_errors.join(", ")
+                ))
+            } else {
+                Ok(true)
+            }
+        };
+
         let assert_envs = |pod: &Pod, test_patch: &TestPatch| -> Result<bool, String> {
             let css = containers(pod).ok_or("Containers not found in POD")?;
             let cs = css
@@ -1937,7 +2047,8 @@ Pod is missing required volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-
                 assert_envs(&patched_pod, test_patch)?;
                 assert_dnsconfig(&patched_pod, test_patch)?;
                 assert_image_pull_secrets(&patched_pod, test_patch)?;
-                assert_security_context(&patched_pod, test_patch)
+                assert_security_context(&patched_pod, test_patch)?;
+                assert_annotations(&patched_pod, test_patch)
             };
 
         let test_description = || "Test patch".to_string();
@@ -2179,7 +2290,7 @@ Pod is missing required volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-
         assert!(env.is_ok());
         if let Ok(env) = env {
             assert_eq!(
-                env.service_name,
+                env.service_id,
                 pod.service_id().expect("Unable to get service id from Pod")
             );
             assert_eq!(env.client_config, "ns1-srv1-service-config");
@@ -2296,7 +2407,7 @@ Pod is missing required volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-
         assert!(env.is_ok());
         assert!(env.as_ref().unwrap().is_some());
         if let Ok(Some(env)) = env {
-            assert_eq!(env.service_name, "ns0_srv0".to_string());
+            assert_eq!(env.service_id, "ns0_srv0".to_string());
             assert_eq!(env.client_config, "some-config-map".to_string());
             assert_eq!(env.client_secret_name, "some-secrets".to_string());
             assert_eq!(
@@ -2317,7 +2428,7 @@ Pod is missing required volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-
         assert!(env.is_ok());
         assert!(env.as_ref().unwrap().is_some());
         if let Ok(Some(env)) = env {
-            assert_eq!(env.service_name, "ns1_srv1".to_string());
+            assert_eq!(env.service_id, "ns1_srv1".to_string());
             assert_eq!(env.client_config, "ns1-srv1-service-config");
             assert_eq!(env.client_secret_name, "some-secrets".to_string());
             assert_eq!(
