@@ -351,21 +351,30 @@ impl System {
     pub async fn unregister_device_id(
         &mut self,
         distinguished_name: &str,
+        dry_run: bool,
     ) -> Result<(), SDPClientError> {
-        info!("Releasing device id {}", distinguished_name);
-        let mut url = Url::from(self.hosts[0].clone());
-        let base_url = url.clone();
-        // This should be encoded with this
-        // https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/encodeURIComponent
-        url.path_segments_mut()
-            .map_err(|_| SDPClientError {
-                request_error: None,
-                status_code: None,
-                error_body: Some(format!("Url not valid: {}", base_url)),
-            })?
-            .push("/admin/on-boarded-devices")
-            .push(distinguished_name);
-        self.delete(url).await
+        info!(
+            "Releasing device id {}{}",
+            distinguished_name,
+            if dry_run { " [dry-run]" } else { "" }
+        );
+        if !dry_run {
+            let mut url = Url::from(self.hosts[0].clone());
+            let base_url = url.clone();
+            // This should be encoded with this
+            // https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/encodeURIComponent
+            url.path_segments_mut()
+                .map_err(|_| SDPClientError {
+                    request_error: None,
+                    status_code: None,
+                    error_body: Some(format!("Url not valid: {}", base_url)),
+                })?
+                .push("/admin/on-boarded-devices")
+                .push(distinguished_name);
+            self.delete(url).await
+        } else {
+            Ok(())
+        }
     }
 
     /// DELETE /on-boarded-devices-distinguished-name/distinguished-name
@@ -373,6 +382,7 @@ impl System {
         &mut self,
         sdp_user: &SDPUser,
         device_id: &Uuid,
+        dry_run: bool,
     ) -> Result<(), SDPClientError> {
         info!(
             "Releasing device id {} for user {}",
@@ -383,7 +393,8 @@ impl System {
             device_id.to_string().replace("-", ""),
             sdp_user.name
         );
-        self.unregister_device_id(&distinguished_name).await
+        self.unregister_device_id(&distinguished_name, dry_run)
+            .await
     }
 
     pub async fn unregister_device_ids_for_username(
@@ -391,6 +402,7 @@ impl System {
         username: &str,
         filter_names: Option<&HashSet<String>>,
         since: Option<Duration>,
+        dry_run: bool,
     ) -> Result<(), SDPClientError> {
         let f = filter_on_boarder_user(filter_names, since.as_ref());
         for onboarded_device in self
@@ -399,7 +411,7 @@ impl System {
             .iter()
             .filter(f)
         {
-            self.unregister_device_id(&onboarded_device.distinguished_name)
+            self.unregister_device_id(&onboarded_device.distinguished_name, dry_run)
                 .await?;
         }
         Ok(())

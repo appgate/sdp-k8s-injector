@@ -36,10 +36,10 @@ fn show_crds() {
     println!("{}", p.unwrap());
 }
 
-async fn release_device_ids(user_name: String, since: Duration) {
+async fn release_device_ids(user_name: String, since: Duration, dry_run: bool) {
     let mut sdp_client = get_sdp_system();
     if let Err(e) = sdp_client
-        .unregister_device_ids_for_username(&user_name, None, Some(since))
+        .unregister_device_ids_for_username(&user_name, None, Some(since), dry_run)
         .await
     {
         error!(
@@ -67,6 +67,8 @@ struct DeviceIdsArgs {
     user_name: String,
     #[arg(value_parser = parse_seconds)]
     since: Duration,
+    #[arg(long = "dry-run")]
+    dry_run: bool,
 }
 
 fn parse_seconds(arg: &str) -> Result<std::time::Duration, std::num::ParseIntError> {
@@ -97,7 +99,7 @@ async fn main() -> () {
             show_crds();
         }
         IdentityServiceCommands::DeviceIds(args) => {
-            release_device_ids(args.user_name, args.since).await;
+            release_device_ids(args.user_name, args.since, args.dry_run).await;
         }
         IdentityServiceCommands::Run => {
             let client = get_k8s_client().await;
