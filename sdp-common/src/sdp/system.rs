@@ -1,5 +1,6 @@
 use crate::sdp::auth::{Credentials, Login, SDPUser, SDPUsers};
 use crate::sdp::errors::{error_for_status, SDPClientError};
+use chrono::{DateTime, Utc};
 use http::header::{InvalidHeaderValue, ACCEPT};
 use http::{HeaderValue, StatusCode};
 use reqwest::header::HeaderMap;
@@ -34,6 +35,7 @@ pub struct OnBoardedUser {
     pub distinguished_name: String,
     pub device_id: String,
     pub username: String,
+    pub last_seen_at: DateTime<Utc>,
 }
 
 pub fn get_sdp_system() -> System {
@@ -161,6 +163,22 @@ pub struct System {
 pub enum ResponseData<D> {
     NoContent,
     Entity(D),
+}
+
+fn filter_on_boarder_user<'a>(
+    filter_names: Option<&'a HashSet<String>>,
+    since: Option<&'a Duration>,
+) -> impl FnMut(&&OnBoardedUser) -> bool + 'a {
+    let f = move |on_boarded_user: &&OnBoardedUser| {
+        (since.is_none()
+            || on_boarded_user.last_seen_at.timestamp() <= since.unwrap().as_secs() as i64)
+            && (filter_names.is_none()
+                || !filter_names
+                    .as_ref()
+                    .unwrap()
+                    .contains(&on_boarded_user.username))
+    };
+    f
 }
 
 impl System {
@@ -372,16 +390,14 @@ impl System {
         &mut self,
         username: &str,
         filter_names: Option<&HashSet<String>>,
+        since: Option<Duration>,
     ) -> Result<(), SDPClientError> {
+        let f = filter_on_boarder_user(filter_names, since.as_ref());
         for onboarded_device in self
             .get_registered_device_ids(username)
             .await?
             .iter()
-            .filter(|od| {
-                filter_names.is_none()
-                    || (filter_names.is_some()
-                        && !filter_names.as_ref().unwrap().contains(&od.username))
-            })
+            .filter(f)
         {
             self.unregister_device_id(&onboarded_device.distinguished_name)
                 .await?;
@@ -453,5 +469,79 @@ impl System {
         let mut url = Url::from(self.hosts[0].clone());
         url.set_path(&format!("/admin/client-profiles/{}/url", client_profile_id));
         self.get(url).await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{collections::HashSet, time::Duration};
+
+    use chrono::{DateTime, Utc};
+
+    use crate::sdp::system::filter_on_boarder_user;
+
+    use super::OnBoardedUser;
+
+    #[test]
+    fn test_filter_on_boarder_user() {
+        let user = OnBoardedUser {
+            distinguished_name: "CN=CN0,CN=user_name,OU=service".to_string(),
+            device_id: "uuid".to_string(),
+            username: "user_name".to_string(),
+            last_seen_at: "2024-01-04T08:57:57.531413Z"
+                .parse::<DateTime<Utc>>()
+                .unwrap(),
+        };
+
+        let mut f1 = filter_on_boarder_user(None, None);
+        assert_eq!(f1(&&user), true);
+
+        let hs = HashSet::new();
+        let mut f1 = filter_on_boarder_user(Some(&hs), None);
+        assert_eq!(f1(&&user), true);
+
+        let hs = HashSet::from_iter(vec!["another_user_name".to_string()]);
+        let mut f1 = filter_on_boarder_user(Some(&hs), None);
+        assert_eq!(f1(&&user), true);
+
+        let hs = HashSet::from_iter(vec!["user_name".to_string()]);
+        let mut f1 = filter_on_boarder_user(Some(&hs), None);
+        assert_eq!(f1(&&user), false);
+
+        let since = Duration::from_secs(
+            "2024-01-04T08:0:0.531413Z"
+                .parse::<DateTime<Utc>>()
+                .unwrap()
+                .timestamp() as u64,
+        );
+        let mut f1 = filter_on_boarder_user(None, Some(&since));
+        assert_eq!(f1(&&user), false);
+
+        let since = Duration::from_secs(
+            "2024-01-04T08:57:56.531415Z"
+                .parse::<DateTime<Utc>>()
+                .unwrap()
+                .timestamp() as u64,
+        );
+        let mut f1 = filter_on_boarder_user(None, Some(&since));
+        assert_eq!(f1(&&user), false);
+
+        let since = Duration::from_secs(
+            "2024-01-04T08:57:57.531413Z"
+                .parse::<DateTime<Utc>>()
+                .unwrap()
+                .timestamp() as u64,
+        );
+        let mut f1 = filter_on_boarder_user(None, Some(&since));
+        assert_eq!(f1(&&user), true);
+
+        let since = Duration::from_secs(
+            "2024-01-04T08:57:59.531413Z"
+                .parse::<DateTime<Utc>>()
+                .unwrap()
+                .timestamp() as u64,
+        );
+        let mut f1 = filter_on_boarder_user(None, Some(&since));
+        assert_eq!(f1(&&user), true);
     }
 }
