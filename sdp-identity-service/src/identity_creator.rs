@@ -208,7 +208,7 @@ impl IdentityCreator {
         let user_name = sdp_user.prefix_name();
         if let Err(e) = self
             .system
-            .unregister_device_ids_for_username(&user_name, None, None, false)
+            .unregister_device_ids_for_username(&user_name, None, None, None, false)
             .await
         {
             error!(
@@ -575,6 +575,7 @@ impl IdentityCreator {
                             .unregister_device_ids_for_username(
                                 &sdp_user_name,
                                 Some(&sdp_users),
+                                None,
                                 None,
                                 false,
                             )

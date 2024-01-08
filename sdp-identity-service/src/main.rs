@@ -18,7 +18,7 @@ use sdp_common::{
     kubernetes::SDP_K8S_NAMESPACE,
     watcher::{watch, WatcherWaitReady},
 };
-use std::{panic, process::exit, time::Duration};
+use std::{collections::HashSet, panic, process::exit, time::Duration};
 use tokio::sync::broadcast::channel as broadcast_channel;
 use tokio::sync::mpsc::channel;
 
@@ -36,10 +36,14 @@ fn show_crds() {
     println!("{}", p.unwrap());
 }
 
-async fn release_device_ids(user_name: String, since: Duration, dry_run: bool) {
+async fn release_device_ids(user_name: String, since: Duration, dry_run: bool, exact_match: bool) {
     let mut sdp_client = get_sdp_system();
+    let mut hs: Option<HashSet<String>> = None;
+    if exact_match {
+        hs = Some(HashSet::from_iter(vec![user_name.to_string()]));
+    }
     if let Err(e) = sdp_client
-        .unregister_device_ids_for_username(&user_name, None, Some(since), dry_run)
+        .unregister_device_ids_for_username(&user_name, None, hs.as_ref(), Some(since), dry_run)
         .await
     {
         error!(
@@ -69,6 +73,8 @@ struct DeviceIdsArgs {
     since: Duration,
     #[arg(long = "dry-run")]
     dry_run: bool,
+    #[arg(long = "exact-match")]
+    exact_match: bool,
 }
 
 fn parse_seconds(arg: &str) -> Result<std::time::Duration, std::num::ParseIntError> {
@@ -99,7 +105,7 @@ async fn main() -> () {
             show_crds();
         }
         IdentityServiceCommands::DeviceIds(args) => {
-            release_device_ids(args.user_name, args.since, args.dry_run).await;
+            release_device_ids(args.user_name, args.since, args.dry_run, args.exact_match).await;
         }
         IdentityServiceCommands::Run => {
             let client = get_k8s_client().await;
