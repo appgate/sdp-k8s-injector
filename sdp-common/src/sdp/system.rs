@@ -1,5 +1,6 @@
 use crate::sdp::auth::{Credentials, Login, SDPUser, SDPUsers};
 use crate::sdp::errors::{error_for_status, SDPClientError};
+use chrono::{DateTime, Utc};
 use http::header::{InvalidHeaderValue, ACCEPT};
 use http::{HeaderValue, StatusCode};
 use reqwest::header::HeaderMap;
@@ -34,6 +35,7 @@ pub struct OnBoardedUser {
     pub distinguished_name: String,
     pub device_id: String,
     pub username: String,
+    pub last_seen_at: DateTime<Utc>,
 }
 
 pub fn get_sdp_system() -> System {
@@ -161,6 +163,28 @@ pub struct System {
 pub enum ResponseData<D> {
     NoContent,
     Entity(D),
+}
+
+fn filter_on_boarder_user<'a>(
+    filter_out_names: Option<&'a HashSet<String>>,
+    filter_in_names: Option<&'a HashSet<String>>,
+    since: Option<&'a Duration>,
+) -> impl FnMut(&&OnBoardedUser) -> bool + 'a {
+    let f = move |on_boarded_user: &&OnBoardedUser| {
+        (since.is_none()
+            || on_boarded_user.last_seen_at.timestamp() <= since.unwrap().as_secs() as i64)
+            && (filter_in_names.is_none()
+                || filter_in_names
+                    .as_ref()
+                    .unwrap()
+                    .contains(&on_boarded_user.username))
+            && (filter_out_names.is_none()
+                || !filter_out_names
+                    .as_ref()
+                    .unwrap()
+                    .contains(&on_boarded_user.username))
+    };
+    f
 }
 
 impl System {
@@ -333,21 +357,25 @@ impl System {
     pub async fn unregister_device_id(
         &mut self,
         distinguished_name: &str,
+        dry_run: bool,
     ) -> Result<(), SDPClientError> {
-        info!("Releasing device id {}", distinguished_name);
-        let mut url = Url::from(self.hosts[0].clone());
-        let base_url = url.clone();
-        // This should be encoded with this
-        // https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/encodeURIComponent
-        url.path_segments_mut()
-            .map_err(|_| SDPClientError {
-                request_error: None,
-                status_code: None,
-                error_body: Some(format!("Url not valid: {}", base_url)),
-            })?
-            .push("/admin/on-boarded-devices")
-            .push(distinguished_name);
-        self.delete(url).await
+        if !dry_run {
+            let mut url = Url::from(self.hosts[0].clone());
+            let base_url = url.clone();
+            // This should be encoded with this
+            // https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/encodeURIComponent
+            url.path_segments_mut()
+                .map_err(|_| SDPClientError {
+                    request_error: None,
+                    status_code: None,
+                    error_body: Some(format!("Url not valid: {}", base_url)),
+                })?
+                .push("/admin/on-boarded-devices")
+                .push(distinguished_name);
+            self.delete(url).await
+        } else {
+            Ok(())
+        }
     }
 
     /// DELETE /on-boarded-devices-distinguished-name/distinguished-name
@@ -355,35 +383,44 @@ impl System {
         &mut self,
         sdp_user: &SDPUser,
         device_id: &Uuid,
+        dry_run: bool,
     ) -> Result<(), SDPClientError> {
-        info!(
-            "Releasing device id {} for user {}",
-            device_id, sdp_user.name
-        );
         let distinguished_name = format!(
             "CN={},CN={},OU=service",
             device_id.to_string().replace("-", ""),
             sdp_user.name
         );
-        self.unregister_device_id(&distinguished_name).await
+        info!(
+            "Releasing device id {}{}",
+            &distinguished_name,
+            if dry_run { " [dry-run]" } else { "" }
+        );
+        self.unregister_device_id(&distinguished_name, dry_run)
+            .await
     }
 
     pub async fn unregister_device_ids_for_username(
         &mut self,
         username: &str,
-        filter_names: Option<&HashSet<String>>,
+        filter_out_names: Option<&HashSet<String>>,
+        filter_in_names: Option<&HashSet<String>>,
+        since: Option<Duration>,
+        dry_run: bool,
     ) -> Result<(), SDPClientError> {
+        let f = filter_on_boarder_user(filter_out_names, filter_in_names, since.as_ref());
         for onboarded_device in self
             .get_registered_device_ids(username)
             .await?
             .iter()
-            .filter(|od| {
-                filter_names.is_none()
-                    || (filter_names.is_some()
-                        && !filter_names.as_ref().unwrap().contains(&od.username))
-            })
+            .filter(f)
         {
-            self.unregister_device_id(&onboarded_device.distinguished_name)
+            info!(
+                "Releasing device id {} | {}{}",
+                &onboarded_device.distinguished_name,
+                &onboarded_device.last_seen_at,
+                if dry_run { " [dry-run]" } else { "" }
+            );
+            self.unregister_device_id(&onboarded_device.distinguished_name, dry_run)
                 .await?;
         }
         Ok(())
@@ -453,5 +490,164 @@ impl System {
         let mut url = Url::from(self.hosts[0].clone());
         url.set_path(&format!("/admin/client-profiles/{}/url", client_profile_id));
         self.get(url).await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{collections::HashSet, time::Duration};
+
+    use chrono::{DateTime, Utc};
+
+    use crate::sdp::system::filter_on_boarder_user;
+
+    use super::OnBoardedUser;
+
+    #[test]
+    fn test_filter_on_boarder_user_using_names0() {
+        let user = OnBoardedUser {
+            distinguished_name: "CN=CN0,CN=user_name,OU=service".to_string(),
+            device_id: "uuid".to_string(),
+            username: "user_name".to_string(),
+            last_seen_at: "2024-01-04T08:57:57.531413Z"
+                .parse::<DateTime<Utc>>()
+                .unwrap(),
+        };
+
+        let mut f1 = filter_on_boarder_user(None, None, None);
+        assert_eq!(f1(&&user), true);
+
+        let hs = HashSet::new();
+        let mut f1 = filter_on_boarder_user(Some(&hs), None, None);
+        assert_eq!(f1(&&user), true);
+
+        let hs = HashSet::from_iter(vec!["another_user_name".to_string()]);
+        let mut f1 = filter_on_boarder_user(Some(&hs), None, None);
+        assert_eq!(f1(&&user), true);
+
+        let hs = HashSet::from_iter(vec!["user_name".to_string()]);
+        let mut f1 = filter_on_boarder_user(Some(&hs), None, None);
+        assert_eq!(f1(&&user), false);
+    }
+
+    #[test]
+    fn test_filter_on_boarder_user_using_names1() {
+        let user = OnBoardedUser {
+            distinguished_name: "CN=CN0,CN=user_name,OU=service".to_string(),
+            device_id: "uuid".to_string(),
+            username: "user_name".to_string(),
+            last_seen_at: "2024-01-04T08:57:57.531413Z"
+                .parse::<DateTime<Utc>>()
+                .unwrap(),
+        };
+
+        let mut f1 = filter_on_boarder_user(None, None, None);
+        assert_eq!(f1(&&user), true);
+
+        let hs = HashSet::new();
+        let mut f1 = filter_on_boarder_user(None, Some(&hs), None);
+        assert_eq!(f1(&&user), false);
+
+        let hs = HashSet::from_iter(vec!["another_user_name".to_string()]);
+        let mut f1 = filter_on_boarder_user(None, Some(&hs), None);
+        assert_eq!(f1(&&user), false);
+
+        let hs = HashSet::from_iter(vec!["user_name".to_string()]);
+        let mut f1 = filter_on_boarder_user(None, Some(&hs), None);
+        assert_eq!(f1(&&user), true);
+    }
+
+    #[test]
+    fn test_filter_on_boarder_user_using_names2() {
+        let user = OnBoardedUser {
+            distinguished_name: "CN=CN0,CN=user_name,OU=service".to_string(),
+            device_id: "uuid".to_string(),
+            username: "user_name".to_string(),
+            last_seen_at: "2024-01-04T08:57:57.531413Z"
+                .parse::<DateTime<Utc>>()
+                .unwrap(),
+        };
+
+        let hs_out = HashSet::new();
+        let hs_in: HashSet<String> = HashSet::new();
+        let mut f1 = filter_on_boarder_user(Some(&hs_out), Some(&hs_in), None);
+        assert_eq!(f1(&&user), false);
+
+        let hs_out = HashSet::from_iter(vec!["another_user_name".to_string()]);
+        let hs_in: HashSet<String> = HashSet::new();
+        let mut f1 = filter_on_boarder_user(Some(&hs_out), Some(&hs_in), None);
+        assert_eq!(f1(&&user), false);
+
+        let hs_out = HashSet::new();
+        let hs_in = HashSet::from_iter(vec!["another_user_name".to_string()]);
+        let mut f1 = filter_on_boarder_user(Some(&hs_out), Some(&hs_in), None);
+        assert_eq!(f1(&&user), false);
+
+        let hs_out = HashSet::from_iter(vec!["user_name".to_string()]);
+        let hs_in: HashSet<String> = HashSet::new();
+        let mut f1 = filter_on_boarder_user(Some(&hs_out), Some(&hs_in), None);
+        assert_eq!(f1(&&user), false);
+
+        let hs_out = HashSet::new();
+        let hs_in = HashSet::from_iter(vec!["user_name".to_string()]);
+        let mut f1 = filter_on_boarder_user(Some(&hs_out), Some(&hs_in), None);
+        assert_eq!(f1(&&user), true);
+
+        let hs_out = HashSet::from_iter(vec!["another_user_name".to_string()]);
+        let hs_in = HashSet::from_iter(vec!["user_name".to_string()]);
+        let mut f1 = filter_on_boarder_user(Some(&hs_out), Some(&hs_in), None);
+        assert_eq!(f1(&&user), true);
+
+        let hs_out = HashSet::from_iter(vec!["user_name".to_string()]);
+        let hs_in = HashSet::from_iter(vec!["user_name".to_string()]);
+        let mut f1 = filter_on_boarder_user(Some(&hs_out), Some(&hs_in), None);
+        assert_eq!(f1(&&user), false);
+    }
+
+    #[test]
+    fn test_filter_on_boarder_user() {
+        let user = OnBoardedUser {
+            distinguished_name: "CN=CN0,CN=user_name,OU=service".to_string(),
+            device_id: "uuid".to_string(),
+            username: "user_name".to_string(),
+            last_seen_at: "2024-01-04T08:57:57.531413Z"
+                .parse::<DateTime<Utc>>()
+                .unwrap(),
+        };
+        let since = Duration::from_secs(
+            "2024-01-04T08:0:0.531413Z"
+                .parse::<DateTime<Utc>>()
+                .unwrap()
+                .timestamp() as u64,
+        );
+        let mut f1 = filter_on_boarder_user(None, None, Some(&since));
+        assert_eq!(f1(&&user), false);
+
+        let since = Duration::from_secs(
+            "2024-01-04T08:57:56.531415Z"
+                .parse::<DateTime<Utc>>()
+                .unwrap()
+                .timestamp() as u64,
+        );
+        let mut f1 = filter_on_boarder_user(None, None, Some(&since));
+        assert_eq!(f1(&&user), false);
+
+        let since = Duration::from_secs(
+            "2024-01-04T08:57:57.531413Z"
+                .parse::<DateTime<Utc>>()
+                .unwrap()
+                .timestamp() as u64,
+        );
+        let mut f1 = filter_on_boarder_user(None, None, Some(&since));
+        assert_eq!(f1(&&user), true);
+
+        let since = Duration::from_secs(
+            "2024-01-04T08:57:59.531413Z"
+                .parse::<DateTime<Utc>>()
+                .unwrap()
+                .timestamp() as u64,
+        );
+        let mut f1 = filter_on_boarder_user(None, None, Some(&since));
+        assert_eq!(f1(&&user), true);
     }
 }

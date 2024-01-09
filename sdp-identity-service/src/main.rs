@@ -18,7 +18,7 @@ use sdp_common::{
     kubernetes::SDP_K8S_NAMESPACE,
     watcher::{watch, WatcherWaitReady},
 };
-use std::{panic, process::exit};
+use std::{collections::HashSet, panic, process::exit, time::Duration};
 use tokio::sync::broadcast::channel as broadcast_channel;
 use tokio::sync::mpsc::channel;
 
@@ -36,15 +36,53 @@ fn show_crds() {
     println!("{}", p.unwrap());
 }
 
-#[derive(Debug, Subcommand)]
+async fn release_device_ids(user_name: String, since: Duration, dry_run: bool, exact_match: bool) {
+    let mut sdp_client = get_sdp_system();
+    let mut hs: Option<HashSet<String>> = None;
+    if exact_match {
+        hs = Some(HashSet::from_iter(vec![user_name.to_string()]));
+    }
+    if let Err(e) = sdp_client
+        .unregister_device_ids_for_username(&user_name, None, hs.as_ref(), Some(since), dry_run)
+        .await
+    {
+        error!(
+            "Error releasing device ids for user {} older than {} seconds: {}",
+            user_name,
+            since.as_secs(),
+            e.to_string()
+        );
+    }
+}
+
+#[derive(Subcommand)]
 enum IdentityServiceCommands {
+    /// Cli tool to manage device ids
+    DeviceIds(DeviceIdsArgs),
     /// Prints the ServiceIdentity CustomResourceDefinition YAML
     Crd,
     /// Runs the Identity Service
     Run,
 }
 
-#[derive(Debug, Parser)]
+#[derive(clap::Parser, Debug)]
+struct DeviceIdsArgs {
+    #[arg()]
+    user_name: String,
+    #[arg(value_parser = parse_seconds)]
+    since: Duration,
+    #[arg(long = "dry-run")]
+    dry_run: bool,
+    #[arg(long = "exact-match")]
+    exact_match: bool,
+}
+
+fn parse_seconds(arg: &str) -> Result<std::time::Duration, std::num::ParseIntError> {
+    let seconds = arg.parse()?;
+    Ok(std::time::Duration::from_secs(seconds))
+}
+
+#[derive(Parser)]
 #[clap(name = "sdp-identity-service")]
 struct IdentityService {
     #[clap(subcommand)]
@@ -65,6 +103,9 @@ async fn main() -> () {
     match args.command {
         IdentityServiceCommands::Crd => {
             show_crds();
+        }
+        IdentityServiceCommands::DeviceIds(args) => {
+            release_device_ids(args.user_name, args.since, args.dry_run, args.exact_match).await;
         }
         IdentityServiceCommands::Run => {
             let client = get_k8s_client().await;

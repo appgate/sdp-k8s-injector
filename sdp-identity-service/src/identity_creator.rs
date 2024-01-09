@@ -208,7 +208,7 @@ impl IdentityCreator {
         let user_name = sdp_user.prefix_name();
         if let Err(e) = self
             .system
-            .unregister_device_ids_for_username(&user_name, None)
+            .unregister_device_ids_for_username(&user_name, None, None, None, false)
             .await
         {
             error!(
@@ -572,7 +572,13 @@ impl IdentityCreator {
                         info!("[{}] Reconciling SDPUser", &sdp_user);
                         if let Err(e) = self
                             .system
-                            .unregister_device_ids_for_username(&sdp_user_name, Some(&sdp_users))
+                            .unregister_device_ids_for_username(
+                                &sdp_user_name,
+                                Some(&sdp_users),
+                                None,
+                                None,
+                                false,
+                            )
                             .await
                         {
                             error!(
@@ -588,6 +594,7 @@ impl IdentityCreator {
                         .unregister_device_id_for_user(
                             &SDPUser::new(service_user.id, Some(service_user.name.clone()), None),
                             &device_id,
+                            false,
                         )
                         .await
                     {
