@@ -1637,7 +1637,7 @@ dependencies = [
 
 [[package]]
 name = "sdp-common"
-version = "1.2.4"
+version = "1.2.5"
 dependencies = [
  "chrono",
  "const_format",
@@ -1660,7 +1660,7 @@ dependencies = [
 
 [[package]]
 name = "sdp-identity-service"
-version = "1.2.4"
+version = "1.2.5"
 dependencies = [
  "async-trait",
  "clap",
@@ -1680,7 +1680,7 @@ dependencies = [
 
 [[package]]
 name = "sdp-injector"
-version = "1.2.4"
+version = "1.2.5"
 dependencies = [
  "async-trait",
  "futures",
@@ -1708,11 +1708,11 @@ dependencies = [
 
 [[package]]
 name = "sdp-macros"
-version = "1.2.4"
+version = "1.2.5"
 
 [[package]]
 name = "sdp-test-macros"
-version = "1.2.4"
+version = "1.2.5"
 
 [[package]]
 name = "secrecy"
@@ -2006,9 +2006,9 @@ dependencies = [
 
 [[package]]
 name = "tokio"
-version = "1.34.0"
+version = "1.36.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d0c014766411e834f7af5b8f4cf46257aab4036ca95e9d2c144a10f59ad6f5b9"
+checksum = "61285f6515fa018fb2d1e46eb21223fff441ee8db5d0f1435e8ab4f5cdb80931"
 dependencies = [
  "backtrace",
  "bytes",
