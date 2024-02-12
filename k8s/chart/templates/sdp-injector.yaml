@@ -45,7 +45,6 @@ spec:
       containers:
         - name: {{ .Chart.Name }}-injector
           env:
-          env:
             - name: SDP_SYSTEM_NO_VERIFY
               value: {{ .Values.sdp.identityService.sdpSystemNoVerify | quote }}
             - name: SDP_SYSTEM_HOSTS
