@@ -433,6 +433,8 @@ Injector uses Controller API for managing identities of injected Clients, so it 
 * Edit all Client Profiles
 * Delete all Client Profiles
 * Export all Client Profiles
+* View selected Registered Devices
+* Delete selected Registered Devices
 
 ### sdp-dnsmasq
 SDP Clients can make DNS queries for specific hosts to specific DNS servers behind the SDP Gateways. This is configured by the sdp-driver which notifies the system about which domains should use the DNS servers behind the SDP Gateways.

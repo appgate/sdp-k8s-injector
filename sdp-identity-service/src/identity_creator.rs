@@ -569,7 +569,7 @@ impl IdentityCreator {
                         let sdp_user_name =
                             SDPUser::new(sdp_user.clone(), Some(sdp_user.clone()), Some(false))
                                 .prefix_name();
-                        info!("[{}] Reconciling SDPUser", &sdp_user);
+                        info!("[{}] Reconciling SDPUser by releasing device ids", &sdp_user);
                         if let Err(e) = self
                             .system
                             .unregister_device_ids_for_username(
@@ -582,7 +582,7 @@ impl IdentityCreator {
                             .await
                         {
                             error!(
-                                "[{}] Error reconciling SDPUser: {}",
+                                "[{}] Error reconciling SDPUser by releasing device ids: {}",
                                 sdp_user_name,
                                 e.to_string()
                             );
@@ -599,7 +599,7 @@ impl IdentityCreator {
                         .await
                     {
                         error!(
-                            "[{}] Error deleting SDPUser: {}",
+                            "[{}] Error releasing device ids owned by SDPUser: {}",
                             service_user.name,
                             e.to_string()
                         );
