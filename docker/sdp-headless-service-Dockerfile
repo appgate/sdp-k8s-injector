@@ -47,6 +47,7 @@ COPY assets/sdp-client-headless-service /opt/appgate/sdp-client-headless-service
 
 COPY assets/sdp-driver-pod-info /opt/appgate/pod_info
 COPY assets/sdp-service-probe /opt/appgate/sdp-service-probe
+COPY assets/sdp-service-watcher /opt/appgate/sdp-service-watcher
 RUN chmod +x /opt/appgate/sdp-client-headless-service && \
     touch /etc/machine-id && \
     chown 103:102 /etc/machine-id && \
@@ -57,7 +58,9 @@ RUN chmod +x /opt/appgate/sdp-client-headless-service && \
     mkdir -p /var/log/appgate && \
     chown -R 103:102 /var/log/appgate && \
     chmod +x /opt/appgate/pod_info && \
-    chmod +x /opt/appgate/sdp-service-probe
+    chmod +x /opt/appgate/sdp-service-probe && \
+    chmod +x /opt/appgate/sdp-service-watcher
+
 WORKDIR /sdp-service
 USER appgate
 ENTRYPOINT ["/opt/appgate/sdp-client-headless-service"]

@@ -35,9 +35,11 @@ RUN apt-get update && \
 
 COPY assets/sdp-driver-set-dns /opt/appgate/linux/set_dns
 COPY assets/sdp-client-headless-driver /opt/appgate/sdp-client-headless-driver
+COPY assets/sdp-driver-watcher /opt/appgate/sdp-driver-watcher
 RUN mkdir /var/run/sdp-driver && \
     chown -R 103:102 /var/run/sdp-driver && \
     chmod +x /opt/appgate/linux/set_dns && \
+    chmod +x /opt/appgate/sdp-driver-watcher && \
     chmod +x /opt/appgate/sdp-client-headless-driver && \
     chown -R 103:102 /opt/appgate && \
     mkdir -p /var/log/appgate && \

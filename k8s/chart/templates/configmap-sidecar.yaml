@@ -53,6 +53,10 @@ data:
           "terminationMessagePolicy": "File",
           "volumeMounts": [
             {
+              "mountPath": "/var/run/sdp-dnsmasq",
+              "name": "run-sdp-dnsmasq"
+            },
+            {
               "mountPath": "/var/run/sdp-driver",
               "name": "run-sdp-driver"
             },
