@@ -1,6 +1,7 @@
 #!/usr/bin/env sh
 
 SETDNS_SOCKET=/var/run/sdp-dnsmasq/dns-set.sock
+WATCHER_SOCKET=/var/run/sdp-dnsmasq/dnsmasq-watcher.sock
 DNSMASQ_CONF_DIR=/sdp-dnsmasq/sdp-dnsmasq.d
 DNSMASQ_CONF_FILE=/sdp-dnsmasq/dnsmasq.conf
 DNSMASQ_CONF_APPGATE_FILE=/sdp-dnsmasq/dnsmasq.d/appgate.conf
@@ -34,6 +35,9 @@ fi
 /usr/sbin/dnsmasq -C $DNSMASQ_CONF_FILE --pid-file=/sdp-dnsmasq/dnsmasq.pid \
      --port=53 --local-service --listen-address=127.0.0.1 $LOG_QUERIES \
      --log-facility /proc/1/fd/1
+
+# Run watcher in the background
+socat UNIX-LISTEN:$WATCHER_SOCKET,fork system:/sdp-dnsmasq/sdp-dnsmasq-watcher,fdout=4
 
 # Start listening for events from sdp-driver
 # socat will fork sdp-dnsmasq-set-dns and it will send data receive in the socket to the
