@@ -25,7 +25,7 @@ ENV MINOR=${MINOR_VERSION}
 COPY --from=sdp-headless-client "/tmp/${CLIENT_DEB}" "/tmp/${CLIENT_DEB}"
 
 RUN apt-get update && apt-get install -y \
-        "/tmp/${CLIENT_DEB}" && \
+        "/tmp/${CLIENT_DEB}" socat jq &&  \
     rm -rf /var/lib/apt/lists/* && \
     groupmod -g 103 messagebus && \
     addgroup dnsmasq --gid 101 && \
@@ -47,17 +47,24 @@ COPY assets/sdp-client-headless-service /opt/appgate/sdp-client-headless-service
 
 COPY assets/sdp-driver-pod-info /opt/appgate/pod_info
 COPY assets/sdp-service-probe /opt/appgate/sdp-service-probe
+COPY assets/sdp-service-watcher /opt/appgate/sdp-service-watcher
+COPY assets/wait-for-stop /opt/appgate/wait-for-stop
 RUN chmod +x /opt/appgate/sdp-client-headless-service && \
     touch /etc/machine-id && \
     chown 103:102 /etc/machine-id && \
     mkdir /sdp-service && \
     mkdir /var/run/appgate && \
+    mkdir /var/run/sdp-service && \
     chown 103:102 /sdp-service && \
+    chown 103:101 /var/run/sdp-service -R && \
     chown 103:102 /var/run/appgate && \
     mkdir -p /var/log/appgate && \
     chown -R 103:102 /var/log/appgate && \
     chmod +x /opt/appgate/pod_info && \
-    chmod +x /opt/appgate/sdp-service-probe
+    chmod +x /opt/appgate/sdp-service-probe && \
+    chmod +x /opt/appgate/sdp-service-watcher && \
+    chmod +x /opt/appgate/wait-for-stop
+
 WORKDIR /sdp-service
 USER appgate
 ENTRYPOINT ["/opt/appgate/sdp-client-headless-service"]
