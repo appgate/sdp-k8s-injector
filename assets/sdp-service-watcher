@@ -48,10 +48,10 @@ if [ "$1" = "server" ]; then
         esac
         }
 else
-    # appgate_service_configurator status > /tmp/status-client
+    appgate_service_configurator status > /tmp/status-client
     socat -v -v TCP-LISTEN:6666,reuseaddr,fork SYSTEM:"$0 server"&
     while true; do
         sleep 10
-        # appgate_service_configurator status > /tmp/status-client
+        appgate_service_configurator status > /tmp/status-client
     done
 fi
