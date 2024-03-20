@@ -41,5 +41,5 @@ EOF
 /opt/appgate/service/appgateservice --config /sdp-service/appgate.conf \
     --tun /var/run/sdp-driver/.driver.sock \
     --service&
-
-exec socat UNIX-LISTEN:$WATCHER_SOCKET,fork system:/opt/appgate/sdp-service-watcher,fdout=4
+/opt/appgate/sdp-service-watcher&
+/opt/appgate/wait-for-stop /var/run/sdp-service/stop.sock 6667
