@@ -120,7 +120,7 @@ Currently, the only supported way of installing the Injector is to use the offic
       --values values.yaml
     ```
 7. Verify the installation.
-    1.  There should be three pods running in `sdp-system` namespace.
+    1.  There should be two pods running in `sdp-system` namespace.
         ```shell
         $ kubectl get pods --namespace sdp-system
 
@@ -382,12 +382,12 @@ This table above was generated using [readme-generator-for-helm](https://github.
 
 ## How It Works
 ### Overview
-SDP Kubernetes Injector consists of three components:
+SDP Kubernetes Injector consists of the following components:
 * Identity Service
 * Injector
 
 ### Identity Service
-SDP Identity Service is mainly responsible for the management of the Service User credentials. It consists of three subcomponents:
+SDP Identity Service is mainly responsible for the management of the Service User credentials. It consists of the following subcomponents:
 * Deployment Watcher
 * Identity Creator
 * Identity Manager
@@ -435,7 +435,7 @@ In the case of the SDP Kubernetes Injector, a dnsmasq instance is configured acc
 
 The Injector function may fail due to various reasons such as missing secrets, wrong api credentials, unaccessible Controller API.
 
-Make sure that all three pods are running.
+Make sure that the following pods are running.
 ```shell
 $ kubectl get pods -n sdp-system
 NAME                                                  READY   STATUS    RESTARTS   AGE
