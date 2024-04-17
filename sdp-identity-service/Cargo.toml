@@ -22,6 +22,6 @@ futures = "^0.3.30"
 log = "0.4.21"
 uuid = { version = "1.6.1", features = ["v4", "fast-rng"] }
 json-patch = "*"
-clap = { version = "4.4.10", features = ["derive"] }
+clap = { version = "4.5.4", features = ["derive"] }
 log4rs = "1.2.0"
 async-trait = "0.1.80"
