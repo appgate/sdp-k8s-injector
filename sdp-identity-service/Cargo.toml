@@ -20,7 +20,7 @@ kube = { version = "0.87.1", default-features = false, features = ["admission", 
 k8s-openapi = { version = "0.20.0", features = ["latest"]}
 futures = "^0.3.30"
 log = "0.4.21"
-uuid = { version = "1.6.1", features = ["v4", "fast-rng"] }
+uuid = { version = "1.8.0", features = ["v4", "fast-rng"] }
 json-patch = "*"
 clap = { version = "4.4.10", features = ["derive"] }
 log4rs = "1.2.0"
