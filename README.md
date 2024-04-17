@@ -29,7 +29,6 @@ For ingress access, from external clients to SDP Gateway protected workloads in 
 * [How It Works](#how-it-works)
   * [Overview](#overview)
   * [Identity Service](#identity-service)
-  * [Device ID Service](#device-id-service)
   * [Injector](#injector)
   * [sdp-dnsmasq](#sdp-dnsmasq)
 * [Troubleshooting](#troubleshooting)
@@ -51,7 +50,7 @@ SDP Kubernetes Injector requires following configurations on the SDP Controller:
   * 10 inactive Service Users are created at the initialization of the Identity Service.
 * IP Pool assigned on `service` Identity Provider
   * 1 IP is assigned from the IP Pool for every Pod in the Kubernetes workload.
-  * Each Pod is assigned a Device ID by the Injector's Device ID service. Device IDs are persistent so will survive Pod restarts.
+  * Each Pod is assigned a Device ID by the Identity Service. Device IDs are persistent so it will survive Pod restarts.
 * API User with required privileges
   * Admin Role with `Service User Management Preset` in the Admin UI.
   * See [Injector](#injector) section for individual privileges required.
@@ -126,7 +125,6 @@ Currently, the only supported way of installing the Injector is to use the offic
         $ kubectl get pods --namespace sdp-system
 
         NAME                                                  READY   STATUS    RESTARTS   AGE
-        sdp-k8s-injector-device-id-service-56c5dff485-s8f6f   1/1     Running   0          3m40s
         sdp-k8s-injector-identity-service-67b847bd6-x5jst     1/1     Running   0          3m40s
         sdp-k8s-injector-injector-6f7748f888-v88dh            1/1     Running   0          3m40s
         ```
@@ -361,11 +359,6 @@ SDP Kubernetes Injector supports various annotation-based behavior customization
 | `sdp.injector.image.repository`           | SDP Injector image repository. If set, it overrides `.global.image.repository`.          | `""`                                    |
 | `sdp.injector.image.tag`                  | SDP Injector image tag. If set, it overrides `chart.appVersion`.                         | `""`                                    |
 | `sdp.injector.image.pullPolicy`           | SDP Injector pull policy. If set, it overrides `.global.image.pullPolicy`.               | `Always`                                |
-| `sdp.deviceIdService.logLevel`            | SDP Device ID Service log level.                                                         | `info`                                  |
-| `sdp.deviceIdService.replica`             | Number of SDP Device ID Service replicas to deploy                                       | `1`                                     |
-| `sdp.deviceIdService.image.repository`    | SDP Device ID Service image repository. If set, it overrides `.global.image.repository`. | `""`                                    |
-| `sdp.deviceIdService.image.tag`           | SDP Device ID Service image tag. If set, it overrides `.chart.appVersion`.               | `""`                                    |
-| `sdp.deviceIdService.image.pullPolicy`    | SDP Device ID Service pull policy. If set, it overrides `.global.image.pullPolicy`.      | `Always`                                |
 | `sdp.identityService.sdpSystemNoVerify`   | Do not verify SDP System certificate                                                     | `false`                                 |
 | `sdp.identityService.logLevel`            | SDP Identity Service log level.                                                          | `info`                                  |
 | `sdp.identityService.replica`             | Number of SDP Identity Service replicas to deploy                                        | `1`                                     |
@@ -398,7 +391,6 @@ This table above was generated using [readme-generator-for-helm](https://github.
 ### Overview
 SDP Kubernetes Injector consists of three components:
 * Identity Service
-* Device ID Service
 * Injector
 
 ### Identity Service
@@ -406,17 +398,12 @@ SDP Identity Service is mainly responsible for the management of the Service Use
 * Deployment Watcher
 * Identity Creator
 * Identity Manager
+* Device ID Manager
 
 As the name implies, **Deployment Watcher** continuously monitors for the creation of Deployment in the namespace labeled for sidecar injection. **Identity Creator** communicates with the SDP system to generate SDP system and maintains an in-memory pool of Service User credentials. **Identity Manager** facilitates the messaging between these subcomponents.
 
-When the SDP Identity Service is initialized, the Identity Creator immediately creates Service Users on the SDP system and stores them as inactive credentials in its in-memory pool. When the Deployment Watcher discovers a newly created Deployment eligible for injection, it requests the Identity Manager to create a new ServiceIdentity. Upon creating a new ServiceIdentity, the Identity Manager instructs the Identity Creator to activate the corresponding Service User credentials which generates a Secret containing the Service User credentials in the deployment's namespace. This Secret is, later, mounted in the Pod and its credentials exposed as environment variables to the sidecar container.
+When the SDP Identity Service is initialized, the Identity Creator immediately creates Service Users on the SDP system and stores them as inactive credentials in its in-memory pool. When the Deployment Watcher discovers a newly created Deployment eligible for injection, it requests the Identity Manager to create a new ServiceIdentity. Upon creating a new ServiceIdentity, the Identity Manager instructs the Identity Creator to activate the corresponding Service User credentials which generates a Secret containing the Service User credentials in the deployment's namespace. This Secret is, later, mounted in the Pod and its credentials exposed as environment variables to the sidecar container. The Device ID Manager will reserve a set of UUIDs for each Deployment based on the number of replicas in the spec. These UUIDs will be used as Device ID to identify each pod in the controller and will be recycled as pods are created and deleted. 
 
-### Device ID Service
-Device ID Service is responsible for assigning UUIDs to each Pod in the deployment
-* Service Identity Watcher
-* Device ID Manager
-
-When a new ServiceIdentity is created by the Identity Service, the **Service Identity Watcher** notifies the **Device ID Manager** to generate a DeviceID. For every Pod in the Deployment (defined by .spec.replica), the manager generates a UUID and stores it in the Device ID.
 
 ### Injector
 Injector is an admission webhook server that mutates Pod creation requests. By registering a [Mutating Admission Webhook](https://kubernetes.io/docs/reference/access-authn-authz/extensible-admission-controllers/) allows the Injector intercept all Pod creation requests in sdp-injection enabled namespace and patch the necessary configurations to enable egress traffic from Kubernetes workloads to resources protected by SDP.
@@ -457,16 +444,11 @@ Make sure that all three pods are running.
 ```shell
 $ kubectl get pods -n sdp-system
 NAME                                                  READY   STATUS    RESTARTS   AGE
-sdp-k8s-injector-device-id-service-56c5dff485-s8f6f   1/1     Running   0          47h
 sdp-k8s-injector-identity-service-67b847bd6-x5jst     1/1     Running   0          47h
 sdp-k8s-injector-injector-6f7748f888-v88dh            1/1     Running   0          47h
 ```
 
 Check the logs from the Injector pods:
-```shell
-$ kubectl logs sdp-k8s-injector-device-id-service-56c5dff485-s8f6f -n sdp-system
-...
-
 ```
 ```shell
 $ kubectl logs sdp-k8s-injector-identity-service-67b847bd6-x5jst -n sdp-system
