@@ -42,4 +42,4 @@ EOF
     --tun /var/run/sdp-driver/.driver.sock \
     --service&
 /opt/appgate/sdp-service-watcher&
-/opt/appgate/wait-for-stop /var/run/sdp-service/stop.sock 6667
+/opt/appgate/wait-for-stop /var/run/sdp-service/stop.sock
