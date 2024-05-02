@@ -1,5 +1,0 @@
-#!/usr/bin/env sh
-
-SOCK_PATH=$1
-echo "Listening to stop service on $SOCK_PATH"
-socat UNIX-LISTEN:"$SOCK_PATH" system:exit,fdout=4
