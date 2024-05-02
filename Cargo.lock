@@ -1637,7 +1637,7 @@ dependencies = [
 
 [[package]]
 name = "sdp-common"
-version = "1.2.6"
+version = "1.2.5"
 dependencies = [
  "chrono",
  "const_format",
@@ -1660,7 +1660,7 @@ dependencies = [
 
 [[package]]
 name = "sdp-identity-service"
-version = "1.2.6"
+version = "1.2.5"
 dependencies = [
  "async-trait",
  "clap",
@@ -1680,7 +1680,7 @@ dependencies = [
 
 [[package]]
 name = "sdp-injector"
-version = "1.2.6"
+version = "1.2.5"
 dependencies = [
  "async-trait",
  "futures",
@@ -1708,11 +1708,11 @@ dependencies = [
 
 [[package]]
 name = "sdp-macros"
-version = "1.2.6"
+version = "1.2.5"
 
 [[package]]
 name = "sdp-test-macros"
-version = "1.2.6"
+version = "1.2.5"
 
 [[package]]
 name = "secrecy"
