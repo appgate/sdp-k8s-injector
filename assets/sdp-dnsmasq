@@ -1,6 +1,7 @@
 #!/usr/bin/env sh
 
 SETDNS_SOCKET=/var/run/sdp-dnsmasq/dns-set.sock
+WATCHER_SOCKET=/var/run/sdp-dnsmasq/dnsmasq-watcher.sock
 DNSMASQ_CONF_DIR=/sdp-dnsmasq/sdp-dnsmasq.d
 DNSMASQ_CONF_FILE=/sdp-dnsmasq/dnsmasq.conf
 DNSMASQ_CONF_APPGATE_FILE=/sdp-dnsmasq/dnsmasq.d/appgate.conf
@@ -40,4 +41,5 @@ fi
 # process. We set stdout to fd=4 so we can still use stdout in the forked process to log
 # stuff into stdout
 umask 007
-exec socat UNIX-LISTEN:$SETDNS_SOCKET,fork system:/sdp-dnsmasq/sdp-dnsmasq-set-dns,fdout=4
+socat UNIX-LISTEN:$SETDNS_SOCKET,fork system:/sdp-dnsmasq/sdp-dnsmasq-set-dns,fdout=4 &
+/sdp-dnsmasq/wait-for-stop /var/run/sdp-dnsmasq/stop.sock
