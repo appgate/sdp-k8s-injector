@@ -55,8 +55,9 @@ jobs:
           build-args: |
             MAJOR_VERSION=${{ steps.split.outputs._0 }}
             MINOR_VERSION=${{ steps.split.outputs._1 }}
+            REVISION=${{ env.REVISION }}
           tags: |
-            ghcr.io/${{ github.repository }}/${{ matrix.binary }}:${{ matrix.client-version }}-${{ REVISION }}
+            ghcr.io/${{ github.repository }}/${{ matrix.binary }}:${{ matrix.client-version }}-${{ env.REVISION }}
             ghcr.io/${{ github.repository }}/${{ matrix.binary }}:${{ matrix.client-version }}-${{ env.GIT_COMMIT }}
 
   docker-build-client:
@@ -102,8 +103,9 @@ jobs:
           build-args: |
             MAJOR_VERSION=${{ steps.split.outputs._0 }}
             MINOR_VERSION=${{ steps.split.outputs._1 }}
+            REVISION=${{ env.REVISION }}
           tags: |
-            ghcr.io/${{ github.repository }}/${{ matrix.binary }}:${{ matrix.client-version }}-${{ REVISION }}
+            ghcr.io/${{ github.repository }}/${{ matrix.binary }}:${{ matrix.client-version }}-${{ env.REVISION }}
             ghcr.io/${{ github.repository }}/${{ matrix.binary }}:${{ matrix.client-version }}-${{ env.GIT_COMMIT }}
 
       - name: Tag latest image
@@ -115,5 +117,6 @@ jobs:
           build-args: |
             MAJOR_VERSION=${{ steps.split.outputs._0 }}
             MINOR_VERSION=${{ steps.split.outputs._1 }}
+            REVISION=${{ env.REVISION }}
           tags: |
             ghcr.io/${{ github.repository }}/${{ matrix.binary }}:latest

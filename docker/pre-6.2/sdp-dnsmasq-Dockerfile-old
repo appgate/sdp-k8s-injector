@@ -1,6 +1,14 @@
+ARG MAJOR_VERSION
+ARG MINOR_VERSION
+ARG REVISION
+
 FROM alpine:3.14.0
 LABEL sdp=true
 LABEL project=sdp-injector
+ENV MAJOR=${MAJOR_VERSION}
+ENV MINOR=${MINOR_VERSION}
+ENV REVISION=${REVISION}
+
 RUN apk upgrade --no-cache && \
     apk add --no-cache --virtual=run-deps dnsmasq socat && \
     rm -rf /tmp/* \
