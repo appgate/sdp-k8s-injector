@@ -36,6 +36,9 @@ jobs:
       - name: Get commit short hash
         run: echo GIT_COMMIT=$(git rev-parse --short "$GITHUB_SHA") >> $GITHUB_ENV
 
+      - name: Get revision
+        run: echo REVISION=$(cat REVISION) >> $GITHUB_ENV
+
       - name: Split version into major/minor/maintenance
         uses: jungwinter/split@v2
         id: split
@@ -52,8 +55,9 @@ jobs:
           build-args: |
             MAJOR_VERSION=${{ steps.split.outputs._0 }}
             MINOR_VERSION=${{ steps.split.outputs._1 }}
+            REVISION=${{ env.REVISION }}
           tags: |
-            ghcr.io/${{ github.repository }}/${{ matrix.binary }}:${{ matrix.client-version }}
+            ghcr.io/${{ github.repository }}/${{ matrix.binary }}:${{ matrix.client-version }}-${{ env.REVISION }}
             ghcr.io/${{ github.repository }}/${{ matrix.binary }}:${{ matrix.client-version }}-${{ env.GIT_COMMIT }}
 
   docker-build-client:
@@ -80,6 +84,9 @@ jobs:
       - name: Get commit short hash
         run: echo GIT_COMMIT=$(git rev-parse --short "$GITHUB_SHA") >> $GITHUB_ENV
 
+      - name: Get revision
+        run: echo REVISION=$(cat REVISION) >> $GITHUB_ENV
+
       - name: Split version into major/minor/maintenance
         uses: jungwinter/split@v2
         id: split
@@ -96,8 +103,9 @@ jobs:
           build-args: |
             MAJOR_VERSION=${{ steps.split.outputs._0 }}
             MINOR_VERSION=${{ steps.split.outputs._1 }}
+            REVISION=${{ env.REVISION }}
           tags: |
-            ghcr.io/${{ github.repository }}/${{ matrix.binary }}:${{ matrix.client-version }}
+            ghcr.io/${{ github.repository }}/${{ matrix.binary }}:${{ matrix.client-version }}-${{ env.REVISION }}
             ghcr.io/${{ github.repository }}/${{ matrix.binary }}:${{ matrix.client-version }}-${{ env.GIT_COMMIT }}
 
       - name: Tag latest image
@@ -109,5 +117,6 @@ jobs:
           build-args: |
             MAJOR_VERSION=${{ steps.split.outputs._0 }}
             MINOR_VERSION=${{ steps.split.outputs._1 }}
+            REVISION=${{ env.REVISION }}
           tags: |
             ghcr.io/${{ github.repository }}/${{ matrix.binary }}:latest
