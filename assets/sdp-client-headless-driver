@@ -1,7 +1,9 @@
 #!/usr/bin/env sh
 
-exec /opt/appgate/appgate-driver \
+/opt/appgate/appgate-driver \
   -d \
   -p /var/run/sdp-driver/.driver.sock \
   --container -l /var/log/appgate/driver.log \
-  --varrun /var/run/sdp-driver
+  --varrun /var/run/sdp-driver&
+
+/opt/appgate/wait-for-stop /var/run/sdp-driver/stop.sock
