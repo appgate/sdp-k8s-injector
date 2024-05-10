@@ -41,5 +41,11 @@ fi
 # process. We set stdout to fd=4 so we can still use stdout in the forked process to log
 # stuff into stdout
 umask 007
-socat UNIX-LISTEN:$SETDNS_SOCKET,fork system:/sdp-dnsmasq/sdp-dnsmasq-set-dns,fdout=4 &
-/sdp-dnsmasq/wait-for-stop /var/run/sdp-dnsmasq/stop.sock
+
+if [ -z "$REVISION" ] || [ "$REVISION" = 0 ]
+then
+    exec socat UNIX-LISTEN:$SETDNS_SOCKET,fork system:/sdp-dnsmasq/sdp-dnsmasq-set-dns,fdout=4
+else
+    socat UNIX-LISTEN:$SETDNS_SOCKET,fork system:/sdp-dnsmasq/sdp-dnsmasq-set-dns,fdout=4 &
+    /sdp-dnsmasq/wait-for-stop /var/run/sdp-dnsmasq/stop.sock
+fi
