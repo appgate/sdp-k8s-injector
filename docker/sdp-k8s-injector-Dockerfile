@@ -1,4 +1,4 @@
-ARG RUST_VERSION=1.74
+ARG RUST_VERSION=1.78
 
 FROM rust:${RUST_VERSION}-slim-bullseye as chef
 LABEL sdp=true
