@@ -1,15 +1,15 @@
 #!/usr/bin/env sh
 
 headers() {
-    echo HTTP/1.0 $1 $2
+    echo HTTP/1.0 "$1" "$2"
     echo Content-Type: text/plain
     echo Server: "sdp-service"
 }
 
 respond() {
-    headers $1 $2
+    headers "$1" "$2"
     echo ""
-    echo $3
+    echo "$3"
 }
 
 kill_all() {

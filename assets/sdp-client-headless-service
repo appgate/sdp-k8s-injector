@@ -1,7 +1,5 @@
 #!/usr/bin/env sh
 
-WATCHER_SOCKET=/run/run/sdp-dnsmasq/sdp-service-watcher.sock
-
 # Backwards compatibility for alpha version
 if [ -n "$CLIENT_LOGLEVEL" ]; then
     APPGATE_LOGLEVEL=$CLIENT_LOGLEVEL
