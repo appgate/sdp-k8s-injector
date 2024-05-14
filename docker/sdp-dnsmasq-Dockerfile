@@ -16,11 +16,14 @@ RUN apk upgrade --no-cache && \
            /var/tmp/*
 COPY assets/sdp-dnsmasq /sdp-dnsmasq/sdp-dnsmasq
 COPY assets/sdp-dnsmasq-set-dns /sdp-dnsmasq/sdp-dnsmasq-set-dns
+COPY assets/wait-for-stop /sdp-dnsmasq/wait-for-stop
 RUN mkdir /var/run/sdp-dnsmasq && \
     mkdir -p /sdp-dnsmasq/dnsmasq.d && \
     chown 100:101 /var/run/sdp-dnsmasq -R && \
+    chmod g+w /var/run/sdp-dnsmasq && \
     chown 100:101 /sdp-dnsmasq/ -R && \
-    chmod +x /sdp-dnsmasq/sdp-dnsmasq
+    chmod +x /sdp-dnsmasq/sdp-dnsmasq && \
+    chmod +x /sdp-dnsmasq/wait-for-stop
 WORKDIR /sdp-dnsmasq
 USER dnsmasq
 CMD ["/sdp-dnsmasq/sdp-dnsmasq"]

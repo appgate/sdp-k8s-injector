@@ -1,0 +1,57 @@
+#!/usr/bin/env sh
+
+headers() {
+    echo HTTP/1.0 "$1" "$2"
+    echo Content-Type: text/plain
+    echo Server: "sdp-service"
+}
+
+respond() {
+    headers "$1" "$2"
+    echo ""
+    echo "$3"
+}
+
+kill_all() {
+    for f in /var/run/sdp-driver /var/run/sdp-dnsmasq /var/run/sdp-service
+    do
+        echo bye | socat - UNIX-CONNECT:$f/stop.sock
+    done
+}
+
+if [ "$1" = "server" ]; then
+    read -r line || respond 400 "Bad Request"
+    {
+        req=${line% *}
+        method=${req%% *}
+        path=${req##* }
+        case $method in
+             "GET")
+                 case $path in
+                      "/kill")
+                          kill_all
+                          respond 200 "Accept" "killed"
+                          ;;
+                      "/status")
+                          respond 200 "Accept" "$(jq -r .status /tmp/status-client)"
+                          ;;
+                      *)
+                          respond 200 "Accept" "$(cat /tmp/status-client)"
+                 esac
+                 ;;
+             "DELETE")
+                 kill_all
+                 respond 200 "Accept" "killed"
+                 ;;
+             *)
+                 respond 400 "BadRequest" "BadRequest"
+        esac
+        }
+else
+    appgate_service_configurator status > /tmp/status-client
+    socat -v -v TCP-LISTEN:6666,reuseaddr,fork SYSTEM:"$0 server"&
+    while true; do
+        sleep 10
+        appgate_service_configurator status > /tmp/status-client
+    done
+fi

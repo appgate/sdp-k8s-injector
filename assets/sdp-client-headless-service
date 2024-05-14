@@ -36,6 +36,15 @@ Username = $APPGATE_USERNAME
 Password = $APPGATE_PASSWORD
 EOF
 
-CMD="/opt/appgate/service/appgateservice --config /sdp-service/appgate.conf --tun /var/run/sdp-driver/.driver.sock --service"
-
-eval "${CMD}"
+if [ -z "$REVISION" ] || [ "$REVISION" = 0 ]
+then
+   CMD="/opt/appgate/service/appgateservice --config /sdp-service/appgate.conf --tun /var/run/sdp-driver/.driver.sock --service"
+   eval "${CMD}"
+else
+   /opt/appgate/service/appgateservice \
+       --config /sdp-service/appgate.conf \
+       --tun /var/run/sdp-driver/.driver.sock \
+       --service&
+   /opt/appgate/sdp-service-watcher&
+   /opt/appgate/wait-for-stop /var/run/sdp-service/stop.sock
+fi

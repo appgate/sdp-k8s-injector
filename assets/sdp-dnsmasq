@@ -1,15 +1,14 @@
 #!/usr/bin/env sh
 
 SETDNS_SOCKET=/var/run/sdp-dnsmasq/dns-set.sock
-DNSMASQ_CONF_DIR=/sdp-dnsmasq/sdp-dnsmasq.d
 DNSMASQ_CONF_FILE=/sdp-dnsmasq/dnsmasq.conf
 DNSMASQ_CONF_APPGATE_FILE=/sdp-dnsmasq/dnsmasq.d/appgate.conf
 
 mk_dnsmasq_conf () {
     echo "# sdp-dnsmasq config file" > $DNSMASQ_CONF_APPGATE_FILE
     if [ -n "$K8S_DNS_SERVICE" ]; then
-        echo $K8S_DNS_SERVICE > /tmp/kube-dns
-        echo server=$K8S_DNS_SERVICE > $DNSMASQ_CONF_APPGATE_FILE
+        echo "$K8S_DNS_SERVICE" > /tmp/kube-dns
+        echo server="$K8S_DNS_SERVICE" > $DNSMASQ_CONF_APPGATE_FILE
     else
         echo "Unable to get k8s dns service!"
         echo "Resolution of internal names won't work!"
@@ -23,7 +22,7 @@ EOF
 
 mk_dnsmasq_conf
 
-if [[ ${DNSMASQ_DEBUG:-0} -eq 1 ]]; then
+if [ "${DNSMASQ_DEBUG:-0}" -eq 1 ]; then
     LOG_QUERIES="--log-queries"
 else
     LOG_QUERIES=""
@@ -32,7 +31,7 @@ fi
 # Start dnsmasq now so it has not pid 1
 # --log-facility sends the logs to the stdout the process with PID 1
 /usr/sbin/dnsmasq -C $DNSMASQ_CONF_FILE --pid-file=/sdp-dnsmasq/dnsmasq.pid \
-     --port=53 --local-service --listen-address=127.0.0.1 $LOG_QUERIES \
+     --port=53 --local-service --listen-address=127.0.0.1 "$LOG_QUERIES" \
      --log-facility /proc/1/fd/1
 
 # Start listening for events from sdp-driver
@@ -40,4 +39,11 @@ fi
 # process. We set stdout to fd=4 so we can still use stdout in the forked process to log
 # stuff into stdout
 umask 007
-exec socat UNIX-LISTEN:$SETDNS_SOCKET,fork system:/sdp-dnsmasq/sdp-dnsmasq-set-dns,fdout=4
+
+if [ -z "$REVISION" ] || [ "$REVISION" = 0 ]
+then
+    exec socat UNIX-LISTEN:$SETDNS_SOCKET,fork system:/sdp-dnsmasq/sdp-dnsmasq-set-dns,fdout=4
+else
+    socat UNIX-LISTEN:$SETDNS_SOCKET,fork system:/sdp-dnsmasq/sdp-dnsmasq-set-dns,fdout=4 &
+    /sdp-dnsmasq/wait-for-stop /var/run/sdp-dnsmasq/stop.sock
+fi

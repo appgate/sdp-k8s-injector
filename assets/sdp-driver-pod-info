@@ -20,7 +20,7 @@ N=0
 function kv_to_json () {
     file=$1
     key=${file##*/}
-    cat $file | awk  -vkey="$key" '
+    awk  -vkey="$key" '
 BEGIN {
       n = 0
       printf("\""key"\":{")
@@ -34,13 +34,13 @@ BEGIN {
            printf("\"%s\":%s", vs[1], vs[2])
         }
 }
-END { printf("}") }'
+END { printf("}") }' "$file"
 }
 
 function collect_envs () {
     for env_name in $POD_INFO_ENVS; do
-        v=$(eval echo \$${env_name})
-        if [ -z $v ]; then
+        v=$(eval echo \$"${env_name}")
+        if [ -z "$v" ]; then
             continue
         fi
         if [ $N -eq 0 ]; then
@@ -48,14 +48,14 @@ function collect_envs () {
         else
             echo -n ","
         fi
-        echo -n "\"$(echo $env_name| tr [:upper:] [:lower:])\":\"$v\""
+        echo -n "\"$(echo "$env_name" | tr "[:upper:]" "[:lower:]")\":\"$v\""
     done
 }
 
 echo -n "{"
 collect_envs
 for f in ${POD_INFO_FILES}; do
-    if [ ! -f $f ]; then
+    if [ ! -f "$f" ]; then
         continue
     fi
     if [ $N -eq 0 ]; then
@@ -63,6 +63,6 @@ for f in ${POD_INFO_FILES}; do
     else
         echo -n ","
     fi
-    kv_to_json $f
+    kv_to_json "$f"
 done
 echo -n "}"

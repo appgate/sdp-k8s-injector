@@ -1,7 +1,19 @@
 #!/usr/bin/env sh
 
-exec /opt/appgate/appgate-driver \
-  -d \
-  -p /var/run/sdp-driver/.driver.sock \
-  --container -l /var/log/appgate/driver.log \
-  --varrun /var/run/sdp-driver
+if [ -z "$REVISION" ] || [ "$REVISION" = 0 ]
+then
+  exec /opt/appgate/appgate-driver \
+    -d \
+    -p /var/run/sdp-driver/.driver.sock \
+    --container \
+    -l /var/log/appgate/driver.log \
+    --varrun /var/run/sdp-driver
+else
+  /opt/appgate/appgate-driver \
+    -d \
+    -p /var/run/sdp-driver/.driver.sock \
+    --container \
+    -l /var/log/appgate/driver.log \
+    --varrun /var/run/sdp-driver&
+  exec socat UNIX-LISTEN:"$SETDNS_SOCKET",fork system:/sdp-dnsmasq/sdp-dnsmasq-set-dns,fdout=4
+fi
