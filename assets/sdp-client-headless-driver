@@ -15,5 +15,5 @@ else
     --container \
     -l /var/log/appgate/driver.log \
     --varrun /var/run/sdp-driver&
-  exec socat UNIX-LISTEN:"$SETDNS_SOCKET",fork system:/sdp-dnsmasq/sdp-dnsmasq-set-dns,fdout=4
+  exec /opt/appgate/wait-for-stop /var/run/sdp-driver/stop.sock
 fi
