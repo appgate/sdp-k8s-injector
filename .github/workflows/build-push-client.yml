@@ -22,6 +22,7 @@ jobs:
         client-version:
           - "6.0"
           - "6.1"
+          - "6.2"
     steps:
       - uses: actions/checkout@v4
 
@@ -69,7 +70,7 @@ jobs:
           - "sdp-headless-driver"
           - "sdp-headless-service"
         client-version:
-          - "6.2"
+          - "6.3"
     steps:
       - uses: actions/checkout@v4
 
