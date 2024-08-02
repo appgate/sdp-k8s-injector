@@ -20,7 +20,7 @@ jobs:
         with:
           cmd: yq eval .version k8s/crd/Chart.yaml
 
-      - uses: azure/setup-helm@v3
+      - uses: azure/setup-helm@v4
         with:
           version: 3.7.2
 
@@ -50,7 +50,7 @@ jobs:
         id: chartVersion
         with:
           cmd: yq eval .version k8s/chart/Chart.yaml
-      - uses: azure/setup-helm@v3
+      - uses: azure/setup-helm@v4
         with:
           version: 3.7.2
       - name: Login to GitHub Container Registry
