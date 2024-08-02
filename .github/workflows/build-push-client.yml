@@ -47,7 +47,7 @@ jobs:
           separator: '.'
 
       - name: Build and push image
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v6
         with:
           context: .
           file: docker/pre-6.2/${{ matrix.binary }}-Dockerfile-old
@@ -96,7 +96,7 @@ jobs:
           separator: '.'
 
       - name: Build and push image
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v6
         with:
           context: .
           file: docker/${{ matrix.binary }}-Dockerfile
@@ -110,7 +110,7 @@ jobs:
             ghcr.io/${{ github.repository }}/${{ matrix.binary }}:${{ matrix.client-version }}-${{ env.GIT_COMMIT }}
 
       - name: Tag latest image
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v6
         with:
           context: .
           file: docker/${{ matrix.binary }}-Dockerfile
