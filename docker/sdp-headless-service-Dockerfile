@@ -4,7 +4,7 @@ ARG REVISION
 ARG CLIENT_VERSION="${MAJOR_VERSION}.${MINOR_VERSION}"
 ARG CLIENT_DEB="appgate-sdp-headless_amd64.deb"
 
-FROM alpine AS sdp-headless-client
+FROM alpine:3.20 AS sdp-headless-client
 ARG CLIENT_VERSION
 ARG CLIENT_DEB
 

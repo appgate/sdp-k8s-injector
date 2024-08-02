@@ -1,6 +1,6 @@
 ARG RUST_VERSION=1.78
 
-FROM rust:${RUST_VERSION}-slim-bullseye as chef
+FROM rust:${RUST_VERSION}-slim-bullseye AS chef
 LABEL sdp=true
 LABEL project=sdp-k8s-injector
 LABEL image=chef
@@ -8,7 +8,7 @@ WORKDIR /sdp-build
 RUN cargo install cargo-chef
 
 ### planner next
-FROM chef as sdp-planner
+FROM chef AS sdp-planner
 LABEL sdp=true
 LABEL project=sdp-k8s-injector
 LABEL image=sdp-planner
@@ -17,7 +17,7 @@ COPY . .
 RUN cargo chef prepare --recipe-path recipe.json
 
 ### builder next
-FROM sdp-planner as sdp-cacher
+FROM sdp-planner AS sdp-cacher
 LABEL sdp=true
 LABEL project=sdp-k8s-injector
 LABEL image=sdp-cacher
