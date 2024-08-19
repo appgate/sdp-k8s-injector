@@ -140,7 +140,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     // Spawn the DeviceIdProvider
     tokio::spawn(async move {
         let mut device_id_provider = DeviceIdProvider::new(None);
-        let sdp_system = get_sdp_system();
+        let sdp_system = get_sdp_system().await;
         device_id_provider
             .run(device_id_rx, watcher_rx, sdp_system)
             .await;

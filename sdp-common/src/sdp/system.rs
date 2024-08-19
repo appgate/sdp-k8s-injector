@@ -10,11 +10,11 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::time::Duration;
+use serde_json::Value;
 use uuid::Uuid;
 
 const SDP_SYSTEM_HOSTS: &str = "SDP_SYSTEM_HOSTS";
 const SDP_SYSTEM_NO_VERIFY_ENV: &str = "SDP_SYSTEM_NO_VERIFY";
-const SDP_SYSTEM_API_VERSION: &str = "v17";
 const SDP_SYSTEM_USERNAME: &str = "SDP_K8S_USERNAME";
 const SDP_SYSTEM_USERNAME_DEFAULT: &str = "admin";
 const SDP_SYSTEM_PASSWORD_ENV: &str = "SDP_K8S_PASSWORD";
@@ -38,7 +38,7 @@ pub struct OnBoardedUser {
     pub last_seen_at: DateTime<Utc>,
 }
 
-pub fn get_sdp_system() -> System {
+pub async fn get_sdp_system() -> System {
     let hosts = std::env::var(SDP_SYSTEM_HOSTS)
         .map(|vs| {
             vs.split(",")
@@ -58,7 +58,7 @@ pub fn get_sdp_system() -> System {
     };
 
     SystemConfig::new(hosts)
-        .with_api_version(SDP_SYSTEM_API_VERSION)
+        .fix_api_version().await
         .build(credentials)
         .expect("Unable to create SDP client")
 }
@@ -68,6 +68,15 @@ pub struct SystemConfig {
     pub hosts: Vec<Url>,
     pub api_version: Option<String>,
     pub credentials: Option<Credentials>,
+}
+
+#[derive(Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+struct InvalidHeaderResponse {
+    message: String,
+    max_supported_version: u16,
+    min_supported_version: u16,
+    id: String
 }
 
 impl SystemConfig {
@@ -85,19 +94,36 @@ impl SystemConfig {
             .api_version
             .as_ref()
             .map(|v| v.as_str())
-            .unwrap_or(SDP_SYSTEM_API_VERSION);
+            .expect("Expected API version to be set for application/vnd.appgate.peer header");
         let header_value = format!("application/vnd.appgate.peer-v{}+json", api_version);
         hm.append(ACCEPT, HeaderValue::from_str(&header_value)?);
         Ok(hm)
     }
 
-    pub fn with_api_version(&mut self, _: &str) -> &mut SystemConfig {
-        let api_version = self
-            .api_version
-            .as_ref()
-            .map(|v| v.as_str())
-            .unwrap_or("17");
-        self.api_version = Some(api_version.to_string());
+    pub async fn fix_api_version(&mut self) -> &mut SystemConfig {
+        let no_verify = match std::env::var(SDP_SYSTEM_NO_VERIFY_ENV) {
+            Ok(v) if v == "1" || v.to_lowercase() == "true" => true,
+            _ => false,
+        };
+        let client = Client::builder()
+            .danger_accept_invalid_certs(no_verify)
+            .build()
+            .expect("Failed to build HTTP client");
+        let mut url = Url::from(self.hosts[0].clone());
+        url.set_path("/admin/identity-providers/names");
+        let mut headers = HeaderMap::new();
+        headers.insert(ACCEPT, HeaderValue::from_static("application/vnd.appgate.peer-v0+json"));
+        match client.get(url).headers(headers).send().await {
+            Ok(response) => {
+                if response.status() == 406 {
+                    let my_response: InvalidHeaderResponse = response.json().await.expect("Expect response");
+                    self.api_version = Some(my_response.max_supported_version.to_string());
+                }
+            }
+            Err(e) => {
+                info!("Failed to get API version to fix Accept header: {}", e);
+            }
+        }
         self
     }
 
