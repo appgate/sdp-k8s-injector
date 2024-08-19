@@ -22,6 +22,10 @@ const SDP_SYSTEM_PASSWORD_DEFAULT: &str = "admin";
 const SDP_SYSTEM_PROVIDER_ENV: &str = "SDP_K8S_PROVIDER";
 const SDP_SYSTEM_PROVIDER_DEFAULT: &str = "local";
 
+static APP_USER_AGENT: &str = concat!(
+env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION"),
+);
+
 logger!("SDPSystem");
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -138,6 +142,7 @@ impl SystemConfig {
         Client::builder()
             .default_headers(hm)
             .danger_accept_invalid_certs(no_verify)
+            .user_agent(APP_USER_AGENT)
             .build()
             .map_err(|e| format!("Unable to create SDP client: {}", e))
             .map(|c| System {
