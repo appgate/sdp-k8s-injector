@@ -14,6 +14,17 @@
       "matchUpdateTypes": [
         "patch"
       ]
+    },
+    {
+      "matchPaths": [
+        "docker/sdp-dnsmasq-Dockerfile",
+        "docker/sdp-headless-service-Dockerfile",
+        "docker/sdp-headless-driver-Dockerfile",
+        "docker/sdp-k8s-injector-Dockerfile"
+      ],
+      "matchManagers": ["dockerfile"],
+      "matchDatasources": ["docker"],
+      "groupName": "docker-base-images"
     }
   ]
 }
