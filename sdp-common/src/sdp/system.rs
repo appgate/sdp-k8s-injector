@@ -120,8 +120,8 @@ impl SystemConfig {
         match client.get(url).headers(headers).send().await {
             Ok(response) => {
                 if response.status() == 406 {
-                    let my_response: InvalidHeaderResponse = response.json().await.expect("Expect response");
-                    self.api_version = Some(my_response.max_supported_version.to_string());
+                    let response: InvalidHeaderResponse = response.json().await.expect("Expect response");
+                    self.api_version = Some(response.max_supported_version.to_string());
                 }
             }
             Err(e) => {
