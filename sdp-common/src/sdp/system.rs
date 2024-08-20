@@ -5,12 +5,11 @@ use http::header::{InvalidHeaderValue, ACCEPT};
 use http::{HeaderValue, StatusCode};
 use reqwest::header::HeaderMap;
 use reqwest::{Client, Url};
-use sdp_macros::{logger, sdp_info, sdp_log, with_dollar_sign};
+use sdp_macros::{logger, sdp_info, sdp_error, sdp_log, with_dollar_sign};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::time::Duration;
-use serde_json::Value;
 use uuid::Uuid;
 
 const SDP_SYSTEM_HOSTS: &str = "SDP_SYSTEM_HOSTS";
@@ -125,7 +124,7 @@ impl SystemConfig {
                 }
             }
             Err(e) => {
-                info!("Failed to get API version to fix Accept header: {}", e);
+                error!("Failed to get API version to fix Accept header: {}", e);
             }
         }
         self
