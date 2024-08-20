@@ -1,19 +1,36 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
-    "config:base"
+    "config:recommended"
   ],
-  "addLabels": [ "dependencies" ],
+  "addLabels": [
+    "dependencies"
+  ],
   "packageRules": [
     {
       "groupName": "all patch dependencies",
       "groupSlug": "all-patch",
-      "matchPackagePatterns": [
-        "*"
-      ],
       "matchUpdateTypes": [
         "patch"
+      ],
+      "matchPackageNames": [
+        "*"
       ]
+    },
+    {
+      "matchFileNames": [
+        "docker/sdp-dnsmasq-Dockerfile",
+        "docker/sdp-headless-service-Dockerfile",
+        "docker/sdp-headless-driver-Dockerfile",
+        "docker/sdp-k8s-injector-Dockerfile"
+      ],
+      "matchManagers": [
+        "dockerfile"
+      ],
+      "matchDatasources": [
+        "docker"
+      ],
+      "groupName": "docker-base-images"
     }
   ]
 }
