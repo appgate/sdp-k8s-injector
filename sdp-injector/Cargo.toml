@@ -22,7 +22,7 @@ serde_json = "1.0"
 serde = { version= "1.0", features = ["derive"] }
 kube = { version = "0.87.1", default-features = false, features = ["admission", "rustls-tls", "derive", "client", "runtime"] }
 k8s-openapi = { version = "0.20.0", features = ["latest"]}
-rustls = "0.20.6"
+rustls = "0.23.0"
 rustls-pemfile = "1.0.4"
 futures-util = "0.3"
 http = "0.2.12"
