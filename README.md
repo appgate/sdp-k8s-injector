@@ -79,7 +79,7 @@ Currently, the only supported way of installing the Injector is to use the offic
     ```shell
     $ kubectl get pods --namespace cert-manager -o jsonpath="{.items[*].spec.containers[*].image}"
     ```
-    If not, install [cert-manager](https://cert-manager.io/docs/installation/helm/) and its CRDs with Helm.
+    If not, install [cert-manager](https://cert-manager.io/docs/installation/helm/) (v1.15.0 or newer) and its CRDs with Helm.
 
     ```shell
     $ helm repo add jetstack https://charts.jetstack.io
@@ -87,7 +87,7 @@ Currently, the only supported way of installing the Injector is to use the offic
     $ helm install cert-manager jetstack/cert-manager \
       --namespace cert-manager \
       --create-namespace \
-      --set installCRDs=true
+      --set crds.enabled=true
     ```
 3. Install the SDP Kubernetes Injector CRD with Helm.
     ```shell
@@ -395,9 +395,9 @@ SDP Identity Service is mainly responsible for the management of the Service Use
 
 As the name implies, **Deployment Watcher** continuously monitors for the creation of Deployment in the namespace labeled for sidecar injection. **Identity Creator** communicates with the SDP system to generate SDP system and maintains an in-memory pool of Service User credentials. **Identity Manager** facilitates the messaging between these subcomponents.
 
-When the SDP Identity Service is initialized, the Identity Creator immediately creates Service Users on the SDP system and stores them as inactive credentials in its in-memory pool. When the Deployment Watcher discovers a newly created Deployment eligible for injection, it requests the Identity Manager to create a new ServiceIdentity. Upon creating a new ServiceIdentity, the Identity Manager instructs the Identity Creator to activate the corresponding Service User credentials which generates a Secret containing the Service User credentials in the deployment's namespace. This Secret is, later, mounted in the Pod and its credentials exposed as environment variables to the sidecar container. 
+When the SDP Identity Service is initialized, the Identity Creator immediately creates Service Users on the SDP system and stores them as inactive credentials in its in-memory pool. When the Deployment Watcher discovers a newly created Deployment eligible for injection, it requests the Identity Manager to create a new ServiceIdentity. Upon creating a new ServiceIdentity, the Identity Manager instructs the Identity Creator to activate the corresponding Service User credentials which generates a Secret containing the Service User credentials in the deployment's namespace. This Secret is, later, mounted in the Pod and its credentials exposed as environment variables to the sidecar container.
 
-Identity Service is also responsible for the management of Device IDs. When a Pod requires a new Device ID, it will get one from the pool of Device IDs found inside the `device_id` field of ServiceIdentity. If there is no Device ID available in the pool, it will allocate a new UUID. On Pod deletion, the Device ID assigned to it is unregistered from controller, released and added back into the pool. Note that, by design, Device IDs unregistered from the Controller does not necessarily deallocate the IP assigned to the Device ID. 
+Identity Service is also responsible for the management of Device IDs. When a Pod requires a new Device ID, it will get one from the pool of Device IDs found inside the `device_id` field of ServiceIdentity. If there is no Device ID available in the pool, it will allocate a new UUID. On Pod deletion, the Device ID assigned to it is unregistered from controller, released and added back into the pool. Note that, by design, Device IDs unregistered from the Controller does not necessarily deallocate the IP assigned to the Device ID.
 
 
 ### Injector
