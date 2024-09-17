@@ -96,7 +96,7 @@ spec:
                   name: {{ required ".Values.sdp.metaClient.adminSecret is required" .Values.sdp.metaClient.adminSecret }}
                   key: sdp-injector-mc-profile-url
         - name: {{ .Chart.Name }}-sdp-driver
-          image: {{ default .Values.global.image.repository .Values.sdp.headlessDriver.image.repository }}/sdp-headless-driver:{{ default .Values.sdp.clientVersion  .Values.sdp.headlessService.image.tag }}
+          image: {{ default .Values.global.image.repository .Values.sdp.headlessDriver.image.repository }}/sdp-headless-driver:{{ default .Values.sdp.clientVersion  .Values.sdp.headlessDriver.image.tag }}
           imagePullPolicy: {{ .Values.sdp.headlessDriver.image.pullPolicy }}
           securityContext:
             runAsGroup: 101
@@ -112,7 +112,7 @@ spec:
             - mountPath: /dev/net/tun
               name: tun-device
         - name: {{ .Chart.Name }}-sdp-dnsmasq
-          image: "{{ default .Values.global.image.repository .Values.sdp.dnsmasq.image.repository }}/sdp-dnsmasq:{{ default .Values.sdp.clientVersion  .Values.sdp.headlessService.image.tag }}"
+          image: "{{ default .Values.global.image.repository .Values.sdp.dnsmasq.image.repository }}/sdp-dnsmasq:{{ default .Values.sdp.clientVersion  .Values.sdp.dnsmasq.image.tag }}"
           imagePullPolicy: {{ .Values.sdp.dnsmasq.image.pullPolicy }}
           securityContext:
             runAsGroup: 101

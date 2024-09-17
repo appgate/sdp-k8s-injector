@@ -37,7 +37,7 @@ fn show_crds() {
 }
 
 async fn release_device_ids(user_name: String, since: Duration, dry_run: bool, exact_match: bool) {
-    let mut sdp_client = get_sdp_system();
+    let mut sdp_client = get_sdp_system().await;
     let mut hs: Option<HashSet<String>> = None;
     if exact_match {
         hs = Some(HashSet::from_iter(vec![user_name.to_string()]));
@@ -203,10 +203,10 @@ async fn main() -> () {
             });
 
             tokio::spawn(async move {
-                let system = get_sdp_system();
+                let system = get_sdp_system().await;
                 let identity_creator =
                     IdentityCreator::new(system, identity_creator_client, CREDENTIALS_POOL_SIZE);
-                let mut system2 = get_sdp_system();
+                let mut system2 = get_sdp_system().await;
                 identity_creator
                     .run(
                         &mut system2,
