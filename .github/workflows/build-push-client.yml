@@ -21,7 +21,6 @@ jobs:
           - "sdp-headless-service"
         client-version:
           - "6.1"
-          - "6.2"
     steps:
       - uses: actions/checkout@v4
 
