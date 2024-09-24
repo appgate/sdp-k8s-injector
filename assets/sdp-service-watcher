@@ -13,7 +13,7 @@ respond() {
 }
 
 kill_all() {
-    for f in /var/run/sdp-dnsmasq /var/run/sdp-driver /var/run/sdp-service
+    for f in /var/run/sdp-driver /var/run/sdp-dnsmasq /var/run/sdp-service
     do
         echo bye | socat - UNIX-CONNECT:$f/stop.sock
     done
