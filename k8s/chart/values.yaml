@@ -28,7 +28,7 @@ sdp:
   ## @param sdp.clusterID An identifier to prefix service users and client profiles
   host: ""
   adminSecret: ""
-  clientVersion: 6.3-1
+  clientVersion: 6.3-3
   clusterID: ""
 
   ## @param sdp.metaClient.enabled Whether to set up an SDP client on the Identity Service

@@ -1,5 +1,10 @@
 #!/usr/bin/env sh
 
 SOCK_PATH=$1
+if [ -z "${2}" ]; then
+    LOG="Exiting container"
+else
+    LOG="Exiting container $2"
+fi
 echo "Listening to stop service on $SOCK_PATH"
-socat UNIX-LISTEN:"$SOCK_PATH" system:exit,fdout=4
+socat UNIX-LISTEN:"$SOCK_PATH" system:"echo $LOG;sleep 1;exit",fdout=4

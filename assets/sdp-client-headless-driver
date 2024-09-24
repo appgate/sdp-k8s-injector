@@ -15,5 +15,5 @@ else
     --container \
     -l /var/log/appgate/driver.log \
     --varrun /var/run/sdp-driver&
-  exec /opt/appgate/wait-for-stop /var/run/sdp-driver/stop.sock
+  exec /opt/appgate/wait-for-stop /var/run/sdp-driver/stop.sock sdp-driver
 fi

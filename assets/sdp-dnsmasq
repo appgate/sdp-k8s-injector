@@ -45,5 +45,5 @@ then
     exec socat UNIX-LISTEN:$SETDNS_SOCKET,fork system:/sdp-dnsmasq/sdp-dnsmasq-set-dns,fdout=4
 else
     socat UNIX-LISTEN:$SETDNS_SOCKET,fork system:/sdp-dnsmasq/sdp-dnsmasq-set-dns,fdout=4 &
-    /sdp-dnsmasq/wait-for-stop /var/run/sdp-dnsmasq/stop.sock
+    /sdp-dnsmasq/wait-for-stop /var/run/sdp-dnsmasq/stop.sock sdp-dnsmasq
 fi

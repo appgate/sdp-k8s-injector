@@ -46,5 +46,5 @@ else
        --tun /var/run/sdp-driver/.driver.sock \
        --service&
    /opt/appgate/sdp-service-watcher&
-   /opt/appgate/wait-for-stop /var/run/sdp-service/stop.sock
+   /opt/appgate/wait-for-stop /var/run/sdp-service/stop.sock sdp-service
 fi

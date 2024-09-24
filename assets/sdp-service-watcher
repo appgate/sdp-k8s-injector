@@ -16,10 +16,6 @@ kill_all() {
     for f in /var/run/sdp-driver /var/run/sdp-dnsmasq /var/run/sdp-service
     do
         echo bye | socat - UNIX-CONNECT:$f/stop.sock
-        # Give sometime for driver to exit otherwise dnsmasq gets a
-        #  broken pipe and the container fails
-        # A less UI dependant client could allow us to avoid this ugly hack
-        sleep 1
     done
 }
 
