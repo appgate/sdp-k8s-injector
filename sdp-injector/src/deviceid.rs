@@ -261,7 +261,7 @@ impl DeviceIdProvider<ServiceIdentity> {
         &mut self,
         mut provider_rx: Receiver<DeviceIdProviderRequestProtocol<ServiceIdentity>>,
         mut watcher_rx: Receiver<DeviceIdProviderRequestProtocol<ServiceIdentity>>,
-        mut sdp_system: System,
+        mut sdp_system: Option<System>,
     ) {
         info!("Starting DeviceID Provider");
         loop {
@@ -273,11 +273,12 @@ impl DeviceIdProvider<ServiceIdentity> {
                             info!("[{}] {} service {}", service_id,
                                 if reapplied {"Updating"} else {"Registering"},
                                 &service_id);
-                            let used_device_ids: Option<Vec<String>> = match sdp_system.get_registered_device_ids(&s.spec.service_user.name).await {
-                                Ok(onboarded_devices) => {
-                                    Some(onboarded_devices.iter().map(|a| a.device_id.clone()).collect())
-                                },
-                                Err(_) => None
+                            let used_device_ids: Option<Vec<String>> = if let Some(ref mut sdp) = sdp_system.as_mut() {
+                                sdp.get_registered_device_ids(&s.spec.service_user.name).await.ok().map(|onboarded_devices| {
+                                    onboarded_devices.iter().map(|a| a.device_id.clone()).collect()
+                                })
+                            } else {
+                                None
                             };
 
                             if let Err(e) = self.store.register_or_update(s, used_device_ids).await {
