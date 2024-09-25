@@ -5,7 +5,7 @@ use http::header::{InvalidHeaderValue, ACCEPT};
 use http::{HeaderValue, StatusCode};
 use reqwest::header::HeaderMap;
 use reqwest::{Client, Url};
-use sdp_macros::{logger, sdp_info, sdp_error, sdp_log, with_dollar_sign};
+use sdp_macros::{logger, sdp_error, sdp_info, sdp_log, with_dollar_sign};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
@@ -21,9 +21,7 @@ const SDP_SYSTEM_PASSWORD_DEFAULT: &str = "admin";
 const SDP_SYSTEM_PROVIDER_ENV: &str = "SDP_K8S_PROVIDER";
 const SDP_SYSTEM_PROVIDER_DEFAULT: &str = "local";
 
-static APP_USER_AGENT: &str = concat!(
-env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION"),
-);
+static APP_USER_AGENT: &str = concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION"),);
 
 logger!("SDPSystem");
 
@@ -61,7 +59,8 @@ pub async fn get_sdp_system() -> System {
     };
 
     SystemConfig::new(hosts)
-        .fix_api_version().await
+        .fix_api_version()
+        .await
         .build(credentials)
         .expect("Unable to create SDP client")
 }
@@ -76,10 +75,10 @@ pub struct SystemConfig {
 #[derive(Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 struct InvalidHeaderResponse {
-    message: String,
+    _message: String,
     max_supported_version: u16,
-    min_supported_version: u16,
-    id: String
+    _min_supported_version: u16,
+    _id: String,
 }
 
 impl SystemConfig {
@@ -115,11 +114,15 @@ impl SystemConfig {
         let mut url = Url::from(self.hosts[0].clone());
         url.set_path("/admin/identity-providers/names");
         let mut headers = HeaderMap::new();
-        headers.insert(ACCEPT, HeaderValue::from_static("application/vnd.appgate.peer-v0+json"));
+        headers.insert(
+            ACCEPT,
+            HeaderValue::from_static("application/vnd.appgate.peer-v0+json"),
+        );
         match client.get(url).headers(headers).send().await {
             Ok(response) => {
                 if response.status() == 406 {
-                    let response: InvalidHeaderResponse = response.json().await.expect("Expect response");
+                    let response: InvalidHeaderResponse =
+                        response.json().await.expect("Expect response");
                     self.api_version = Some(response.max_supported_version.to_string());
                 }
             }
