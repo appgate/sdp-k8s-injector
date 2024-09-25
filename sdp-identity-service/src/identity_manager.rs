@@ -99,10 +99,6 @@ trait ServiceIdentityAPI<'a> {
     ) -> Result<ServiceIdentity, IdentityServiceError>;
     async fn delete(&self, identity: &'a ServiceIdentity) -> Result<(), IdentityServiceError>;
     async fn list(&self) -> Result<Vec<ServiceIdentity>, IdentityServiceError>;
-    async fn get(
-        &self,
-        identity: &'a ServiceIdentity,
-    ) -> Result<Option<ServiceIdentity>, IdentityServiceError>;
 }
 
 /*
@@ -304,14 +300,6 @@ impl<'a> ServiceIdentityAPI<'a> for IdentityManagerServiceIdentityAPI {
             .map(|xs| xs.items)
             .map_err(IdentityServiceError::from)
     }
-
-    async fn get(
-        &self,
-        identity: &'a ServiceIdentity,
-    ) -> Result<Option<ServiceIdentity>, IdentityServiceError> {
-        let identity = self.api.get_opt(&identity.service_name()).await?;
-        Ok(identity)
-    }
 }
 
 type IdentityCreatorProtocolSender = Sender<IdentityCreatorProtocol>;
@@ -392,13 +380,6 @@ impl<'a> ServiceIdentityAPI<'a> for IdentityManager<'a> {
 
     async fn list(&self) -> Result<Vec<ServiceIdentity>, IdentityServiceError> {
         self.service_identity_api.list().await
-    }
-
-    async fn get(
-        &self,
-        identity: &'a ServiceIdentity,
-    ) -> Result<Option<ServiceIdentity>, IdentityServiceError> {
-        self.get(identity).await
     }
 }
 
@@ -1060,7 +1041,6 @@ mod tests {
         create_calls: Arc<RwLock<usize>>,
         list_calls: Arc<RwLock<usize>>,
         update_calls: Arc<RwLock<usize>>,
-        get_calls: Arc<RwLock<usize>>,
     }
 
     struct TestIdentityManager {
@@ -1101,15 +1081,6 @@ mod tests {
             let mut c = self.update_calls.write().await;
             *c += 1;
             Ok(identity.clone())
-        }
-
-        async fn get(
-            &self,
-            identity: &'a ServiceIdentity,
-        ) -> Result<Option<ServiceIdentity>, IdentityServiceError> {
-            let mut c = self.get_calls.write().await;
-            *c += 1;
-            Ok(Some(identity.clone()))
         }
     }
 
