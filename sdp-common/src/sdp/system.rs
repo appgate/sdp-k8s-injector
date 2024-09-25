@@ -75,10 +75,10 @@ pub struct SystemConfig {
 #[derive(Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 struct InvalidHeaderResponse {
-    message: String,
+    _message: String,
     max_supported_version: u16,
-    min_supported_version: u16,
-    id: String
+    _min_supported_version: u16,
+    _id: String,
 }
 
 impl SystemConfig {
