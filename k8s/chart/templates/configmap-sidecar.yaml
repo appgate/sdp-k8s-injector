@@ -120,7 +120,7 @@ data:
           "imagePullPolicy": "{{.Values.sdp.dnsmasq.image.pullPolicy}}",
           "securityContext": {
             "runAsGroup": 101,
-            "runAsUser": 100,
+            "runAsUser": 105,
             "runAsNonRoot": true
           },
           "volumeMounts": [
