@@ -58,7 +58,7 @@ RUN chmod +x /opt/appgate/sdp-client-headless-service && \
     mkdir /sdp-service && chown 103:102 /sdp-service && \
     mkdir /var/run/appgate && chown 103:102 /var/run/appgate && \
     mkdir /var/run/sdp-service && chown 103:101 /var/run/sdp-service -R && \
-    mkdir -p /var/log/appgate && chown -R 103:102 /var/log/appgate && \
+    mkdir -p /var/log/appgate-headless && chown -R 103:102 /var/log/appgate-headless && \
     mkdir -p /.local/share/appgatesdp-service/ && chown -R 103:102 /.local/share/appgatesdp-service/ && \
     mkdir -p /.config/appgatesdp-service/ && chown -R 103:102 /.config/appgatesdp-service/ && \
     chmod +x /opt/appgate/pod_info && \
