@@ -1,4 +1,4 @@
-FROM debian:bullseye-slim
+FROM debian:bookworm-slim
 LABEL sdp=true
 LABEL project=sdp-k8s-injector
 LABEL image=sdp-injector
