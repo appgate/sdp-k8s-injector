@@ -13,7 +13,7 @@ RUN curl "https://bin.appgate-sdp.com/latest/client.json" --output "/tmp/latest.
 ARG QUERY='.releases.'\"${CLIENT_VERSION}\"'[] | select(.os == "ubuntu" and .type == "headless") | .link'
 RUN curl $(jq "${QUERY}" /tmp/latest.json --raw-output) --output "/tmp/${CLIENT_DEB}"
 
-FROM debian:bullseye-slim
+FROM debian:bookworm-slim
 LABEL sdp=true
 LABEL project=sdp-client-headless
 ARG CLIENT_DEB
@@ -32,7 +32,7 @@ RUN apt-get update && apt-get install -y \
     groupmod -g 103 messagebus && \
     addgroup dnsmasq --gid 101 && \
     usermod _apt -u 104 && \
-    usermod dnsmasq -u 100 -g 101 && \
+    usermod dnsmasq -u 105 -g 101 && \
     usermod appgate -a -G dnsmasq
 
 RUN apt-get update && \

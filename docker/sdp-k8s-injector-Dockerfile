@@ -32,7 +32,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry,id=k8s-injector-registry
     cargo chef cook $([ "$PROFILE" = "release" ] && echo --release) --recipe-path recipe.json && \
     ls -la /sdp-build/target > /sdp-build/out
 
-FROM rust:${RUST_VERSION}-slim-bullseye
+FROM rust:${RUST_VERSION}-slim-bookworm
 LABEL sdp=true
 LABEL project=sdp-k8s-injector
 LABEL image=sdp-k8s-injector-build
