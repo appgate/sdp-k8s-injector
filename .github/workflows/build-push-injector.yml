@@ -44,7 +44,7 @@ jobs:
         run: echo GIT_COMMIT=$(git rev-parse --short "$GITHUB_SHA") >> $GITHUB_ENV
 
       - name: Build cached layer
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v6
         with:
           build-args: PROFILE=${{ env.PROFILE }}
           context: .
@@ -53,7 +53,7 @@ jobs:
           tags: sdp-k8s-injector-build:latest
 
       - name: Build sdp-identity-service
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v6
         with:
           build-args: PROFILE=${{ env.PROFILE }}
           context: .
@@ -65,7 +65,7 @@ jobs:
             ghcr.io/${{ github.repository }}/sdp-identity-service:latest
 
       - name: Build sdp-injector
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v6
         with:
           build-args: PROFILE=${{ env.PROFILE }}
           context: .
