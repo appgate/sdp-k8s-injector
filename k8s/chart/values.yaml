@@ -108,6 +108,14 @@ sdp:
         - svc.cluster.local
         - cluster.local
 
+  ## @param sdp.initContainers.image.repository Image repository for init-containers
+  ## @param sdp.initContainers.tag.repository Image tag for init-containers
+  ## @param sdp.initContainers.image.pullPolicy Image pull policy for init-container
+  initContainers:
+    image:
+      repository: "docker.io/busybox"
+      tag: "latest"
+
 ## @section Kubernetes parameters
 
 ## Specifies the service configuration

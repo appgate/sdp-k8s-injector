@@ -339,7 +339,7 @@ SDP Kubernetes Injector supports various annotation-based behavior customization
 ### SDP parameters
 
 | Name                                      | Description                                                                              | Value                                   |
-| ----------------------------------------- | ---------------------------------------------------------------------------------------- |-----------------------------------------|
+|-------------------------------------------|------------------------------------------------------------------------------------------|-----------------------------------------|
 | `global.image.repository`                 | Image registry to use for all SDP images.                                                | `ghcr.io/appgate/sdp-k8s-injector`      |
 | `global.image.tag`                        | Image tag to use for all SDP images. If not set, it defaults to `.Chart.appVersion`.     | `""`                                    |
 | `global.image.pullPolicy`                 | Image pull policy to use for all SDP images.                                             | `IfNotPresent`                          |
@@ -374,7 +374,9 @@ SDP Kubernetes Injector supports various annotation-based behavior customization
 | `sdp.dnsmasq.image.repository`            | SDP Dnsmasq image repository. If set, it overrides `.global.image.repository`.           | `""`                                    |
 | `sdp.dnsmasq.image.tag`                   | SDP Dnsmasq image tag. If set, it overrides `sdp.clientVersion`.                         | `""`                                    |
 | `sdp.dnsmasq.image.pullPolicy`            | SDP Dnsmasq image pull policy. If set, it overrides `.global.image.pullPolicy`.          | `Always`                                |
-| `sdp.dnsmasq.dnsConfig.searches`          | Search domains to add to the Pod DNS configuration                                       | `["svc.cluster.local","cluster.local"]` |
+| `sdp.initContainers.image.repository`     | Image repository for init-containers                                                     | `"docker.io/busybox"`                   |
+| `sdp.initContainers.image.tag`            | Image tag for init-containers                                                            | `"latest"`                              |
+| `sdp.initContainers.image.pullPolicy`     | Image pull policy for init-containers                                                    | `Always`                                |
 
 
 This table above was generated using [readme-generator-for-helm](https://github.com/bitnami-labs/readme-generator-for-helm)
