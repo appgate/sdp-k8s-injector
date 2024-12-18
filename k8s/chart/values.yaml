@@ -108,6 +108,11 @@ sdp:
         - svc.cluster.local
         - cluster.local
 
+  initContainers:
+    image:
+      repository: "docker.io/busybox"
+      tag: "latest"
+
 ## @section Kubernetes parameters
 
 ## Specifies the service configuration
