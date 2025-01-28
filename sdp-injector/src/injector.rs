@@ -661,7 +661,7 @@ impl Patched for SDPPod {
                 }));
             }
         }
-        debug!("Pod patches: {:?}", patches);
+        info!("Applying the following patch to the Pod: {:?}", patches);
         Ok(Patch(patches))
     }
 }
