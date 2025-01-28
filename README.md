@@ -22,6 +22,7 @@ For ingress access, from external clients to SDP Gateway protected workloads in 
   * [Alternative Client Versions](#alternative-client-versions)
   * [Init Containers](#init-containers)
   * [Multiple Clusters](#multiple-clusters)
+  * [Injecting SDP Client to Non-Deployment Resources](#injecting-sdp-client-to-non-deployment-resource)
 * [Annotations](#annotations)
 * [Helm Values](#parameters)
   * [SDP Parameters](#sdp-parameters)
@@ -322,6 +323,101 @@ $ kubectl annotate Deployment <DEPLOYMENT> k8s.appgate.com/sdp-injector.disable-
 
 ### Multiple Clusters
 You can connect multiple Kubernetes clusters to a single SDP system by installing an injector on each cluster. When installing the Injector, set a unique cluster ID in the helm value `sdp.clusterID`. To prevent collision of resources created by the Injector, the SDP system will use this ID as a tag or prefix (e.g. Client Profiles, Service Users). It is advised to tag your admin users for each injector with the cluster ID.
+
+### Injecting SDP Client to Non-Deployment Resource
+SDP Injector only supports Deployment out of the box, but there is a workaround to support other Kubernetes resources such as Pods, Replicasets, Statefulsets, etc. using the SDPService CRD.
+
+In the example below, we will use a ReplicaSet as an example for Non-Deployment resource use-case. Assume the `sdp-demo` namespace is enabled for injection.
+
+Applying the following SDPService will generate a ServiceIdentity (e.g. allocate service user and device IDs) for the replicaset. 
+```yaml
+apiVersion: injector.sdp.com/v1
+kind: SDPService
+metadata:
+  labels:
+    app: example-replicaset
+  name: example-replicaset
+  namespace: sdp-demo
+spec:
+  kind: replicaset
+  name: example-replicaset
+```
+
+In the IdentityService, you should see logs about ServiceIdentity, secret, and config being created for the SDPService:
+```log
+[IdentityManager] [sdp-demo_example-replicaset] New ServiceIdentity requested for ServiceCandidate sdp-demo_example-replicaset
+[IdentityManager] [sdp-demo_example-replicaset] ServiceCandidate sdp-demo_example-replicaset has no associated ServiceIdentities. Registering.
+[IdentityManager] [sdp-demo-example-replicaset] Creating ServiceIdentity
+[IdentityManager] [sdp-demo_example-replicaset] ServiceIdentity created for service sdp-demo_example-replicaset
+[IdentityManager] [sdp-demo_example-replicaset] Requesting new UserCredentials to add to the pool
+[IdentityCreator] Creating ServiceUser 524a6a36-697a-4cc1-a220-e27f82b46a10 (id: 524a6a36-697a-4cc1-a220-e27f82b46a10)
+[SDPSystem] Creating new ServiceUser in SDP system: 524a6a36-697a-4cc1-a220-e27f82b46a10
+[ServiceIdentityProvider] Password entry update for ServiceUser 524a6a36-697a-4cc1-a220-e27f82b46a10 is required
+[ServiceIdentityProvider] Creating secrets in K8S for ServiceUer: 524a6a36-697a-4cc1-a220-e27f82b46a10
+[IdentityCreator] New ServiceUser 524a6a36-697a-4cc1-a220-e27f82b46a10 (id: 524a6a36-697a-4cc1-a220-e27f82b46a10) created, notifying IdentityManager
+[IdentityCreator] [sdp-demo_example-replicaset] Activating ServiceUser test_sdp-demo_example-replicaset_u6pww (id: 0bb4b9ca-a16d-45b6-9359-24dffca293e2)
+[IdentityManager] [524a6a36-697a-4cc1-a220-e27f82b46a10 | 524a6a36-697a-4cc1-a220-e27f82b46a10] Found deactivated ServiceUser
+[SDPSystem] Modifying new ServiceUser in SDP system: [test_sdp-demo_example-replicaset_u6pww] 0bb4b9ca-a16d-45b6-9359-24dffca293e2
+[SDPSystem] Authenticating with SDP Controller
+[IdentityCreator] [sdp-demo_example-replicaset] Creating secrets for ServiceUser test_sdp-demo_example-replicaset_u6pww (id: 0bb4b9ca-a16d-45b6-9359-24dffca293e2)
+[IdentityManager] [sdp-demo_example-replicaset] ServiceUser test_sdp-demo_example-replicaset_u6pww (id: 0bb4b9ca-a16d-45b6-9359-24dffca293e2) has been activated, updating ServiceIdentity
+[IdentityCreator] [sdp-demo_example-replicaset] Creating config for ServiceUser example-replicaset
+```
+
+The following is the corresponding ServiceIdentity created by the IdentityService
+```yaml
+apiVersion: injector.sdp.com/v1
+kind: ServiceIdentity
+metadata:
+  name: sdp-demo-example-replicaset
+  namespace: sdp-system
+spec:
+  disabled: false
+  labels:
+    app: example-replicaset
+    name: example-replicaset
+    namespace: sdp-demo
+  service_name: example-replicaset
+  service_namespace: sdp-demo
+  service_user:
+    device_ids: []
+    id: <UUID>
+    name: test_sdp-demo_example-replicaset_u6pww
+    password: <PASSWORD>
+    profile_url: appgate://<HOSTNAME>/xxxxxxxxxxx
+```
+
+Add following annotation to the podTemplate of the Replicaset. The annotation value must match the name of the SDPService 
+```yaml
+"k8s.appgate.com/sdp-injector.pod-name" = "example-replicaset"
+```
+The resulting ReplicaSet definition is as follows
+```yaml
+apiVersion: apps/v1
+kind: ReplicaSet
+metadata:
+  name: nginx-replicaset
+  namespace: sdp-demo
+  labels:
+    app: nginx
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: nginx
+  template:
+    metadata:
+      annotations:
+        "k8s.appgate.com/sdp-injector.pod-name": "example-replicaset"
+      labels:
+        app: nginx
+    spec:
+      containers:
+      - name: nginx
+        image: nginx:1.25
+        ports:
+        - containerPort: 80
+```
 
 ## Annotations
 SDP Kubernetes Injector supports various annotation-based behavior customization
