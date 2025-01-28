@@ -266,7 +266,7 @@ async fn dns_service_discover(services_api: &Api<KubeService>) -> Option<KubeSer
                         // k8s-app label is by design: https://github.com/coredns/deployment/issues/116
                         let maybe_dns_service = l.get("k8s-app");
                         if let Some(dns) = maybe_dns_service {
-                            info!("Kubernetes DNS Service: {}", dns);
+                            debug!("Kubernetes DNS Service: {}", dns);
                         }
                         maybe_dns_service
                     })
@@ -2494,7 +2494,7 @@ pub async fn injector_handler<E: DeviceIdRequester>(
             match mutate(bs, sdp_context).await {
                 // Object properly patched and allowed
                 Ok(SDPPatchResponse::Allow(mut response)) => {
-                    info!(
+                    debug!(
                         "Resource patched with {} patches",
                         response.patch.as_ref().map(|xs| xs.len()).unwrap_or(0)
                     );

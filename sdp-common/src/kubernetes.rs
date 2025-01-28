@@ -6,7 +6,7 @@ use k8s_openapi::api::{
     core::v1::{Namespace, Pod},
 };
 use kube::{core::admission::AdmissionRequest, Client, Config, Resource, ResourceExt};
-use log::error;
+use log::{debug, error};
 
 use crate::{
     annotations::SDP_INJECTOR_ANNOTATION_POD_NAME,
@@ -68,7 +68,7 @@ impl Named for Pod {
                         }
                     }
                     None => self.metadata.name.as_ref().map(Clone::clone).unwrap_or({
-                        error!("Unable to find service name for Pod");
+                        debug!("Unable to find service name for Pod");
                         uuid::Uuid::new_v4().to_string()
                     }),
                 }
