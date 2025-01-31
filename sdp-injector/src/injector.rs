@@ -2494,10 +2494,11 @@ pub async fn injector_handler<E: DeviceIdRequester>(
             match mutate(bs, sdp_context).await {
                 // Object properly patched and allowed
                 Ok(SDPPatchResponse::Allow(mut response)) => {
-                    debug!(
-                        "Resource patched with {} patches",
-                        response.patch.as_ref().map(|xs| xs.len()).unwrap_or(0)
-                    );
+                    if let Some(xs) = response.patch.as_ref() {
+                        if !xs.is_empty() {
+                            info!("Resource patched with {} patches",  xs.len());
+                        }
+                    }
                     // Object properly patched and allowed
                     allow_admission_response!(response => response)
                 }
