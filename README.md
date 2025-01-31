@@ -389,7 +389,7 @@ spec:
 
 Add following annotation to the podTemplate of the Replicaset. The annotation value must match the name of the SDPService 
 ```yaml
-"k8s.appgate.com/sdp-injector.pod-name" = "example-replicaset"
+"k8s.appgate.com/sdp-injector.pod-name": "example-replicaset"
 ```
 The resulting ReplicaSet definition is as follows
 ```yaml
