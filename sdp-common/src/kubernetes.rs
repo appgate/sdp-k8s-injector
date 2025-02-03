@@ -6,7 +6,7 @@ use k8s_openapi::api::{
     core::v1::{Namespace, Pod},
 };
 use kube::{core::admission::AdmissionRequest, Client, Config, Resource, ResourceExt};
-use log::error;
+use log::{debug, error};
 
 use crate::{
     annotations::SDP_INJECTOR_ANNOTATION_POD_NAME,
@@ -46,7 +46,7 @@ impl Named for Pod {
     fn name(&self) -> String {
         /*
         To get the service name for a pod we do:
-         1. Check if it's in an annotation defined (added by injector). If it's tehre return it
+         1. Check if it's in an annotation defined (added by injector). If it's there, return it
          2. Check if we have a generate_name field in the metadata (replica set owner / old injectors), then use it.
          3. Return the name as it is
         */
@@ -68,7 +68,7 @@ impl Named for Pod {
                         }
                     }
                     None => self.metadata.name.as_ref().map(Clone::clone).unwrap_or({
-                        error!("Unable to find service name for Pod");
+                        error!("Unable to find .metadata.name of Pod");
                         uuid::Uuid::new_v4().to_string()
                     }),
                 }
