@@ -9,7 +9,7 @@ jobs:
   build-push-client:
     uses: ./.github/workflows/build-push-client.yml
     with:
-      latest-version: "6.3"
+      latest-version: "6.4"
       push: true
 
   build-push-injector:
