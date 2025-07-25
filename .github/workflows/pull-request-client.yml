@@ -9,13 +9,10 @@ on:
       - docker/sdp-dnsmasq-Dockerfile
       - docker/sdp-headless-driver-Dockerfile
       - docker/sdp-headless-service-Dockerfile
-      - docker/pre-6.2/sdp-dnsmasq-Dockerfile-old
-      - docker/pre-6.2/sdp-headless-driver-Dockerfile-old
-      - docker/pre-6.2/sdp-headless-service-Dockerfile-old
 
 jobs:
   build-client:
     uses: ./.github/workflows/build-push-client.yml
     with:
-      latest-version: "6.2"
+      latest-version: "6.5"
       push: false
