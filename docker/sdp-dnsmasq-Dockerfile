@@ -1,7 +1,7 @@
 ARG MAJOR_VERSION
 ARG MINOR_VERSION
 ARG REVISION
-FROM alpine:3.20
+FROM alpine:3.20.7
 
 LABEL sdp=true
 LABEL project=sdp-injector
