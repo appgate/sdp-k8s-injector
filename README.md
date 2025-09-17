@@ -1,3 +1,7 @@
+<p align="center">
+	<img src="./appgate.svg" width="200">
+</p>
+
 # SDP Kubernetes Injector
 SDP Kubernetes Injector provides **egress access**, from Kubernetes workloads to protected resources behind an SDP Gateway, using [sidecar](https://kubernetes.io/docs/concepts/workloads/pods/#workload-resources-for-managing-pods) [injector](https://kubernetes.io/docs/reference/access-authn-authz/extensible-admission-controllers/) pattern.
 
@@ -133,7 +137,7 @@ Currently, the only supported way of installing the Injector is to use the offic
         https://controller.company.com:8443/ui/identity/service-users
     3.  Injector configuration is verified. To test the egress access, see [Testing the Installation](#testing-the-installation).
 
-> Browse the available versions on [Appgate GitHub Container Registry](https://github.com/appgate/sdp-k8s-injector/pkgs/container/charts%2Fsdp-k8s-injector)
+> Browse the available versions on [AppGate GitHub Container Registry](https://github.com/appgate/sdp-k8s-injector/pkgs/container/charts%2Fsdp-k8s-injector)
 
 ### Testing the Installation
 
