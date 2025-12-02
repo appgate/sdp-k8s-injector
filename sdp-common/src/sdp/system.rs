@@ -395,15 +395,14 @@ impl System {
         if !dry_run {
             let mut url = Url::from(self.hosts[0].clone());
             let base_url = url.clone();
-            // This should be encoded with this
-            // https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/encodeURIComponent
             url.path_segments_mut()
                 .map_err(|_| SDPClientError {
                     request_error: None,
                     status_code: None,
                     error_body: Some(format!("Url not valid: {}", base_url)),
                 })?
-                .push("/admin/on-boarded-devices")
+                .push("admin")
+                .push("on-boarded-devices")
                 .push(distinguished_name);
             self.delete(url).await
         } else {
