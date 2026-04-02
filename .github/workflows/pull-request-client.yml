@@ -5,6 +5,7 @@ on:
     branches:
       - main
     paths:
+      - .github/workflows/**
       - assets/*
       - docker/sdp-dnsmasq-Dockerfile
       - docker/sdp-headless-driver-Dockerfile
