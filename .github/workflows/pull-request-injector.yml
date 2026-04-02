@@ -5,6 +5,7 @@ on:
     branches:
       - main
     paths:
+      - .github/workflows/**
       - docker/sdp-k8s-injector-Dockerfile
       - sdp-common/*
       - sdp-identity-service/*
