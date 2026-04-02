@@ -8,23 +8,34 @@ on:
 jobs:
   build-push-client:
     uses: ./.github/workflows/build-push-client.yml
+    permissions:
+      contents: read
+      packages: write
     with:
       latest-version: "6.5"
       push: true
 
   build-push-injector:
     uses: ./.github/workflows/build-push-injector.yml
+    permissions:
+      contents: read
+      packages: write
     with:
       push: true
 
   release-chart:
     uses: ./.github/workflows/release-chart.yml
+    permissions:
+      contents: write
     needs: [ build-push-client, build-push-injector ]
     with:
       push: true
 
   release-chart-oci:
     uses: ./.github/workflows/release-chart-oci.yml
+    permissions:
+      contents: read
+      packages: write
     needs: [ build-push-client, build-push-injector ]
     with:
       push: true
