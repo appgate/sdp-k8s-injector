@@ -5,10 +5,14 @@
 
 version: 2
 updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
   - package-ecosystem: "docker"
     directories: 
       - "docker/"
-      - "sdp-injector/
+      - "sdp-injector/"
       - "sdp-identity-service/"
     schedule:
       interval: "weekly"
