@@ -8,7 +8,7 @@ updates:
   - package-ecosystem: "docker"
     directories: 
       - "docker/"
-      - "sdp-injector/
+      - "sdp-injector/"
       - "sdp-identity-service/"
     schedule:
       interval: "weekly"
