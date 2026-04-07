@@ -12,7 +12,7 @@ jobs:
       contents: read
       packages: write
     with:
-      latest-version: "6.5"
+      latest-version: "6.6"
       push: true
 
   build-push-injector:
