@@ -9,7 +9,7 @@ ARG CLIENT_VERSION
 ARG CLIENT_DEB
 
 RUN apk add --no-cache jq curl
-RUN curl "https://bin.appgate-sdp.com/latest/client.json" --output "/tmp/latest.json"
+RUN curl "https://bin.appgate-sdp.com/latest/k8s-client.json" --output "/tmp/latest.json"
 ARG QUERY='.releases.'\"${CLIENT_VERSION}\"'[] | select(.os == "ubuntu" and .type == "headless") | .link'
 RUN curl $(jq "${QUERY}" /tmp/latest.json --raw-output) --output "/tmp/${CLIENT_DEB}"
 

@@ -22,7 +22,7 @@ jobs:
         client-version:
           - "6.4"
           - "6.5"
-#          - "6.6"
+          - "6.6"
     steps:
       - uses: actions/checkout@v6
 
