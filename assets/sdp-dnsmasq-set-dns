@@ -25,6 +25,18 @@ DNSMASQ_APPGATE_BACKUP=/tmp/appgate.conf.bk
 DNSMASQ_APPGATE_FAIL=/tmp/appgate.conf.fail
 KUBE_DNS_FILE=/tmp/kube-dns
 
+start_dnsmasq () {
+    if [ -n "$LOG_QUERIES" ]; then
+        /usr/sbin/dnsmasq --pid-file=/sdp-dnsmasq/dnsmasq.pid --port=53 --local-service \
+                          -C "$DNSMASQ_CONF_FILE" --listen-address=127.0.0.1 "$LOG_QUERIES" \
+                          --log-facility=- 2>&1
+    else
+        /usr/sbin/dnsmasq --pid-file=/sdp-dnsmasq/dnsmasq.pid --port=53 --local-service \
+                          -C "$DNSMASQ_CONF_FILE" --listen-address=127.0.0.1 \
+                          --log-facility=- 2>&1
+    fi
+}
+
 # This reuses later the first entry in the file since that entry
 # points to the kube_dns service
 if [ -f $KUBE_DNS_FILE ]; then
@@ -179,9 +191,7 @@ if [ $restart -eq 1 ]; then
     fi
     while [ $res != 0 ]; do
         decho "Restarting dnsmasq ..."
-        /usr/sbin/dnsmasq --pid-file=/sdp-dnsmasq/dnsmasq.pid --port=53 --local-service \
-                          -C $DNSMASQ_CONF_FILE --listen-address=127.0.0.1 "$LOG_QUERIES" \
-                          -8 /proc/1/fd/1
+        start_dnsmasq
         res=$?
         if [ $res != 0 ]; then
             if [ $retries -gt 5 ] && [ $rollbacked -eq 0 ]; then
