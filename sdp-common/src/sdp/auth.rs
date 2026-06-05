@@ -51,6 +51,8 @@ pub struct SDPUser {
     pub id: String,
     pub name: String,
     pub labels: HashMap<String, String>,
+    #[serde(default)]
+    pub tags: Vec<String>,
     #[serde(skip_deserializing)]
     pub password: Option<String>,
     pub disabled: bool,
@@ -67,6 +69,7 @@ impl SDPUser {
             name: name.unwrap_or(id.clone()),
             id,
             labels: HashMap::new(),
+            tags: vec![],
             password: Some(password.to_string()),
             disabled: disabled.unwrap_or(true),
             failed_login_attempts: None,
@@ -96,6 +99,7 @@ impl From<&ServiceUser> for SDPUser {
             id: name.clone(),
             name: name,
             labels: HashMap::new(),
+            tags: vec![],
             password: None,
             disabled: true,
             failed_login_attempts: None,

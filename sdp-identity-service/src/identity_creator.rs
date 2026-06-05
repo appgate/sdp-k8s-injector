@@ -478,6 +478,9 @@ impl IdentityCreator {
                     sdp_user.disabled = false;
                     sdp_user.labels = labels;
                     sdp_user.name = get_service_username(&cluster_id, &service_ns, &service_name);
+                    if let Ok(existing) = system.get_user(service_user.id.clone()).await {
+                        sdp_user.tags = existing.tags;
+                    }
                     let mut service_user = service_user.clone();
                     service_user.name = sdp_user.name.clone();
 
