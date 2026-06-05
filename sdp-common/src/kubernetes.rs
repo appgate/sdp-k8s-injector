@@ -68,7 +68,7 @@ impl Named for Pod {
                         }
                     }
                     None => self.metadata.name.as_ref().map(Clone::clone).unwrap_or({
-                        error!("Unable to find .metadata.name of Pod");
+                        debug!("Unable to find .metadata.name of Pod");
                         uuid::Uuid::new_v4().to_string()
                     }),
                 }
