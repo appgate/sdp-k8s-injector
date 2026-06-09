@@ -72,14 +72,14 @@ trait ServiceCredentialProvider: ServiceUserPool {
             .collect()
     }
 
-    /// ServiceIdentity instances that don't have active ServiceUsers
+    /// ServiceIdentity instances that have deactivated ServiceUsers
     fn orphan_service_identities<'a>(
         &self,
-        activated_service_users: &'a HashSet<String>,
+        deactivated_service_users: &'a HashSet<String>,
     ) -> Vec<&Self::To> {
         self.identities()
             .iter()
-            .filter(|i| !activated_service_users.contains(&i.credentials().id))
+            .filter(|i| deactivated_service_users.contains(&i.credentials().id))
             .map(|i| *i)
             .collect()
     }
@@ -848,7 +848,7 @@ impl<'a> IdentityManagerService<ServiceCandidate, ServiceIdentity> for IdentityM
         info!("Searching for orphaned ServiceIdentities");
         for service_identity in self
             .service_credentials_provider
-            .orphan_service_identities(&self.existing_activated_credentials)
+            .orphan_service_identities(&self.existing_deactivated_credentials)
         {
             let service_id = service_identity.service_id();
             if !removed_service_identities.contains(&service_id) {
@@ -1472,15 +1472,26 @@ mod tests {
     #[test]
     fn test_identity_manager_service_credentials_provider_orphan_identities() {
         // orphan_service_identities computes the list of service identities holding
-        // ServiceUsers that are not active anymore
+        // ServiceUsers that are deactivated
         test_identity_manager_service_credentials_provider! {
             im => {
                 let mut identities = im.identities();
                 identities.sort_by(|a, b| a.name_any().as_str().partial_cmp(b.name_any().as_str()).unwrap());
 
-                // 4 service identities registered none active service users,
+                // no deactivated service users, no orphans
                 let xs = service_identities_to_tuple(
                     im.orphan_service_identities(&HashSet::new()));
+                assert_eq!(xs.len(), 0);
+                assert_eq!(xs, vec![]);
+
+                // all 4 service users deactivated, all 4 identities are orphans
+                let xs = service_identities_to_tuple(
+                    im.orphan_service_identities(&HashSet::from([
+                        identities[0].credentials().id.clone(),
+                        identities[1].credentials().id.clone(),
+                        identities[2].credentials().id.clone(),
+                        identities[3].credentials().id.clone(),
+                    ])));
                 assert_eq!(xs.len(), 4);
                 assert_eq!(xs, vec![
                     ("ns1", "srv1", "service_user_id1"),
@@ -1489,22 +1500,11 @@ mod tests {
                     ("ns4", "srv4", "service_user_id4"),
                 ]);
 
-                // 4 service identities registered 4 active service users,
+                // 2 of 4 service users deactivated, 2 identities are orphans
                 let xs = service_identities_to_tuple(
                     im.orphan_service_identities(&HashSet::from([
-                        identities[0].credentials().id.clone(),
-                        identities[1].credentials().id.clone(),
-                        identities[2].credentials().id.clone(),
-                        identities[3].credentials().id.clone(),
-                    ])));
-                assert_eq!(xs.len(), 0);
-                assert_eq!(xs, vec![]);
-
-                // 4 service identities registered 2 active service users,
-                let xs = service_identities_to_tuple(
-                    im.orphan_service_identities(&HashSet::from([
-                        identities[1].credentials().id.clone(), // service_user2
-                        identities[3].credentials().id.clone(), // service_user4
+                        identities[0].credentials().id.clone(), // service_user1
+                        identities[2].credentials().id.clone(), // service_user3
                     ])));
                 assert_eq!(xs.len(), 2);
                 assert_eq!(xs, vec![
@@ -1512,13 +1512,9 @@ mod tests {
                     ("ns3", "srv3", "service_user_id3"),
                 ]);
 
-                // 4 service identities registered 5 active service users,
+                // deactivated set contains an id not belonging to any identity, no extra orphans
                 let xs = service_identities_to_tuple(
                     im.orphan_service_identities(&HashSet::from([
-                        identities[0].credentials().id.clone(),
-                        identities[1].credentials().id.clone(),
-                        identities[2].credentials().id.clone(),
-                        identities[3].credentials().id.clone(),
                         service_identity!(5).credentials().id.clone()
                     ])));
                 assert_eq!(xs.len(), 0);
