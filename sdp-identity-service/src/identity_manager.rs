@@ -787,23 +787,27 @@ impl<'a> IdentityManagerService<ServiceCandidate, ServiceIdentity> for IdentityM
         let mut removed_service_identities: HashSet<String> = HashSet::new();
         info!("IdentityManager is ready");
 
-        // Here we do a basic cleanup of the current state
-        // 1. First we ask for deletion for all the ServiceIdentity instances that don't have a known
-        //    ServiceCandidate. This will eventually remove the ServiceUser associated
-        // 2. Now we remove all the known active ServiceUser instances that don't belong to any ServiceIdentity
-        // 3. Then we delete any ServiceIdentity instance that does not have a ServiceUser activated
-        // 4. Finally we unregister all device ids for current services that have unused clients:
-        //    Example: ns1_app1_XXXXX is active but we have device ids registered for ns1_app1_YYYYY and
-        //             ns1_app1_ZZZZZ. Then ns1_app1_YYYYY and ns1_app1_ZZZZZ will be unregistered.
+        info!(
+            "Reconciliation state: {} ServiceIdentities registered, {} known ServiceCandidates, {} activated ServiceUsers, {} deactivated ServiceUsers, {} missing ServiceCandidates",
+            self.service_credentials_provider.identities().len(),
+            self.existing_service_candidates.len(),
+            self.existing_activated_credentials.len(),
+            self.existing_deactivated_credentials.len(),
+            self.missing_service_candidates.len()
+        );
 
         info!(IdentityManagerProtocol::<ServiceCandidate, ServiceIdentity>::IdentityManagerDebug |("Syncing ServiceIdentity instances") => self.external_queue_tx);
 
-        // 1. Delete IdentityService instances with unknown ServiceCandidate
+        // 1. Delete ServiceIdentity instances with unknown ServiceCandidate
         info!("Searching for ServiceIdentities with unknown ServiceCandidate");
-        for service_identity in self
+        let extra = self
             .service_credentials_provider
-            .extra_service_identities(&self.existing_service_candidates)
-        {
+            .extra_service_identities(&self.existing_service_candidates);
+        info!(
+            "Found {} ServiceIdentities with unknown ServiceCandidate",
+            extra.len()
+        );
+        for service_identity in extra {
             let service_id = service_identity.service_id();
             info!(
                 "[{}] Found ServiceIdentity {} with unknown ServiceCandidate. Deleting it.",
@@ -830,10 +834,11 @@ impl<'a> IdentityManagerService<ServiceCandidate, ServiceIdentity> for IdentityM
 
         // 2. Delete ServiceUser instances that don't belong to any ServiceIdentity
         info!("Searching for orphaned ServiceUsers");
-        for sdp_user_name in self
+        let orphan_users = self
             .service_credentials_provider
-            .orphan_service_users(&self.existing_activated_credentials)
-        {
+            .orphan_service_users(&self.existing_activated_credentials);
+        info!("Found {} orphaned ServiceUsers", orphan_users.len());
+        for sdp_user_name in orphan_users {
             info!(
                 "SDPUser {} is active but not used by any ServiceIdentity, deleting it",
                 sdp_user_name
@@ -844,12 +849,16 @@ impl<'a> IdentityManagerService<ServiceCandidate, ServiceIdentity> for IdentityM
                 .expect("Error deleting orphaned SDPUser");
         }
 
-        // 3. Delete IdentityService instances holding not active credentials
+        // 3. Delete ServiceIdentity instances holding deactivated credentials
         info!("Searching for orphaned ServiceIdentities");
-        for service_identity in self
+        let orphan_identities = self
             .service_credentials_provider
-            .orphan_service_identities(&self.existing_deactivated_credentials)
-        {
+            .orphan_service_identities(&self.existing_deactivated_credentials);
+        info!(
+            "Found {} ServiceIdentities with deactivated ServiceUsers",
+            orphan_identities.len()
+        );
+        for service_identity in orphan_identities {
             let service_id = service_identity.service_id();
             if !removed_service_identities.contains(&service_id) {
                 info!(
@@ -876,6 +885,11 @@ impl<'a> IdentityManagerService<ServiceCandidate, ServiceIdentity> for IdentityM
             }
         }
 
+        info!(
+            "Reconciliation complete: {} ServiceIdentities deleted",
+            removed_service_identities.len()
+        );
+
         // Reconcile sdp_user device ids registered for active users that have a ServiceIdentity
         self.identity_creator_queue
             .send(IdentityCreatorProtocol::ReconcileSDPUsers(
@@ -890,6 +904,10 @@ impl<'a> IdentityManagerService<ServiceCandidate, ServiceIdentity> for IdentityM
             .expect("Error reconciliating SDP users");
 
         // Request ServiceIdentity for candidates that dont have it
+        info!(
+            "Requesting ServiceIdentity for {} missing ServiceCandidates",
+            self.missing_service_candidates.len()
+        );
         for (service_candidate_id, service_candidate) in &self.missing_service_candidates {
             info!(
                 "[{}] Requesting missing ServiceCandidate {}",
