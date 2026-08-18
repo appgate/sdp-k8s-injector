@@ -6,14 +6,11 @@ use crate::injector::{
     get_cert_path, get_key_path, injector_handler, load_sidecar_containers, load_ssl,
     InjectorDeviceIdRequester, SDPInjectorContext, SDPSidecars,
 };
-use futures::executor::block_on;
-use futures::stream;
 use futures_util::stream::StreamExt;
 use http::Uri;
-use hyper::server::accept;
-use hyper::server::conn::AddrIncoming;
-use hyper::service::{make_service_fn, service_fn};
-use hyper::Server;
+use hyper::server::conn::http1;
+use hyper::service::service_fn;
+use hyper_util::rt::TokioIo;
 use kube::{Api, Client, Config};
 use sdp_common::crd::ServiceIdentity;
 use sdp_common::kubernetes::{KUBE_SYSTEM_NAMESPACE, SDP_K8S_NAMESPACE};
@@ -21,12 +18,11 @@ use sdp_common::service::get_log_config_path;
 use sdp_common::watcher::{watch, Watcher};
 use sdp_macros::{logger, sdp_debug, sdp_error, sdp_info, sdp_log, sdp_warn, with_dollar_sign};
 use std::collections::HashMap;
-use std::convert::Infallible;
 use std::error::Error;
-use std::future::ready;
 use std::sync::Arc;
 use std::time::Duration;
 use tls_listener::TlsListener;
+use tokio::net::TcpListener;
 use tokio::sync::mpsc::channel;
 use tokio::sync::Mutex as AsyncMutex;
 use tokio::time::timeout;
@@ -99,21 +95,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let ssl_config = load_ssl()?;
     let tls_acceptor: Acceptor = Arc::new(ssl_config).into();
 
-    let addr = ([0, 0, 0, 0], 8443).into();
-    let make_service = {
-        make_service_fn(move |_conn| {
-            let sdp_injector_context = sdp_injector_context.clone();
-            async move {
-                let sdp_injector_context = sdp_injector_context.clone();
-                Ok::<_, Infallible>(service_fn(move |req| {
-                    injector_handler(req, sdp_injector_context.clone())
-                }))
-            }
-        })
-    };
+    let addr: std::net::SocketAddr = ([0, 0, 0, 0], 8443).into();
 
     let reload_certs: Arc<AsyncMutex<bool>> = Arc::new(AsyncMutex::new(false));
-    let mut tls_listener = TlsListener::new(tls_acceptor, AddrIncoming::bind(&addr)?);
+    let tcp_listener = TcpListener::bind(&addr).await?;
+    let mut tls_listener = TlsListener::new(tls_acceptor, tcp_listener);
 
     // Thread to watch ServiceIdentity entities
     // We register new ServiceIdentity entities in the store when created and de unregister them when deleted.
@@ -143,46 +129,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
         device_id_provider.run(device_id_rx, watcher_rx, None).await;
     });
 
-    info!("Starting SDP Injector server");
-    let reload_certs_lock = Arc::clone(&reload_certs);
-    let acceptor = {
-        let xs = stream::poll_fn(move |cx| {
-            let reload_certs = block_on(async {
-                match timeout(Duration::from_millis(10), reload_certs_lock.lock()).await {
-                    Ok(v) => *v,
-                    Err(_e) => {
-                        warn!("Timeout waiting for ReloadCert lock");
-                        false
-                    }
-                }
-            });
-            if reload_certs {
-                info!("Reloading TLS certificates");
-                let ssl_config = load_ssl().map_err(|e| {
-                    tls_listener::Error::ListenerError(std::io::Error::new(
-                        std::io::ErrorKind::InvalidData,
-                        e,
-                    ))
-                })?;
-                let tls_acceptor: Acceptor = Arc::new(ssl_config).into();
-                tls_listener.replace_acceptor(tls_acceptor);
-                block_on(async {
-                    *reload_certs_lock.lock().await = false;
-                });
-            }
-            tls_listener.poll_next_unpin(cx)
-        });
-        accept::from_stream(xs.filter(|c| {
-            if let Err(e) = c {
-                error!("Error running SDP Injector server: {:?}", e);
-                ready(false)
-            } else {
-                ready(true)
-            }
-        }))
-    };
-
     // Thread to watch for notify
+    let reload_certs_watcher = Arc::clone(&reload_certs);
     tokio::spawn(async move {
         let poll_interval: u64 = std::env::var(SDP_FILE_WATCHER_POLL_INTERVAL_ENV)
             .map(|s| {
@@ -205,12 +153,55 @@ async fn main() -> Result<(), Box<dyn Error>> {
         if let Err(e) = file_watchers {
             panic!("Unable to create FileWatcher: {}", e);
         }
-        if let Err(e) = watch_files(file_watchers.unwrap(), Arc::clone(&reload_certs)).await {
+        if let Err(e) = watch_files(file_watchers.unwrap(), reload_certs_watcher).await {
             panic!("Unable to watch files: {}", e);
         }
     });
 
-    let server = Server::builder(acceptor).serve(make_service);
-    server.await?;
+    info!("Starting SDP Injector server");
+    let reload_certs_lock = Arc::clone(&reload_certs);
+    loop {
+        // Reload the TLS certificates if the file watcher signalled a change.
+        let should_reload = match timeout(Duration::from_millis(10), reload_certs_lock.lock()).await
+        {
+            Ok(v) => *v,
+            Err(_e) => {
+                warn!("Timeout waiting for ReloadCert lock");
+                false
+            }
+        };
+        if should_reload {
+            info!("Reloading TLS certificates");
+            match load_ssl() {
+                Ok(ssl_config) => {
+                    let tls_acceptor: Acceptor = Arc::new(ssl_config).into();
+                    tls_listener.replace_acceptor(tls_acceptor);
+                    *reload_certs_lock.lock().await = false;
+                }
+                Err(e) => {
+                    error!("Unable to reload TLS certificates: {}", e);
+                }
+            }
+        }
+
+        // Accept the next TLS connection.
+        let (tls_stream, _addr) = match tls_listener.next().await {
+            Some(Ok(conn)) => conn,
+            Some(Err(e)) => {
+                error!("Error accepting TLS connection: {:?}", e);
+                continue;
+            }
+            None => break,
+        };
+
+        let sdp_injector_context = sdp_injector_context.clone();
+        tokio::spawn(async move {
+            let io = TokioIo::new(tls_stream);
+            let service = service_fn(move |req| injector_handler(req, sdp_injector_context.clone()));
+            if let Err(e) = http1::Builder::new().serve_connection(io, service).await {
+                error!("Error serving SDP Injector connection: {:?}", e);
+            }
+        });
+    }
     Ok(())
 }
