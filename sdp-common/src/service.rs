@@ -11,8 +11,8 @@ use k8s_openapi::api::core::v1::{ConfigMap, Container, Pod, PodSecurityContext, 
 use k8s_openapi::{api::core::v1::Secret, ByteString};
 use kube::api::{DeleteParams, Patch as KubePatch, PatchParams, PostParams};
 use kube::Api;
-use rand::distributions::Alphanumeric;
-use rand::Rng;
+use rand::distr::Alphanumeric;
+use rand::RngExt;
 use schemars::JsonSchema;
 use sdp_macros::{logger, sdp_error, sdp_info, sdp_log, sdp_warn, with_dollar_sign};
 use serde::{Deserialize, Serialize};
@@ -542,7 +542,7 @@ pub fn needs_injection<A: Annotated>(entity: &A) -> bool {
 }
 
 pub fn get_random_suffix(n: usize) -> String {
-    rand::thread_rng()
+    rand::rng()
         .sample_iter(&Alphanumeric)
         .take(n)
         .map(char::from)
