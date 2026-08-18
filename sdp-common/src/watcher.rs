@@ -136,7 +136,7 @@ where
     info!("Starting watcher loop for {}", module);
     loop {
         match xs.try_next().await {
-            Ok(Some(Event::Applied(e))) => {
+            Ok(Some(Event::Apply(e))) => {
                 let key = e.key();
 
                 let ns = get_ns(e.namespace())
@@ -170,7 +170,7 @@ where
                     }
                 }
             }
-            Ok(Some(Event::Deleted(e))) => {
+            Ok(Some(Event::Delete(e))) => {
                 let ns = get_ns(e.namespace())
                     .await
                     .map_err(|err| {
@@ -189,7 +189,7 @@ where
                     }
                 }
             }
-            Ok(Some(Event::Restarted(_))) => {}
+            Ok(Some(Event::Init)) | Ok(Some(Event::InitApply(_))) | Ok(Some(Event::InitDone)) => {}
             Ok(None) => {}
             Err(e) => {
                 error!("Error reading events: {}", e.to_string());

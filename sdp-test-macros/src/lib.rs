@@ -98,7 +98,7 @@ macro_rules! set_pod_field {
             let ss = $ps
                 .iter()
                 .map(|s| LocalObjectReference {
-                    name: Some(format!("{}", s)),
+                    name: format!("{}", s),
                 })
                 .collect();
             spec.image_pull_secrets = Some(ss);
