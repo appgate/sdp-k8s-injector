@@ -1,5 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
+use json_patch::jsonptr::PointerBuf;
 use json_patch::PatchOperation::Remove;
 use json_patch::{Patch, RemoveOperation};
 use k8s_openapi::api::core::v1::{ConfigMap, Secret};
@@ -256,7 +257,8 @@ impl IdentityCreator {
                 if !known_fields.contains(&field) {
                     info!("Secret entry for SDPUser {} marked for deletion", field);
                     patches.push(Remove(RemoveOperation {
-                        path: format!("/data/{}", field),
+                        path: PointerBuf::parse(format!("/data/{}", field))
+                            .map_err(|e| format!("Invalid JSON pointer: {}", e))?,
                     }));
                     n += 1;
                 }
