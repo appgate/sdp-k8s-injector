@@ -4,6 +4,7 @@ pub use crate::crd::{SDPService, ServiceIdentity};
 use crate::errors::SDPServiceError;
 use crate::sdp::{auth::SDPUser, system::ClientProfileUrl};
 use crate::traits::{Annotated, Candidate, Labeled, MaybeNamespaced, MaybeService, Named};
+use json_patch::jsonptr::PointerBuf;
 use json_patch::PatchOperation::Remove;
 use json_patch::{Patch, RemoveOperation};
 use k8s_openapi::api::apps::v1::Deployment;
@@ -366,7 +367,7 @@ impl ServiceUser {
                     &self.name, secrets_name
                 );
                 patches.push(Remove(RemoveOperation {
-                    path: format!("/data/{}", user_field),
+                    path: PointerBuf::parse(format!("/data/{}", user_field))?,
                 }));
             }
             if data.contains_key(&pw_field) {
@@ -375,7 +376,7 @@ impl ServiceUser {
                     &self.name, secrets_name
                 );
                 patches.push(Remove(RemoveOperation {
-                    path: format!("/data/{}", pw_field),
+                    path: PointerBuf::parse(format!("/data/{}", pw_field))?,
                 }));
             }
             if data.contains_key(&url_field) {
@@ -384,7 +385,7 @@ impl ServiceUser {
                     &self.name, secrets_name
                 );
                 patches.push(Remove(RemoveOperation {
-                    path: format!("/data/{}", url_field),
+                    path: PointerBuf::parse(format!("/data/{}", url_field))?,
                 }));
             }
             let patch: KubePatch<Secret> = KubePatch::Json(Patch(patches));
