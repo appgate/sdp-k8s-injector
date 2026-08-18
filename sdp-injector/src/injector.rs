@@ -4,8 +4,11 @@ use crate::deviceid::{
 use crate::errors::SDPPatchError;
 use async_trait::async_trait;
 use http::{Method, StatusCode};
+use http_body_util::BodyExt;
 use hyper::body::Bytes;
-use hyper::{Body, Request, Response};
+use hyper::body::Incoming;
+use hyper::{Request, Response};
+use json_patch::jsonptr::PointerBuf;
 use json_patch::PatchOperation::Add;
 use json_patch::{AddOperation, Patch};
 use k8s_openapi::api::apps::v1::Deployment;
@@ -17,8 +20,8 @@ use kube::api::{DynamicObject, ListParams};
 use kube::core::admission::{AdmissionRequest, AdmissionResponse, AdmissionReview};
 use kube::core::Status;
 use kube::Api;
-use rustls::{Certificate, PrivateKey, ServerConfig};
-use rustls_pemfile::{certs, rsa_private_keys};
+use rustls::ServerConfig;
+use rustls_pemfile::{certs, private_key};
 use sdp_common::annotations::{
     SDP_ANNOTATION_CLIENT_CONFIG, SDP_ANNOTATION_CLIENT_DEVICE_ID, SDP_ANNOTATION_CLIENT_SECRETS,
     SDP_ANNOTATION_DNS_SEARCHES, SDP_INJECTOR_ANNOTATION_CLIENT_VERSION,
@@ -54,6 +57,18 @@ use tokio::time::timeout;
 use uuid::Uuid;
 
 logger!("SDPInjector");
+
+// hyper 1.x removed the built-in `Body` type; response bodies are now a
+// concrete body implementation. We use a full (non-streaming) body of bytes.
+pub type Body = http_body_util::Full<Bytes>;
+
+// Parse an already-escaped RFC6901 JSON pointer string into a PointerBuf.
+// json-patch 4.x operations take a `jsonptr::PointerBuf` instead of a `String`.
+fn json_ptr(path: String) -> Result<PointerBuf, SDPServiceError> {
+    json_patch::jsonptr::Pointer::parse(&path)
+        .map(|p| p.to_buf())
+        .map_err(|e| SDPServiceError::from_string(format!("Invalid JSON pointer '{}': {}", path, e)))
+}
 
 const SDP_DNS_SERVICE_NAMES: [&str; 3] = ["kube-dns", "coredns", "rke2-coredns"];
 const SDP_SIDECARS_FILE: &str = "/opt/sdp-injector/k8s/sdp-sidecars.json";
@@ -171,7 +186,7 @@ macro_rules! env_var {
         let mut env_source: EnvVarSource = Default::default();
         env_source.config_map_key_ref = Some(ConfigMapKeySelector {
             key: $env_name.to_lowercase().replace("_", "-"),
-            name: Some($map_name.to_string()),
+            name: $map_name.to_string(),
             optional: Some(false),
         });
         env.value_from = Some(env_source);
@@ -184,7 +199,7 @@ macro_rules! env_var {
         let mut env_source: EnvVarSource = Default::default();
         env_source.secret_key_ref = Some(SecretKeySelector {
             key: $secret_key.to_string(),
-            name: Some($secret_name.to_string()),
+            name: $secret_name.to_string(),
             optional: Some(false),
         });
         env.value_from = Some(env_source);
@@ -515,7 +530,7 @@ impl Patched for SDPPod {
             let dns_config = &self.sdp_sidecars.dns_config(&ns, custom_searches);
             if pod.annotations().is_none() || pod.annotations().unwrap().is_empty() {
                 patches.push(Add(AddOperation {
-                    path: "/metadata/annotations".to_string(),
+                    path: json_ptr("/metadata/annotations".to_string())?,
                     value: serde_json::to_value(HashMap::<String, String>::new())?,
                 }));
             }
@@ -526,48 +541,48 @@ impl Patched for SDPPod {
                 .unwrap_or(injection_strategy == SDPInjectionStrategy::EnabledByDefault)
                 .to_string();
             patches.push(Add(AddOperation {
-                path: format!(
+                path: json_ptr(format!(
                     "/metadata/annotations/{}",
                     patch_annotation!(SDP_INJECTOR_ANNOTATION_STRATEGY)
-                ),
+                ))?,
                 value: serde_json::to_value(injection_strategy.to_string())?,
             }));
             patches.push(Add(AddOperation {
-                path: format!(
+                path: json_ptr(format!(
                     "/metadata/annotations/{}",
                     patch_annotation!(SDP_INJECTOR_ANNOTATION_ENABLED)
-                ),
+                ))?,
                 value: serde_json::to_value(
                     pod.annotation(SDP_INJECTOR_ANNOTATION_ENABLED)
                         .unwrap_or(&injection_enabled),
                 )?,
             }));
             patches.push(Add(AddOperation {
-                path: format!(
+                path: json_ptr(format!(
                     "/metadata/annotations/{}",
                     patch_annotation!(SDP_ANNOTATION_CLIENT_DEVICE_ID)
-                ),
+                ))?,
                 value: serde_json::to_value(&environment.client_device_id)?,
             }));
             patches.push(Add(AddOperation {
-                path: format!(
+                path: json_ptr(format!(
                     "/metadata/annotations/{}",
                     patch_annotation!(SDP_INJECTOR_ANNOTATION_SERVICE_NAME)
-                ),
+                ))?,
                 value: serde_json::to_value(&environment.service_name)?,
             }));
             patches.push(Add(AddOperation {
-                path: format!(
+                path: json_ptr(format!(
                     "/metadata/annotations/{}",
                     patch_annotation!(SDP_INJECTOR_ANNOTATION_SERVICE_ID)
-                ),
+                ))?,
                 value: serde_json::to_value(&environment.service_id)?,
             }));
             patches.push(Add(AddOperation {
-                path: format!(
+                path: json_ptr(format!(
                     "/metadata/annotations/{}",
                     patch_annotation!(SDP_INJECTOR_ANNOTATION_POD_NAME)
-                ),
+                ))?,
                 value: serde_json::to_value(&environment.pod_name)?,
             }));
 
@@ -589,7 +604,7 @@ impl Patched for SDPPod {
                 }
                 c.env = Some(environment.variables(&c.name));
                 patches.push(Add(AddOperation {
-                    path: "/spec/containers/-".to_string(),
+                    path: json_ptr("/spec/containers/-".to_string())?,
                     value: serde_json::to_value(&c)?,
                 }));
             }
@@ -615,30 +630,30 @@ impl Patched for SDPPod {
                 init_containers.insert(0, c0);
                 init_containers.push(c1);
                 patches.push(Add(AddOperation {
-                    path: "/spec/initContainers".to_string(),
+                    path: json_ptr("/spec/initContainers".to_string())?,
                     value: serde_json::to_value(&init_containers)?,
                 }));
             }
             if volumes(pod).is_some() {
                 for v in self.sdp_sidecars.volumes.iter() {
                     patches.push(Add(AddOperation {
-                        path: "/spec/volumes/-".to_string(),
+                        path: json_ptr("/spec/volumes/-".to_string())?,
                         value: serde_json::to_value(&v)?,
                     }));
                 }
             } else {
                 patches.push(Add(AddOperation {
-                    path: "/spec/volumes".to_string(),
+                    path: json_ptr("/spec/volumes".to_string())?,
                     value: serde_json::to_value(&self.sdp_sidecars.volumes)?,
                 }));
             }
             // Patch DNSConfiguration now
             patches.push(Add(AddOperation {
-                path: "/spec/dnsConfig".to_string(),
+                path: json_ptr("/spec/dnsConfig".to_string())?,
                 value: serde_json::to_value(&dns_config)?,
             }));
             patches.push(Add(AddOperation {
-                path: "/spec/dnsPolicy".to_string(),
+                path: json_ptr("/spec/dnsPolicy".to_string())?,
                 value: serde_json::to_value("None".to_string())?,
             }));
 
@@ -656,7 +671,7 @@ impl Patched for SDPPod {
                 }
                 sc.sysctls = Some(extra_sysctls);
                 patches.push(Add(AddOperation {
-                    path: "/spec/securityContext".to_string(),
+                    path: json_ptr("/spec/securityContext".to_string())?,
                     value: serde_json::to_value(sc)?,
                 }));
             }
@@ -825,7 +840,7 @@ async fn patch_deployment(
     // Patch Deployment metadata
     if deployment.annotations().is_none() || deployment.annotations().unwrap().is_empty() {
         patches.push(Add(AddOperation {
-            path: "/metadata/annotations".to_string(),
+            path: json_ptr("/metadata/annotations".to_string())?,
             value: serde_json::to_value(HashMap::<String, String>::new())
                 .map_err(|e| SDPServiceError::from(e))
                 .map_err(SDPPatchError::from_admission_response(Box::clone(
@@ -857,10 +872,10 @@ async fn patch_deployment(
         .to_string();
 
     patches.push(Add(AddOperation {
-        path: format!(
+        path: json_ptr(format!(
             "/metadata/annotations/{}",
             patch_annotation!(SDP_INJECTOR_ANNOTATION_STRATEGY)
-        ),
+        ))?,
         value: serde_json::to_value(injection_strategy.to_string())
             .map_err(|e| SDPServiceError::from(e))
             .map_err(SDPPatchError::from_admission_response(Box::clone(
@@ -868,10 +883,10 @@ async fn patch_deployment(
             )))?,
     }));
     patches.push(Add(AddOperation {
-        path: format!(
+        path: json_ptr(format!(
             "/metadata/annotations/{}",
             patch_annotation!(SDP_INJECTOR_ANNOTATION_ENABLED)
-        ),
+        ))?,
         value: serde_json::to_value(&injection_enabled)
             .map_err(|e| SDPServiceError::from(e))
             .map_err(SDPPatchError::from_admission_response(Box::clone(
@@ -892,7 +907,7 @@ async fn patch_deployment(
         .is_none()
     {
         patches.push(Add(AddOperation {
-            path: "/spec/template/metadata/annotations".to_string(),
+            path: json_ptr("/spec/template/metadata/annotations".to_string())?,
             value: serde_json::to_value(HashMap::<String, String>::new())
                 .map_err(|e| SDPServiceError::from(e))
                 .map_err(SDPPatchError::from_admission_response(Box::clone(
@@ -901,10 +916,10 @@ async fn patch_deployment(
         }));
     }
     patches.push(Add(AddOperation {
-        path: format!(
+        path: json_ptr(format!(
             "/spec/template/metadata/annotations/{}",
             patch_annotation!(SDP_INJECTOR_ANNOTATION_STRATEGY)
-        ),
+        ))?,
         value: serde_json::to_value(injection_strategy.to_string())
             .map_err(|e| SDPServiceError::from(e))
             .map_err(SDPPatchError::from_admission_response(Box::clone(
@@ -912,10 +927,10 @@ async fn patch_deployment(
             )))?,
     }));
     patches.push(Add(AddOperation {
-        path: format!(
+        path: json_ptr(format!(
             "/spec/template/metadata/annotations/{}",
             patch_annotation!(SDP_INJECTOR_ANNOTATION_ENABLED)
-        ),
+        ))?,
         value: serde_json::to_value(injection_enabled)
             .map_err(|e| SDPServiceError::from(e))
             .map_err(SDPPatchError::from_admission_response(Box::clone(
@@ -923,10 +938,10 @@ async fn patch_deployment(
             )))?,
     }));
     patches.push(Add(AddOperation {
-        path: format!(
+        path: json_ptr(format!(
             "/spec/template/metadata/annotations/{}",
             patch_annotation!(SDP_INJECTOR_ANNOTATION_DISABLE_INIT_CONTAINERS)
-        ),
+        ))?,
         value: serde_json::to_value(disable_init_containers)
             .map_err(|e| SDPServiceError::from(e))
             .map_err(SDPPatchError::from_admission_response(Box::clone(
@@ -941,10 +956,10 @@ async fn patch_deployment(
         });
     if let Some(client_version) = client_version {
         patches.push(Add(AddOperation {
-            path: format!(
+            path: json_ptr(format!(
                 "/spec/template/metadata/annotations/{}",
                 patch_annotation!(SDP_INJECTOR_ANNOTATION_CLIENT_VERSION)
-            ),
+            ))?,
             value: serde_json::to_value(client_version)
                 .map_err(|e| SDPServiceError::from(e))
                 .map_err(SDPPatchError::from_admission_response(Box::clone(
@@ -1884,9 +1899,7 @@ Pod is missing required volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-
                         env_var_src.config_map_key_ref.as_ref(),
                     ) {
                         (Some(secrets), None) => {
-                            if secrets.name.as_ref().is_none()
-                                || !secrets.name.as_ref().unwrap().eq(test_patch.client_secrets)
-                            {
+                            if !secrets.name.eq(test_patch.client_secrets) {
                                 let error = format!(
                                     "EnvVar {} got secret {:?}, expected {}",
                                     env_var.name, secrets.name, test_patch.client_secrets
@@ -1895,13 +1908,7 @@ Pod is missing required volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-
                             }
                         }
                         (None, Some(configmap)) => {
-                            if configmap.name.as_ref().is_none()
-                                || !configmap
-                                    .name
-                                    .as_ref()
-                                    .unwrap()
-                                    .eq(test_patch.client_config_map)
-                            {
+                            if !configmap.name.eq(test_patch.client_config_map) {
                                 let error = format!(
                                     "EnvVar {} got configMap {:?}, expected {}",
                                     env_var.name, configmap.name, test_patch.client_config_map
@@ -1992,9 +1999,7 @@ Pod is missing required volumes: pod-info, run-sdp-dnsmasq, run-sdp-driver, tun-
                 .map(|image_pull_secrets| {
                     image_pull_secrets
                         .iter()
-                        .map(|r| r.name.as_ref())
-                        .filter(|r| r.is_some())
-                        .map(|s| s.unwrap().clone())
+                        .map(|r| r.name.clone())
                         .collect()
                 });
             match (expected, got) {
@@ -2470,27 +2475,26 @@ pub fn load_ssl() -> Result<ServerConfig, SDPServiceError> {
         File::open(key_file).map_err(|e| format!("Unable to open key file: {}", e))?,
     );
 
-    let raw_certs =
-        certs(&mut cert_reader).map_err(|e| format!("Unable to load certificates: {}", e))?;
-    let certs: Vec<Certificate> = raw_certs.into_iter().map(Certificate).collect();
-    let raw_keys =
-        rsa_private_keys(&mut key_reader).map_err(|e| format!("Unable to load keys: {}", e))?;
-    let keys: Vec<PrivateKey> = raw_keys.into_iter().map(PrivateKey).collect();
+    let certs = certs(&mut cert_reader)
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| format!("Unable to load certificates: {}", e))?;
+    let key = private_key(&mut key_reader)
+        .map_err(|e| format!("Unable to load keys: {}", e))?
+        .ok_or("No private key found in key file")?;
 
     Ok(ServerConfig::builder()
-        .with_safe_defaults()
         .with_no_client_auth()
-        .with_single_cert(certs, keys[0].clone())
+        .with_single_cert(certs, key)
         .map_err(|e| format!("Unable to create ServerConfig with TLS certificate: {}", e))?)
 }
 
 pub async fn injector_handler<E: DeviceIdRequester>(
-    req: Request<Body>,
+    req: Request<Incoming>,
     sdp_context: Arc<SDPInjectorContext<E>>,
 ) -> Result<Response<Body>, hyper::Error> {
     match (req.method(), req.uri().path()) {
         (&Method::POST, "/mutate") => {
-            let bs = hyper::body::to_bytes(req).await?;
+            let bs = req.into_body().collect().await?.to_bytes();
             match mutate(bs, sdp_context).await {
                 // Object properly patched and allowed
                 Ok(SDPPatchResponse::Allow(mut response)) => {
@@ -2534,7 +2538,7 @@ pub async fn injector_handler<E: DeviceIdRequester>(
             }
         }
         (&Method::POST, "/validate") => {
-            let bs = hyper::body::to_bytes(req).await?;
+            let bs = req.into_body().collect().await?.to_bytes();
             match validate(bs, Arc::clone(&sdp_context.sdp_sidecars)).await {
                 Ok(body) => Ok(Response::new(body)),
                 Err(e) => Ok(Response::builder()
@@ -2547,7 +2551,7 @@ pub async fn injector_handler<E: DeviceIdRequester>(
             Ok(Some(body)) => Ok(Response::new(body)),
             Ok(None) => Ok(Response::builder()
                 .status(StatusCode::NOT_FOUND)
-                .body(Body::empty())
+                .body(Body::default())
                 .unwrap()),
             Err(e) => Ok(Response::builder()
                 .status(StatusCode::UNPROCESSABLE_ENTITY)
@@ -2556,7 +2560,7 @@ pub async fn injector_handler<E: DeviceIdRequester>(
         },
         _ => Ok(Response::builder()
             .status(StatusCode::NOT_FOUND)
-            .body(Body::empty())
+            .body(Body::default())
             .unwrap()),
     }
 }
