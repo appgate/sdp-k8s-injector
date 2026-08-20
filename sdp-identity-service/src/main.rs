@@ -91,6 +91,13 @@ struct IdentityService {
 
 #[tokio::main]
 async fn main() -> () {
+    // Both `ring` and `aws-lc-rs` end up compiled in (the latter via kube's
+    // rustls-tls stack), so rustls cannot auto-select a provider. Pin `ring`
+    // explicitly before any TLS is initialized.
+    rustls::crypto::ring::default_provider()
+        .install_default()
+        .expect("Failed to install ring CryptoProvider");
+
     log4rs::init_file(get_log_config_path(), Default::default()).unwrap();
 
     // Exit on panics from other threads
