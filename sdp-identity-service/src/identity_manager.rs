@@ -800,9 +800,14 @@ impl<'a> IdentityManagerService<ServiceCandidate, ServiceIdentity> for IdentityM
 
         // 1. Delete ServiceIdentity instances with unknown ServiceCandidate
         info!("Searching for ServiceIdentities with unknown ServiceCandidate");
-        let extra = self
+        // Collect owned clones so the immutable borrow of `self` ends before we
+        // call the &mut self handler below (also avoids the self-channel deadlock).
+        let extra: Vec<ServiceIdentity> = self
             .service_credentials_provider
-            .extra_service_identities(&self.existing_service_candidates);
+            .extra_service_identities(&self.existing_service_candidates)
+            .into_iter()
+            .cloned()
+            .collect();
         info!(
             "Found {} ServiceIdentities with unknown ServiceCandidate",
             extra.len()
@@ -813,13 +818,7 @@ impl<'a> IdentityManagerService<ServiceCandidate, ServiceIdentity> for IdentityM
                 "[{}] Found ServiceIdentity {} with unknown ServiceCandidate. Deleting it.",
                 service_id, service_id
             );
-            if let Err(e) = self
-                .identity_manager_tx
-                .send(IdentityManagerProtocol::DeleteServiceIdentity(
-                    service_identity.clone(),
-                ))
-                .await
-            {
+            if let Err(e) = self.delete_service_identity(service_identity).await {
                 error!(
                     "[{}] Error deleting ServiceIdentity {} with unknown ServiceCandidate: {}",
                     service_id,
@@ -851,9 +850,12 @@ impl<'a> IdentityManagerService<ServiceCandidate, ServiceIdentity> for IdentityM
 
         // 3. Delete ServiceIdentity instances holding deactivated credentials
         info!("Searching for orphaned ServiceIdentities");
-        let orphan_identities = self
+        let orphan_identities: Vec<ServiceIdentity> = self
             .service_credentials_provider
-            .orphan_service_identities(&self.existing_deactivated_credentials);
+            .orphan_service_identities(&self.existing_deactivated_credentials)
+            .into_iter()
+            .cloned()
+            .collect();
         info!(
             "Found {} ServiceIdentities with deactivated ServiceUsers",
             orphan_identities.len()
@@ -865,13 +867,7 @@ impl<'a> IdentityManagerService<ServiceCandidate, ServiceIdentity> for IdentityM
                     "[{}] ServiceIdentity {} has deactivated ServiceUser. Deleting it.",
                     service_id, service_id
                 );
-                if let Err(e) = self
-                    .identity_manager_tx
-                    .send(IdentityManagerProtocol::DeleteServiceIdentity(
-                        service_identity.clone(),
-                    ))
-                    .await
-                {
+                if let Err(e) = self.delete_service_identity(service_identity).await {
                     error!(
                         "[{}] Error requesting deleting of ServiceIdentity {}: {}",
                         service_id,
@@ -903,22 +899,27 @@ impl<'a> IdentityManagerService<ServiceCandidate, ServiceIdentity> for IdentityM
             .await
             .expect("Error reconciliating SDP users");
 
-        // Request ServiceIdentity for candidates that dont have it
+        // Request ServiceIdentity for candidates that dont have it.
+        // Drain into an owned Vec and call the handler directly instead of
+        // sending back into our own bounded channel: this loop runs *inside*
+        // the single message-consumer, so self-sending more than the channel
+        // capacity blocks forever once the number of missing candidates exceeds it.
+        let missing: Vec<ServiceCandidate> =
+            self.missing_service_candidates.values().cloned().collect();
         info!(
             "Requesting ServiceIdentity for {} missing ServiceCandidates",
-            self.missing_service_candidates.len()
+            missing.len()
         );
-        for (service_candidate_id, service_candidate) in &self.missing_service_candidates {
-            info!(
-                "[{}] Requesting missing ServiceCandidate {}",
-                service_candidate_id, service_candidate_id
-            );
-            self.identity_manager_tx
-                .send(IdentityManagerProtocol::RequestServiceIdentity(
-                    service_candidate.clone(),
-                ))
-                .await
-                .expect("Error requesting new ServiceIdentity");
+        for service_candidate in missing {
+            if let Ok(service_candidate_id) = service_candidate.service_id() {
+                info!(
+                    "[{}] Requesting missing ServiceCandidate {}",
+                    service_candidate_id, service_candidate_id
+                );
+            }
+            if let Err(err) = self.request_service_identity(service_candidate).await {
+                error!("Error requesting missing ServiceIdentity: {}", err);
+            }
         }
 
         // Notify the ServiceCandidate watchers that we are ready to process process for new service candidates..
