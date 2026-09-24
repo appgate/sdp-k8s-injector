@@ -163,7 +163,7 @@ pub struct ClientProfile {
     pub id: String,
     pub name: String,
     pub spa_key_name: String,
-    // ponytail: API omits identityProviderName on some profiles; default to "" so GET
+    // API omits identityProviderName on some profiles; default to "" so GET
     // deserialization does not panic. Construction sites still set it for POST.
     #[serde(default)]
     pub identity_provider_name: String,
