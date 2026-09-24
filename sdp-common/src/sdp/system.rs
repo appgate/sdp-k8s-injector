@@ -163,6 +163,9 @@ pub struct ClientProfile {
     pub id: String,
     pub name: String,
     pub spa_key_name: String,
+    // ponytail: API omits identityProviderName on some profiles; default to "" so GET
+    // deserialization does not panic. Construction sites still set it for POST.
+    #[serde(default)]
     pub identity_provider_name: String,
     pub tags: Vec<String>,
 }
@@ -533,7 +536,15 @@ mod tests {
 
     use crate::sdp::system::filter_on_boarder_user;
 
-    use super::OnBoardedUser;
+    use super::{ClientProfile, OnBoardedUser};
+
+    #[test]
+    fn test_client_profile_missing_identity_provider_name() {
+        // API omits identityProviderName on some profiles; must not fail to deserialize.
+        let json = r#"{"id":"i","name":"n","spaKeyName":"k","tags":[]}"#;
+        let p: ClientProfile = serde_json::from_str(json).unwrap();
+        assert_eq!(p.identity_provider_name, "");
+    }
 
     #[test]
     fn test_filter_on_boarder_user_using_names0() {
