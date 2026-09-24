@@ -33,5 +33,5 @@ json-patch = "4.2.0"
 uuid = { version = "1.6.1", features = ["v4", "fast-rng"] }
 futures = "0.3.30"
 log4rs = "1.2.0"
-notify = { version = "6.1.1", default-features = false, features=["macos_kqueue"] }
+notify = { version = "8.2.0", default-features = false, features=["macos_kqueue"] }
 async-trait = "0.1.80"
