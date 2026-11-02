@@ -5,15 +5,12 @@ metadata:
 spec:
   group: injector.sdp.com
   names:
-    categories: []
     kind: SDPService
     plural: sdpservices
-    shortNames: []
     singular: sdpservice
   scope: Namespaced
   versions:
-    - additionalPrinterColumns: []
-      name: v1
+    - name: v1
       schema:
         openAPIV3Schema:
           description: Auto-generated derived type for SDPServiceSpec via `CustomResource`
