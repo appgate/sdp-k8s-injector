@@ -5,15 +5,12 @@ metadata:
 spec:
   group: injector.sdp.com
   names:
-    categories: []
     kind: ServiceIdentity
     plural: serviceidentities
-    shortNames: []
     singular: serviceidentity
   scope: Namespaced
   versions:
-  - additionalPrinterColumns: []
-    name: v1
+  - name: v1
     schema:
       openAPIV3Schema:
         description: Auto-generated derived type for ServiceIdentitySpec via `CustomResource`
